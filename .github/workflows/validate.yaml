@@ -1,0 +1,25 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  governance-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check governance bootstrap files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f README.md
+          test -f AGENTS.md
+          test -f .github/CODEOWNERS
+          test -f .github/pull_request_template.md
+          grep -q "workspace-governance" README.md
+          grep -q "platform-engineering" README.md
+          grep -q "security-architecture" README.md
+          grep -q "runtime implementation repo" AGENTS.md
