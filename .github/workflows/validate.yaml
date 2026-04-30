@@ -23,3 +23,13 @@ jobs:
           grep -q "platform-engineering" README.md
           grep -q "security-architecture" README.md
           grep -q "runtime implementation repo" AGENTS.md
+      - name: Validate Python project scaffold
+        shell: bash
+        run: python3 scripts/validate_project.py --repo-root .
+      - name: Run Python tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PYTHONPATH="packages/control_fabric_core/src:apps/cli/src"
+          python3 -m unittest discover -s tests
+          python3 -m wgcf_cli status --repo-root .
