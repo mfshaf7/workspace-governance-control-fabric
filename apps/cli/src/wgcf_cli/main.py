@@ -13,10 +13,12 @@ from control_fabric_core import (
     DEFAULT_LEDGER_PATH,
     DEFAULT_RECEIPT_DIR,
     RUNTIME_REPO,
+    build_source_snapshot,
     build_operator_validation_plan,
     list_control_receipts,
     query_manifest_file,
     run_operator_validation_check,
+    source_snapshot_status,
     status_snapshot,
 )
 
@@ -67,6 +69,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="Graph query scope such as repo:<id>, component:<id>, or art:<id>.",
     )
     query_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    sources_parser = subparsers.add_parser("sources", help="Inspect compact source snapshot status.")
+    sources_subparsers = sources_parser.add_subparsers(dest="sources_command", required=True)
+    snapshot_parser = sources_subparsers.add_parser("snapshot", help="Build source snapshot status.")
+    snapshot_parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root used to infer the workspace root when --workspace-root is omitted.",
+    )
+    snapshot_parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help="Workspace root to snapshot. Defaults to the parent of --repo-root.",
+    )
+    snapshot_parser.add_argument(
+        "--actor",
+        default="wgcf-local",
+        help="Operator or automation actor recorded on the snapshot.",
+    )
+    snapshot_parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -197,6 +223,48 @@ def render_graph_query_human(record: dict[str, object]) -> str:
     )
 
 
+def render_source_snapshot_human(record: dict[str, object]) -> str:
+    snapshot = record["source_snapshot"]
+    assert isinstance(snapshot, dict)
+    summary = snapshot["summary"]
+    assert isinstance(summary, dict)
+    source_kind_counts = snapshot["source_kind_counts"]
+    freshness_counts = snapshot["freshness_status_counts"]
+    repos = snapshot["repos"]
+    excluded_refs = snapshot["excluded_refs"]
+    assert isinstance(source_kind_counts, dict)
+    assert isinstance(freshness_counts, dict)
+    assert isinstance(repos, list)
+    assert isinstance(excluded_refs, list)
+
+    source_kind_lines = [
+        f"- {source_kind}: {count}"
+        for source_kind, count in source_kind_counts.items()
+    ]
+    repo_lines = [f"- {repo}" for repo in repos]
+    excluded_lines = [
+        f"- {source_ref['source_kind']} {source_ref['repo']}:{source_ref['path']} ({source_ref['reason']})"
+        for source_ref in excluded_refs[:10]
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Source Snapshot",
+            f"snapshot: {snapshot['snapshot_id']}",
+            f"workspace: {snapshot['workspace_root']}",
+            f"authority refs: {summary['authority_ref_count']}",
+            f"excluded refs: {summary['excluded_ref_count']}",
+            f"source roots: {summary['source_root_count']}",
+            f"freshness: {freshness_counts}",
+            "source kinds:",
+            *(source_kind_lines or ["- none"]),
+            "repos:",
+            *(repo_lines or ["- none"]),
+            "excluded refs:",
+            *(excluded_lines or ["- none"]),
+        ],
+    )
+
+
 def render_validation_plan_human(record: dict[str, object]) -> str:
     plan = record["plan"]
     assert isinstance(plan, dict)
@@ -298,6 +366,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_graph_query_human(record))
         return 0
 
+    if args.command == "sources" and args.sources_command == "snapshot":
+        repo_root = Path(args.repo_root).resolve()
+        workspace_root = _resolve_workspace_root(repo_root, args.workspace_root)
+        snapshot = build_source_snapshot(workspace_root, actor=args.actor)
+        record = {
+            "source_snapshot": source_snapshot_status(snapshot),
+        }
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_source_snapshot_human(record))
+        return 0
+
     if args.command == "plan":
         manifest_path = _resolve_manifest_path(args.repo_root, args.manifest)
         plan = build_operator_validation_plan(manifest_path, args.scope, tier=args.tier)
@@ -371,6 +452,19 @@ def _resolve_repo_local_path(repo_root: Path, value: str, label: str) -> Path:
     resolved = candidate.resolve()
     if not resolved.is_relative_to(repo_root):
         raise ValueError(f"{label} path must stay inside the repository root")
+    return resolved
+
+
+def _resolve_workspace_root(repo_root: Path, workspace_root: str | None) -> Path:
+    if workspace_root is None:
+        return repo_root.parent
+    candidate = Path(workspace_root)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    resolved = candidate.resolve()
+    allowed_root = repo_root.parent.resolve()
+    if not resolved.is_relative_to(allowed_root):
+        raise ValueError("workspace root must stay inside the repository parent workspace")
     return resolved
 
 

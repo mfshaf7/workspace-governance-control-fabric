@@ -193,6 +193,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if check_parsed.command != "check":
         errors.append("wgcf parser did not accept check command")
+    sources_parsed = parser.parse_args(["sources", "snapshot", "--repo-root", str(repo_root)])
+    if sources_parsed.command != "sources" or sources_parsed.sources_command != "snapshot":
+        errors.append("wgcf parser did not accept sources snapshot command")
     receipts_parsed = parser.parse_args(["receipts", "list", "--repo-root", str(repo_root)])
     if receipts_parsed.command != "receipts" or receipts_parsed.receipts_command != "list":
         errors.append("wgcf parser did not accept receipts list command")

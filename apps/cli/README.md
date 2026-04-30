@@ -8,6 +8,8 @@ Current slice:
 - support `wgcf status`
 - support `wgcf graph query --scope <scope>` for read-only manifest graph
   slices
+- support `wgcf sources snapshot` for compact source snapshot status without
+  raw authority content or full digest maps
 - support `wgcf plan --scope <scope> --tier <tier>` for deterministic
   validation-plan records
 - support `wgcf check --scope <scope> --tier <tier>` for bounded local
@@ -16,5 +18,5 @@ Current slice:
 - support `wgcf receipts list` for compact local receipt metadata
 - keep all policy meaning pointed at the workspace-governance authority contract
 
-Future slices add source snapshots, readiness decisions, ledger tail/read
-surfaces, and decision explanations.
+Future slices add readiness decisions, ledger tail/read surfaces, and decision
+explanations.

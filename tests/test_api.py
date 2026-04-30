@@ -122,6 +122,23 @@ class ApiTests(TestCase):
         self.assertEqual(status, 400)
         self.assertIn("repository root", payload["detail"])
 
+    def test_source_snapshot_status_returns_compact_snapshot(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/source-snapshots/status"))
+
+        self.assertEqual(status, 200)
+        snapshot = payload["source_snapshot"]
+        self.assertTrue(snapshot["snapshot_id"].startswith("source-snapshot:"))
+        self.assertGreater(snapshot["summary"]["authority_ref_count"], 0)
+        self.assertIn("workspace-governance-control-fabric", snapshot["repos"])
+        self.assertNotIn("digests", snapshot)
+        self.assertNotIn("root_path", json.dumps(snapshot, sort_keys=True))
+
+    def test_source_snapshot_status_rejects_workspace_escape(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/source-snapshots/status?workspace_root=/tmp"))
+
+        self.assertEqual(status, 400)
+        self.assertIn("workspace", payload["detail"])
+
     def test_validation_plan_endpoint_returns_compact_plan(self) -> None:
         status, payload = asyncio.run(
             asgi_post_json(

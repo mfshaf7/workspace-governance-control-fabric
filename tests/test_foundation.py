@@ -126,6 +126,31 @@ class FoundationTests(TestCase):
         self.assertIn("Workspace Governance Control Fabric Graph Query", buffer.getvalue())
         self.assertIn("component:control-fabric-core", buffer.getvalue())
 
+    def test_cli_sources_snapshot_returns_compact_json(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(["sources", "snapshot", "--repo-root", str(REPO_ROOT), "--json"])
+
+        self.assertEqual(result, 0)
+        payload = json.loads(buffer.getvalue())
+        snapshot = payload["source_snapshot"]
+        self.assertTrue(snapshot["snapshot_id"].startswith("source-snapshot:"))
+        self.assertGreater(snapshot["summary"]["authority_ref_count"], 0)
+        self.assertIn("workspace-governance-control-fabric", snapshot["repos"])
+        self.assertNotIn("digests", snapshot)
+        self.assertNotIn("root_path", json.dumps(snapshot, sort_keys=True))
+
+    def test_cli_sources_snapshot_human_output_is_compact(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(["sources", "snapshot", "--repo-root", str(REPO_ROOT)])
+
+        self.assertEqual(result, 0)
+        rendered = buffer.getvalue()
+        self.assertIn("Workspace Governance Control Fabric Source Snapshot", rendered)
+        self.assertIn("authority refs:", rendered)
+        self.assertNotIn("Traceback", rendered)
+
     def test_cli_plan_returns_compact_validation_plan_json(self) -> None:
         buffer = StringIO()
         with redirect_stdout(buffer):

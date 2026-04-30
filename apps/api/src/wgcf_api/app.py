@@ -15,9 +15,11 @@ from control_fabric_core import (
     RUNTIME_REPO,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
+    build_source_snapshot,
     graph_summary,
     list_control_receipts,
     query_manifest_file,
+    source_snapshot_status,
     status_snapshot,
 )
 
@@ -92,6 +94,23 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "query": result.to_record(),
         }
 
+    @app.get("/v1/source-snapshots/status")
+    async def source_snapshots_status(
+        actor: str = Query("wgcf-api", description="Operator or automation actor to record on the snapshot."),
+        workspace_root: str | None = Query(
+            None,
+            description="Workspace root to snapshot. Defaults to the parent of the WGCF repo root.",
+        ),
+    ) -> dict[str, Any]:
+        try:
+            resolved_workspace_root = _resolve_workspace_root(resolved_repo_root, workspace_root)
+            snapshot = build_source_snapshot(resolved_workspace_root, actor=actor)
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "source_snapshot": source_snapshot_status(snapshot),
+        }
+
     @app.post("/v1/validation-plans")
     async def validation_plans(request: dict[str, Any]) -> dict[str, Any]:
         scope = str(request.get("scope") or "").strip()
@@ -144,6 +163,19 @@ def _resolve_local_path(repo_root: Path, value: str, label: str) -> Path:
     resolved = candidate.resolve()
     if not resolved.is_relative_to(repo_root):
         raise ValueError(f"{label} must stay inside the repository root")
+    return resolved
+
+
+def _resolve_workspace_root(repo_root: Path, workspace_root: str | None) -> Path:
+    if workspace_root is None:
+        return repo_root.parent
+    candidate = Path(workspace_root)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    resolved = candidate.resolve()
+    allowed_root = repo_root.parent.resolve()
+    if not resolved.is_relative_to(allowed_root):
+        raise ValueError("workspace_root must stay inside the repository parent workspace")
     return resolved
 
 

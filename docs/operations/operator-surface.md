@@ -51,11 +51,13 @@ Use this flow for the currently implemented local CLI surface:
 
 1. Check fabric status.
 2. Inspect the manifest graph for the repo, component, or ART scope.
-3. Plan validation for a workspace, repo, component, ART, or changed-file
+3. Inspect compact source snapshot status for authority refs, source kinds,
+   missing sources, and local source roots.
+4. Plan validation for a workspace, repo, component, ART, or changed-file
    scope.
-4. Run the bounded local check and emit a receipt.
-5. List receipt metadata instead of rereading raw output.
-6. Use artifact and ledger references for handoff or audit.
+5. Run the bounded local check and emit a receipt.
+6. List receipt metadata instead of rereading raw output.
+7. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -67,6 +69,7 @@ wgcf status
 wgcf graph query --scope repo:<name> --manifest <path>
 wgcf graph query --scope component:<name> --manifest <path>
 wgcf graph query --scope art:<delivery-id> --manifest <path>
+wgcf sources snapshot --workspace-root <path>
 wgcf plan --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf receipts list
@@ -75,7 +78,6 @@ wgcf receipts list
 Future CLI shape:
 
 ```bash
-wgcf sources snapshot --workspace-root <path>
 wgcf run --plan <plan-id-or-file> --emit-receipt
 wgcf inspect --receipt <receipt-id-or-path>
 wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
@@ -149,6 +151,7 @@ Required route meanings:
 - `GET /v1/status`
 - `GET /v1/graph`
 - `GET /v1/graph/query?scope=<scope>`
+- `GET /v1/source-snapshots/status`
 - `POST /v1/validation-plans`
 - `GET /v1/receipts`
 

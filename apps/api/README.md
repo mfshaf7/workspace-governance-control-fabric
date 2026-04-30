@@ -11,6 +11,8 @@ Current slice:
 - implement `GET /v1/graph` for a read-only manifest graph projection
 - implement `GET /v1/graph/query?scope=<scope>` for compact repo, component,
   validator, projection, authority, or ART-oriented graph slices
+- implement `GET /v1/source-snapshots/status` for compact source snapshot
+  status without raw authority content or full digest maps
 - implement `POST /v1/validation-plans` for compact validation-plan records
 - implement `GET /v1/receipts` for compact local receipt metadata
 

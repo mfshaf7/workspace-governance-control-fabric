@@ -79,6 +79,7 @@ from .source_snapshots import (
     SourceRootSnapshot,
     SourceSnapshot,
     build_source_snapshot,
+    source_snapshot_status,
 )
 from .validation_planning import (
     PlannerDecision,
@@ -182,6 +183,7 @@ __all__ = [
     "record_waiver_decision",
     "run_operator_validation_check",
     "status_snapshot",
+    "source_snapshot_status",
     "execute_validation_plan",
     "validate_governance_manifest",
     "worker_status_snapshot",

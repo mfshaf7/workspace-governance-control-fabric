@@ -205,6 +205,35 @@ def build_source_snapshot(
     )
 
 
+def source_snapshot_status(snapshot: SourceSnapshot) -> dict[str, Any]:
+    """Return compact operator-safe status for a source snapshot."""
+
+    repos = sorted({source_ref.repo for source_ref in snapshot.authority_refs})
+    source_kind_counts: dict[str, int] = {}
+    freshness_counts: dict[str, int] = {}
+    for source_ref in snapshot.authority_refs:
+        source_kind_counts[source_ref.source_kind] = source_kind_counts.get(source_ref.source_kind, 0) + 1
+        freshness_counts[source_ref.freshness_status] = freshness_counts.get(source_ref.freshness_status, 0) + 1
+    return {
+        "actor": snapshot.actor,
+        "excluded_refs": [source_ref.to_record() for source_ref in snapshot.excluded_refs],
+        "freshness_status_counts": dict(sorted(freshness_counts.items())),
+        "repos": repos,
+        "snapshot_id": snapshot.snapshot_id,
+        "source_kind_counts": dict(sorted(source_kind_counts.items())),
+        "source_roots": [
+            {
+                "exists": source_root.exists,
+                "ref": source_root.ref,
+                "repo": source_root.repo,
+            }
+            for source_root in snapshot.source_roots
+        ],
+        "summary": snapshot.to_record()["summary"],
+        "workspace_root": snapshot.workspace_root,
+    }
+
+
 def _load_owner_map(workspace_root: Path) -> dict[str, Any]:
     owner_map_path = workspace_root / OWNER_MAP_RELATIVE_PATH
     if not owner_map_path.is_file():
