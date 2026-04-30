@@ -28,7 +28,7 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
     )
 
     @app.get("/healthz")
-    def healthz() -> dict[str, str]:
+    async def healthz() -> dict[str, str]:
         return {
             "status": "ok",
             "service": RUNTIME_REPO,
@@ -36,7 +36,7 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/readyz")
-    def readyz() -> dict[str, Any]:
+    async def readyz() -> dict[str, Any]:
         snapshot = status_snapshot(repo_root)
         return {
             "ready": snapshot["ready"],
@@ -48,7 +48,7 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
         }
 
     @app.get("/v1/status")
-    def status() -> dict[str, Any]:
+    async def status() -> dict[str, Any]:
         return status_snapshot(repo_root)
 
     return app

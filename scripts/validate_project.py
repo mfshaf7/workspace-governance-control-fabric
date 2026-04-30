@@ -50,6 +50,11 @@ def validate_pyproject(repo_root: Path) -> list[str]:
     dependencies = set(project.get("dependencies", []))
     if not any(dependency.startswith("fastapi") for dependency in dependencies):
         errors.append("pyproject dependencies must include fastapi for the API app")
+    if not any(dependency.startswith("starlette") and "<0.47" in dependency for dependency in dependencies):
+        errors.append("pyproject dependencies must pin starlette below 0.47 for TestClient compatibility")
+    test_dependencies = set(pyproject.get("project", {}).get("optional-dependencies", {}).get("test", []))
+    if not any(dependency.startswith("anyio") and "<4.10" in dependency for dependency in test_dependencies):
+        errors.append("pyproject test dependencies must pin anyio below 4.10 for TestClient compatibility")
     return errors
 
 

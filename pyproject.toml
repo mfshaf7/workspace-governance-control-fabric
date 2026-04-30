@@ -13,13 +13,15 @@ authors = [
   { name = "Workspace Governance" }
 ]
 dependencies = [
-  "fastapi>=0.115,<1",
-  "uvicorn[standard]>=0.30,<1"
+  "fastapi>=0.115,<0.116",
+  "starlette>=0.46,<0.47",
+  "uvicorn[standard]>=0.30,<0.35"
 ]
 
 [project.optional-dependencies]
 test = [
-  "httpx>=0.27,<1"
+  "anyio>=4.0,<4.10",
+  "httpx>=0.27,<0.29"
 ]
 
 [project.scripts]
