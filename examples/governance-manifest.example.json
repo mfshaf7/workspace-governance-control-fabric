@@ -60,7 +60,7 @@
     {
       "validator_id": "control-fabric-status-smoke",
       "owner_repo": "workspace-governance-control-fabric",
-      "command": "PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m wgcf_cli status --repo-root .",
+      "command": "PYTHONPATH=packages/control_fabric_core/src:apps/cli/src .venv/bin/python -m wgcf_cli status --repo-root .",
       "scopes": [
         "repo:workspace-governance-control-fabric"
       ],
@@ -79,7 +79,7 @@
     {
       "validator_id": "control-fabric-project-scaffold",
       "owner_repo": "workspace-governance-control-fabric",
-      "command": "python3 scripts/validate_project.py --repo-root .",
+      "command": ".venv/bin/python scripts/validate_project.py --repo-root .",
       "scopes": [
         "art:delivery-420",
         "component:control-fabric-core",

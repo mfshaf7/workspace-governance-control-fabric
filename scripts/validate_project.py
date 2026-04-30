@@ -30,6 +30,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
+    "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
     "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
     "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
@@ -117,17 +118,20 @@ def validate_imports(repo_root: Path) -> list[str]:
     from control_fabric_core import (
         build_governance_record_ledger_event,
         build_manifest_graph,
+        build_operator_validation_plan,
         build_policy_ledger_event,
         build_validation_plan,
         evaluate_admission_policy,
         execute_validation_plan,
         governance_manifest_schema,
+        list_control_receipts,
         project_receipt_to_art_completion_evidence,
         project_receipt_to_change_record_references,
         project_receipt_to_review_packet_evidence,
         query_manifest_graph,
         record_blocker_decision,
         record_change_event,
+        run_operator_validation_check,
         status_snapshot,
         validate_governance_manifest,
         worker_status_snapshot,
@@ -148,6 +152,31 @@ def validate_imports(repo_root: Path) -> list[str]:
     parsed = parser.parse_args(["status", "--repo-root", str(repo_root)])
     if parsed.command != "status":
         errors.append("wgcf parser did not accept status command")
+    plan_parsed = parser.parse_args(
+        [
+            "plan",
+            "--repo-root",
+            str(repo_root),
+            "--scope",
+            "repo:workspace-governance-control-fabric",
+        ],
+    )
+    if plan_parsed.command != "plan":
+        errors.append("wgcf parser did not accept plan command")
+    check_parsed = parser.parse_args(
+        [
+            "check",
+            "--repo-root",
+            str(repo_root),
+            "--scope",
+            "repo:workspace-governance-control-fabric",
+        ],
+    )
+    if check_parsed.command != "check":
+        errors.append("wgcf parser did not accept check command")
+    receipts_parsed = parser.parse_args(["receipts", "list", "--repo-root", str(repo_root)])
+    if receipts_parsed.command != "receipts" or receipts_parsed.receipts_command != "list":
+        errors.append("wgcf parser did not accept receipts list command")
     worker_parser = build_worker_parser()
     worker_parsed = worker_parser.parse_args(["status", "--repo-root", str(repo_root)])
     if worker_parsed.command != "status":
@@ -202,6 +231,13 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("example governance manifest validation plan was not planned")
     if not validation_plan.checks:
         errors.append("example governance manifest validation plan returned no checks")
+    operator_plan = build_operator_validation_plan(
+        example_path,
+        "repo:workspace-governance-control-fabric",
+        tier="smoke",
+    )
+    if operator_plan.decision.outcome != "planned":
+        errors.append("operator validation plan was not planned")
     synthetic_manifest = json.loads(json.dumps(example_manifest))
     synthetic_manifest["manifest_id"] = "wgcf-validation-project-self-check"
     synthetic_manifest["validators"] = [
@@ -229,6 +265,28 @@ def validate_imports(repo_root: Path) -> list[str]:
             now="2026-04-30T00:00:00Z",
             timeout_seconds=120,
         )
+    with tempfile.TemporaryDirectory(dir=repo_root) as temp_dir:
+        temp_path = Path(temp_dir)
+        synthetic_manifest_path = temp_path / "manifest.json"
+        synthetic_manifest_path.write_text(
+            json.dumps(synthetic_manifest),
+            encoding="utf-8",
+        )
+        operator_result = run_operator_validation_check(
+            actor="wgcf-project-validator",
+            artifact_root=temp_path / "artifacts",
+            ledger_path=temp_path / "ledger.jsonl",
+            manifest_path=synthetic_manifest_path,
+            receipt_dir=temp_path / "receipts",
+            repo_root=repo_root,
+            target_scope="repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+        receipt_summaries = list_control_receipts(temp_path / "receipts")
+        if operator_result.receipt.outcome != "success":
+            errors.append("operator check did not produce a successful receipt")
+        if len(receipt_summaries) != 1:
+            errors.append("operator receipt listing did not find the written receipt")
     receipt_record = execution_result.receipt.to_record()
     if receipt_record["suppressed_output_summary"]["raw_output_in_receipt"]:
         errors.append("validation receipt must not embed raw validator output")

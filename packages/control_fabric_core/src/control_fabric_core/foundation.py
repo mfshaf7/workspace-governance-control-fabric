@@ -84,6 +84,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/validation_planning.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
         ),

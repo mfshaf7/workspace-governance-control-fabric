@@ -45,16 +45,15 @@ ledger events. It must route authority mutation to the owning system.
 
 ## Operator Flow
 
-Use this flow once the CLI exists:
+Use this flow for the currently implemented local CLI surface:
 
 1. Check fabric status.
-2. Capture a source snapshot from the workspace root.
-3. Plan validation for a workspace, repo, component, or operator surface.
-4. Run the plan and emit a receipt.
-5. Inspect the receipt instead of rereading raw output.
-6. Evaluate readiness under a named profile.
-7. Review the ledger for handoff or audit.
-8. Explain decisions when a result is denied, blocked, or unclear.
+2. Inspect the manifest graph for the repo, component, or ART scope.
+3. Plan validation for a workspace, repo, component, ART, or changed-file
+   scope.
+4. Run the bounded local check and emit a receipt.
+5. List receipt metadata instead of rereading raw output.
+6. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -66,8 +65,15 @@ wgcf status
 wgcf graph query --scope repo:<name> --manifest <path>
 wgcf graph query --scope component:<name> --manifest <path>
 wgcf graph query --scope art:<delivery-id> --manifest <path>
+wgcf plan --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
+wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
+wgcf receipts list
+```
+
+Future CLI shape:
+
+```bash
 wgcf sources snapshot --workspace-root <path>
-wgcf plan --scope workspace|repo|component|operator-surface --target <id> --profile <profile>
 wgcf run --plan <plan-id-or-file> --emit-receipt
 wgcf inspect --receipt <receipt-id-or-path>
 wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
@@ -78,7 +84,7 @@ wgcf explain --decision <decision-id>
 Required CLI behavior:
 
 - default to compact human-readable summaries
-- support `--json` for automation when implemented
+- support `--json` for implemented automation surfaces
 - return receipt, artifact, and ledger references for full evidence
 - deny or block readiness when authority truth is unknown or stale
 - avoid printing raw validation dumps unless explicitly requested
@@ -120,8 +126,12 @@ Required route meanings:
 - `GET /v1/status`
 - `GET /v1/graph`
 - `GET /v1/graph/query?scope=<scope>`
-- `POST /v1/source-snapshots`
 - `POST /v1/validation-plans`
+- `GET /v1/receipts`
+
+Future route meanings:
+
+- `POST /v1/source-snapshots`
 - `POST /v1/validation-runs`
 - `GET /v1/receipts/{receipt_id}`
 - `POST /v1/readiness/evaluate`
@@ -172,9 +182,10 @@ approval and not a replacement for workspace-governance contracts.
 
 Current implementation can build an in-memory graph from a valid manifest,
 query it through `wgcf graph query` or `GET /v1/graph/query`, build a validation
-plan from manifest-declared validators, and execute a plan through the core
-library. The graph and plan records are fabric-local projections only; they are
-not persisted by this slice and do not mutate authority stores.
+plan through `wgcf plan` or `POST /v1/validation-plans`, run bounded local
+checks through `wgcf check`, and list compact receipts through
+`wgcf receipts list` or `GET /v1/receipts`. The graph, plan, receipt, and ledger
+records are fabric-local projections only; they do not mutate authority stores.
 
 Validation planning uses four tiers:
 
@@ -216,8 +227,9 @@ Current execution behavior:
 - appends ledger events as JSONL through the core helper
 - never embeds raw stdout/stderr in receipts or ART notes
 
-CLI `wgcf run`, API `POST /v1/validation-runs`, database persistence, and worker
-queue execution remain later slices.
+CLI `wgcf check` now composes planning plus execution into a local receipt and
+ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, database
+persistence, and worker queue execution remain later slices.
 
 Policy admission uses the schemas and policies at:
 

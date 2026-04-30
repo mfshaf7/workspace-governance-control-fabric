@@ -18,6 +18,9 @@ Current slice:
 - bounded validation execution helpers that run manifest-planned command checks
   without `shell=True`, write stdout/stderr to local artifacts, and emit compact
   receipts and ledger events
+- operator-surface helpers that build validation plans, run bounded local
+  checks, write compact receipts, append ledger events, and list receipt
+  metadata for CLI/API surfaces
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - runtime governance record helpers for blocker decisions, approvals, waivers,
@@ -67,6 +70,12 @@ check types as blocked, suppress execution when the planner decision is not
 
 The execution helpers do not persist to PostgreSQL yet, mutate upstream
 authority, decide readiness, or replace Review Packets for ART work.
+
+Operator-surface helpers compose planning and execution into the local
+operator workflow. They write receipts under a caller-supplied receipt
+directory, append a JSONL ledger event, and return compact metadata for CLI/API
+rendering. Receipt-list views read only receipt JSON metadata and do not open
+raw stdout/stderr artifacts.
 
 Policy admission helpers consume authority refs and receipt refs supplied by
 the runtime caller. They return compact allow, deny, blocked, waived, or

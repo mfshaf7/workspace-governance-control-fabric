@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -124,3 +125,76 @@ class FoundationTests(TestCase):
         self.assertEqual(result, 0)
         self.assertIn("Workspace Governance Control Fabric Graph Query", buffer.getvalue())
         self.assertIn("component:control-fabric-core", buffer.getvalue())
+
+    def test_cli_plan_returns_compact_validation_plan_json(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(
+                [
+                    "plan",
+                    "--repo-root",
+                    str(REPO_ROOT),
+                    "--scope",
+                    "repo:workspace-governance-control-fabric",
+                    "--tier",
+                    "smoke",
+                    "--json",
+                ],
+            )
+
+        self.assertEqual(result, 0)
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(payload["plan"]["decision"]["outcome"], "planned")
+        self.assertEqual(payload["plan"]["checks"][0]["validator_id"], "control-fabric-status-smoke")
+
+    def test_cli_check_writes_receipt_and_receipts_list_reads_it(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            check_buffer = StringIO()
+            with redirect_stdout(check_buffer):
+                check_result = main(
+                    [
+                        "check",
+                        "--repo-root",
+                        str(REPO_ROOT),
+                        "--scope",
+                        "repo:workspace-governance-control-fabric",
+                        "--tier",
+                        "smoke",
+                        "--artifact-root",
+                        str(temp_path / "artifacts"),
+                        "--receipt-dir",
+                        str(temp_path / "receipts"),
+                        "--ledger",
+                        str(temp_path / "ledger.jsonl"),
+                        "--json",
+                    ],
+                )
+
+            self.assertEqual(check_result, 0)
+            check_payload = json.loads(check_buffer.getvalue())
+            self.assertEqual(check_payload["receipt"]["outcome"], "success")
+            self.assertTrue(Path(check_payload["receipt_path"]).is_file())
+            self.assertTrue(Path(check_payload["ledger_path"]).is_file())
+
+            list_buffer = StringIO()
+            with redirect_stdout(list_buffer):
+                list_result = main(
+                    [
+                        "receipts",
+                        "list",
+                        "--repo-root",
+                        str(REPO_ROOT),
+                        "--receipt-dir",
+                        str(temp_path / "receipts"),
+                        "--json",
+                    ],
+                )
+
+            self.assertEqual(list_result, 0)
+            list_payload = json.loads(list_buffer.getvalue())
+            self.assertEqual(list_payload["count"], 1)
+            self.assertEqual(
+                list_payload["receipts"][0]["receipt_id"],
+                check_payload["receipt"]["receipt_id"],
+            )
