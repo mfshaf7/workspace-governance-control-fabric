@@ -69,14 +69,17 @@ turns a valid governance manifest plus an operator target into a compact plan
 record with:
 
 - a normalized target scope such as `workspace`, `repo:<name>`,
-  `component:<id>`, or `art:<delivery-id>`
+  `component:<id>`, `art:<delivery-id>`, or
+  `changed-file:<repo-relative-path>`
 - a requested validation tier: `smoke`, `scoped`, `full`, or `release`
 - selected manifest-declared validators, preserving command, owner, scopes,
-  check type, required posture, and tier metadata
+  check type, required posture, receipt-reuse decision, and tier metadata
 - suppressed validators with explicit reasons
 - a planner decision: `planned`, `no_matching_validators`, or `blocked`
 
 The planner does not execute validators and does not decide policy from local
-code. It only selects validators that were already declared in the manifest and
-explains the decision. Later slices own changed-file scope expansion, receipt
-reuse, actual validator execution, and ledger/receipt writes.
+code. It only selects validators that were already declared in the manifest,
+expands changed-file targets through manifest repo and component declarations,
+and marks checks as reusable only when a safe-to-reuse validator has a fresh
+successful receipt input. Later slices own actual validator execution and
+durable ledger/receipt writes.

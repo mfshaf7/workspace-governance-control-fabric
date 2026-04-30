@@ -77,6 +77,14 @@ def governance_manifest_schema() -> dict[str, Any]:
         "required": ["repo", "path"],
         "type": "object",
     }
+    reuse_policy = {
+        "additionalProperties": True,
+        "properties": {
+            "freshness_seconds": {"minimum": 0, "type": "integer"},
+            "safe_to_reuse": {"type": "boolean"},
+        },
+        "type": "object",
+    }
 
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -153,6 +161,7 @@ def governance_manifest_schema() -> dict[str, Any]:
                         "authority_ref_ids": authority_ref_ids,
                         "command": non_empty_string,
                         "owner_repo": non_empty_string,
+                        "reuse_policy": reuse_policy,
                         "scopes": authority_ref_ids,
                         "validator_id": non_empty_string,
                     },
