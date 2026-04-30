@@ -136,6 +136,28 @@ class ValidationExecutionTests(TestCase):
         self.assertEqual(result.receipt.outcome, "success")
         self.assertEqual(stdout_text, "from-prefix")
 
+    def test_python3_manifest_command_uses_current_interpreter_first(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"import sys; print(sys.executable)\"",
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+            stdout_path = Path(result.receipt.check_results[0].artifact_refs[0].path)
+            stdout_text = stdout_path.read_text(encoding="utf-8").strip()
+
+        self.assertEqual(result.receipt.outcome, "success")
+        self.assertEqual(Path(stdout_text).parent, Path(sys.executable).parent)
+
     def test_fresh_receipt_skip_reuses_without_artifacts(self) -> None:
         manifest = minimal_manifest(
             "python3 -c \"raise SystemExit('should not run')\"",

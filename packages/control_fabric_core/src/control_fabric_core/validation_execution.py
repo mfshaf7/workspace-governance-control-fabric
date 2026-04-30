@@ -12,6 +12,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -355,6 +356,7 @@ def _run_command_check(
             validator_id=check.validator_id,
         )
     command_env = dict(os.environ)
+    command_env["PATH"] = _python_first_path(command_env.get("PATH"))
     if env:
         command_env.update(env)
     command_env.update(env_overrides)
@@ -427,6 +429,18 @@ def _is_env_assignment(value: str) -> bool:
         return False
     key, _ = value.split("=", 1)
     return re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is not None
+
+
+def _python_first_path(current_path: str | None) -> str:
+    """Prefer the interpreter running WGCF when manifest commands use python3."""
+
+    python_bin = str(Path(sys.executable).parent)
+    if not current_path:
+        return python_bin
+    parts = current_path.split(os.pathsep)
+    if python_bin in parts:
+        parts.remove(python_bin)
+    return os.pathsep.join([python_bin, *parts])
 
 
 def _write_artifact(root: Path, stream_name: str, content: bytes) -> ValidationArtifactRef:
