@@ -12,8 +12,10 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
-- `schemas`: versioned runtime manifest, receipt, and ledger event schemas
-  consumed or emitted by the local runtime.
+- `schemas`: versioned runtime manifest, receipt, policy-decision, and ledger
+  event schemas consumed or emitted by the local runtime.
+- `policies/opa`: OPA/Rego policy surface files for admission, validation
+  blocking, and policy-ledger recordability.
 - `examples`: minimal valid runtime manifests used by tests and operator
   documentation.
 - `migrations`: Alembic migration history for the fabric-local PostgreSQL
@@ -105,3 +107,22 @@ produces compact proof records without becoming a policy engine:
 The execution model is intentionally local-first. PostgreSQL persistence, API
 execution, CLI `wgcf run`, and worker queue execution stay in later slices so
 this layer remains testable and bounded.
+
+## Policy Admission Model
+
+The first policy-admission primitive is a runtime decision helper, not a policy
+authority. It consumes supplied authority refs, receipt refs, optional waiver
+metadata, and a repo or component subject. It returns a compact policy decision
+with:
+
+- outcome: `allow`, `deny`, `blocked`, `review_required`, or `waived`
+- machine-readable reasons and required actions
+- authority refs and receipt refs used for the decision
+- a stable decision id and timestamp
+- optional waiver metadata when a validation issue is explicitly waived
+
+The OPA/Rego files under `policies/opa` are the durable policy-engine surface
+for later OPA integration. The Python helper keeps Phase 1 testable without
+requiring an OPA binary in local validation. Both surfaces must keep the same
+boundary: no upstream workspace policy truth, platform release approval, or
+security acceptance is made in this repo.
