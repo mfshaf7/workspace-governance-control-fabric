@@ -82,9 +82,12 @@ That surface is constrained by the workspace-owned contract in
 - `apps/worker/` owns the Temporal-ready worker package boundary. The current
   implementation exposes `wgcf-worker status`, declares future worker
   capabilities, and intentionally does not run long-lived workflow behavior.
-- `dev-integration/profiles/governance-control-fabric/` records the proposed
-  local-k3s runtime lane. It is not self-serve launchable until platform
-  acceptance and required security review move the profile to `active`.
+- `dev-integration/profiles/governance-control-fabric/` owns the local-k3s
+  dev-integration lane for the API runtime and PostgreSQL metadata store. It
+  deploys the published WGCF API image and local PostgreSQL through the shared
+  platform runner, runs database migrations, writes session/access/smoke
+  artifacts under the profile state root, and remains separate from governed
+  stage or prod deployment approval.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
   bootstrap status, authority-boundary references, database settings,
   SQLAlchemy models, runtime governance manifest schema helpers,
@@ -216,6 +219,20 @@ Local API smoke after dependencies are installed:
 ```bash
 uvicorn wgcf_api.app:app --app-dir apps/api/src --host 127.0.0.1 --port 8080
 ```
+
+Shared dev-integration access after profile activation:
+
+```bash
+make -C /home/mfshaf7/projects/platform-engineering devint-up PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-status PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-smoke PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-access PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-down PROFILE=governance-control-fabric
+```
+
+The dev-integration API and PostgreSQL metadata store run in local k3s. The API
+is reached through the profile-owned Service and port-forward. It is suitable
+for console/API contract iteration, not for stage or production evidence.
 
 Primary upstream sources:
 

@@ -1,6 +1,6 @@
 schema_version: 1
 profile_id: governance-control-fabric
-summary: Proposed local-k3s dev-integration lane for the Workspace Governance Control Fabric runtime.
+summary: Persistent local-k3s dev-integration lane for the Workspace Governance Control Fabric API runtime and PostgreSQL metadata store.
 runtime:
   platform: local-k3s
   state_model: persistent
@@ -8,8 +8,8 @@ runtime:
   state_root_template: .dev-integration/{profile}/{operator}
   components:
     - workspace-governance-control-fabric-api
-    - workspace-governance-control-fabric-worker
-    - platform-postgresql
+    - workspace-governance-control-fabric-service
+    - workspace-governance-control-fabric-postgresql
 testing:
   smoke:
     mutation_mode: read-only
@@ -19,7 +19,7 @@ source_repos:
   - repo: workspace-governance
     purpose: Authority contracts, runtime-lane policy, component inventory, and validation rules consumed by the control fabric.
   - repo: platform-engineering
-    purpose: Future local-k3s runtime, shared Postgres, runner, and stage handoff owner.
+    purpose: Local-k3s dev-integration runner, PostgreSQL runtime dependency, runtime access path, and future stage handoff owner.
 commands:
   up: dev-integration/profiles/governance-control-fabric/scripts/up.sh
   status: dev-integration/profiles/governance-control-fabric/scripts/status.sh
@@ -31,8 +31,10 @@ commands:
 session:
   required_artifacts:
     - control-fabric-session.yaml
+    - wgcf-api-runtime.yaml
     - api-health.json
     - readiness.json
+    - database-migration.txt
     - smoke-summary.txt
     - promotion-report.yaml
 stage_handoff:
@@ -42,5 +44,6 @@ stage_handoff:
     - API readiness
     - component inventory read
     - authority contract load
+    - database migration
     - validation planner dry run
-    - receipt and ledger smoke
+    - receipt and ledger metadata read
