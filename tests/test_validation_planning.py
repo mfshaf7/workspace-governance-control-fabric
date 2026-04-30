@@ -25,6 +25,14 @@ def load_example_manifest() -> dict:
     return json.loads(EXAMPLE_MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
+def authority_digests(manifest: dict) -> dict[str, str]:
+    return {
+        authority_ref["authority_id"]: authority_ref["digest"]
+        for authority_ref in manifest["authority_refs"]
+        if authority_ref.get("digest")
+    }
+
+
 class ValidationPlanningTests(TestCase):
     def test_scoped_repo_plan_includes_smoke_and_scoped_checks(self) -> None:
         plan = build_validation_plan(
@@ -205,12 +213,14 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(first.to_record(), second.to_record())
 
     def test_fresh_receipt_marks_safe_check_as_skip_candidate(self) -> None:
+        manifest = load_example_manifest()
         plan = build_validation_plan(
-            load_example_manifest(),
+            manifest,
             "repo:workspace-governance-control-fabric",
             tier="scoped",
             receipts=[
                 {
+                    "authority_ref_digests": authority_digests(manifest),
                     "receipt_id": "receipt:project-scaffold:1",
                     "validator_id": "control-fabric-project-scaffold",
                     "target_scope": "repo:workspace-governance-control-fabric",
@@ -228,16 +238,19 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(reused.execution_mode, "skip_fresh_receipt")
         self.assertEqual(reused.receipt_id, "receipt:project-scaffold:1")
         self.assertEqual(reused.receipt_digest, "sha256:example-project-scaffold")
+        self.assertEqual(reused.cache_decision["action"], "reuse")
         self.assertIn("fresh_receipts_applied=1", plan.decision.reasons)
         self.assertEqual(checks["control-fabric-status-smoke"].execution_mode, "run")
 
     def test_stale_receipt_does_not_skip_validation(self) -> None:
+        manifest = load_example_manifest()
         plan = build_validation_plan(
-            load_example_manifest(),
+            manifest,
             "repo:workspace-governance-control-fabric",
             tier="scoped",
             receipts=[
                 {
+                    "authority_ref_digests": authority_digests(manifest),
                     "receipt_id": "receipt:project-scaffold:old",
                     "validator_id": "control-fabric-project-scaffold",
                     "target_scope": "repo:workspace-governance-control-fabric",
@@ -256,6 +269,69 @@ class ValidationPlanningTests(TestCase):
                 "control-fabric-status-smoke": "run",
             },
         )
+
+    def test_receipt_reuse_requires_current_authority_digests(self) -> None:
+        manifest = load_example_manifest()
+        stale_digests = authority_digests(manifest)
+        stale_digests["wgcf-operator-surface"] = "sha256:old-authority"
+
+        plan = build_validation_plan(
+            manifest,
+            "repo:workspace-governance-control-fabric",
+            tier="scoped",
+            receipts=[
+                {
+                    "authority_ref_digests": stale_digests,
+                    "receipt_id": "receipt:project-scaffold:stale-authority",
+                    "validator_id": "control-fabric-project-scaffold",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "scoped",
+                    "status": "success",
+                    "captured_at": "2026-04-30T09:00:00Z",
+                    "digest": "sha256:stale-authority",
+                },
+            ],
+            now="2026-04-30T09:05:00Z",
+        )
+
+        check = next(item for item in plan.checks if item.validator_id == "control-fabric-project-scaffold")
+        self.assertEqual(check.execution_mode, "run")
+        self.assertIn("authority digest changed", check.cache_decision["reason"])
+
+    def test_newest_matching_receipt_is_reused(self) -> None:
+        manifest = load_example_manifest()
+        plan = build_validation_plan(
+            manifest,
+            "repo:workspace-governance-control-fabric",
+            tier="scoped",
+            receipts=[
+                {
+                    "authority_ref_digests": authority_digests(manifest),
+                    "receipt_id": "receipt:project-scaffold:older",
+                    "validator_id": "control-fabric-project-scaffold",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "scoped",
+                    "status": "success",
+                    "captured_at": "2026-04-30T09:00:00Z",
+                    "digest": "sha256:older",
+                },
+                {
+                    "authority_ref_digests": authority_digests(manifest),
+                    "receipt_id": "receipt:project-scaffold:newer",
+                    "validator_id": "control-fabric-project-scaffold",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "scoped",
+                    "status": "success",
+                    "captured_at": "2026-04-30T09:04:00Z",
+                    "digest": "sha256:newer",
+                },
+            ],
+            now="2026-04-30T09:05:00Z",
+        )
+
+        check = next(item for item in plan.checks if item.validator_id == "control-fabric-project-scaffold")
+        self.assertEqual(check.execution_mode, "skip_fresh_receipt")
+        self.assertEqual(check.receipt_id, "receipt:project-scaffold:newer")
 
     def test_target_scope_validation_is_explicit(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not be empty"):

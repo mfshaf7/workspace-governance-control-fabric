@@ -72,8 +72,10 @@ scopes, infer dev-integration profile scopes from profile paths, honor
 manifest-declared impact scopes such as ART and release targets, record
 suppressed validators with reasons, and stop at the decision layer. They may
 mark a check as `skip_fresh_receipt` when an input receipt is successful,
-fresh, and the validator declares safe reuse. They do not run commands, create
-receipts, append ledger events, or approve readiness.
+fresh, still matches authority-ref digests when invalidation is enabled, and
+the validator declares safe reuse. Plans also carry explicit cache, timeout,
+retry, and output-budget decisions. They do not run commands, create receipts,
+append ledger events, or approve readiness.
 
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported
@@ -82,6 +84,7 @@ check types as blocked, suppress execution when the planner decision is not
 
 - stdout/stderr artifact references with sha256 digests, byte counts, and line
   counts
+- compact timeout, retry, and output-budget metadata
 - a `ControlReceipt` that omits raw command output
 - a `LedgerEvent` suitable for append-only JSONL storage
 

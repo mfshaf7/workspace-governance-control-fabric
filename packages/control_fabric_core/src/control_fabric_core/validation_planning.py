@@ -80,10 +80,12 @@ class ValidationTarget:
 class ValidationCheck:
     """One selected validator command or contract check in a plan."""
 
+    cache_decision: dict[str, Any]
     check_id: str
     check_type: str
     command: str
     execution_mode: str
+    execution_policy: dict[str, Any]
     owner_repo: str
     receipt_digest: str | None
     receipt_id: str | None
@@ -297,18 +299,21 @@ def _validation_check(
     now: datetime,
 ) -> ValidationCheck:
     validator_id = validator["validator_id"].strip()
-    execution_mode, receipt_id, receipt_digest, reuse_reason = _receipt_reuse_decision(
+    execution_mode, receipt_id, receipt_digest, reuse_reason, cache_decision = _receipt_reuse_decision(
         validator,
         target,
         requested_tier,
         receipts,
         now,
+        manifest,
     )
     return ValidationCheck(
+        cache_decision=cache_decision,
         check_id=_check_id(validator_id, target.scope, requested_tier),
         check_type=_validator_check_type(validator).value,
         command=validator["command"].strip(),
         execution_mode=execution_mode.value,
+        execution_policy=_validator_execution_policy(validator),
         owner_repo=validator["owner_repo"].strip(),
         reason=_selection_reason(validator, target, validator_tier, requested_tier, manifest),
         receipt_digest=receipt_digest,
@@ -541,13 +546,35 @@ def _receipt_reuse_decision(
     requested_tier: ValidationTier,
     receipts: tuple[dict[str, Any], ...],
     now: datetime,
-) -> tuple[ValidationExecutionMode, str | None, str | None, str | None]:
+    manifest: dict[str, Any],
+) -> tuple[ValidationExecutionMode, str | None, str | None, str | None, dict[str, Any]]:
     if not _validator_allows_receipt_reuse(validator):
-        return ValidationExecutionMode.RUN, None, None, None
+        return (
+            ValidationExecutionMode.RUN,
+            None,
+            None,
+            None,
+            {
+                "action": "run",
+                "reason": "validator reuse_policy.safe_to_reuse is not true",
+            },
+        )
 
     validator_id = validator["validator_id"].strip()
-    for receipt in sorted(receipts, key=lambda item: str(item.get("receipt_id") or "")):
-        if not _receipt_matches(receipt, validator_id, target, requested_tier, validator, now):
+    rejected_reasons: list[str] = []
+    for receipt in _newest_receipts_first(receipts):
+        matches, reason = _receipt_match_decision(
+            receipt,
+            validator_id,
+            target,
+            requested_tier,
+            validator,
+            now,
+            manifest,
+        )
+        if not matches:
+            if reason:
+                rejected_reasons.append(reason)
             continue
         receipt_id = str(receipt.get("receipt_id") or "").strip()
         receipt_digest = _optional_str(receipt.get("digest") or receipt.get("receipt_digest"))
@@ -556,9 +583,27 @@ def _receipt_reuse_decision(
             receipt_id,
             receipt_digest,
             f"fresh successful receipt {receipt_id} covers {target.scope}",
+            {
+                "action": "reuse",
+                "freshness_seconds": _reuse_freshness_seconds(validator, receipt),
+                "invalidate_on_authority_change": _invalidate_on_authority_change(validator),
+                "reason": f"fresh successful receipt {receipt_id} covers {target.scope}",
+                "receipt_id": receipt_id,
+            },
         )
 
-    return ValidationExecutionMode.RUN, None, None, None
+    return (
+        ValidationExecutionMode.RUN,
+        None,
+        None,
+        None,
+        {
+            "action": "run",
+            "invalidate_on_authority_change": _invalidate_on_authority_change(validator),
+            "reason": rejected_reasons[0] if rejected_reasons else "no reusable receipt supplied",
+            "rejected_receipt_count": len(rejected_reasons),
+        },
+    )
 
 
 def _validator_allows_receipt_reuse(validator: dict[str, Any]) -> bool:
@@ -568,26 +613,124 @@ def _validator_allows_receipt_reuse(validator: dict[str, Any]) -> bool:
     return bool(reuse_policy.get("safe_to_reuse", False))
 
 
-def _receipt_matches(
+def _receipt_match_decision(
     receipt: dict[str, Any],
     validator_id: str,
     target: ValidationTarget,
     requested_tier: ValidationTier,
     validator: dict[str, Any],
     now: datetime,
-) -> bool:
+    manifest: dict[str, Any],
+) -> tuple[bool, str]:
+    receipt_id = str(receipt.get("receipt_id") or "<unknown>").strip()
     if str(receipt.get("validator_id") or "").strip() != validator_id:
-        return False
+        return False, f"{receipt_id}: validator mismatch"
     if str(receipt.get("status") or "").strip().lower() not in {"success", "passed", "valid"}:
-        return False
+        return False, f"{receipt_id}: receipt is not successful"
     receipt_target = str(receipt.get("target_scope") or "").strip()
     receipt_scopes = {str(scope).strip() for scope in receipt.get("scopes") or []}
-    if target.scope != receipt_target and target.scope not in receipt_scopes:
-        return False
-    receipt_tier = _coerce_tier(str(receipt.get("tier") or DEFAULT_VALIDATION_TIER.value))
+    target_candidates = _target_scope_candidates(manifest, target)
+    if (
+        target.scope != receipt_target
+        and receipt_target not in target_candidates
+        and target.scope not in receipt_scopes
+        and not (target_candidates & receipt_scopes)
+    ):
+        return False, f"{receipt_id}: scope mismatch"
+    try:
+        receipt_tier = _coerce_tier(str(receipt.get("tier") or DEFAULT_VALIDATION_TIER.value))
+    except ValueError:
+        return False, f"{receipt_id}: invalid receipt tier"
     if VALIDATION_TIER_ORDER[receipt_tier] < VALIDATION_TIER_ORDER[requested_tier]:
+        return False, f"{receipt_id}: receipt tier {receipt_tier.value} is below requested tier {requested_tier.value}"
+    if not _receipt_authority_refs_current(receipt, validator, manifest):
+        return False, f"{receipt_id}: authority digest changed or missing"
+    if not _receipt_is_fresh(receipt, validator, now):
+        return False, f"{receipt_id}: receipt is stale"
+    return True, "receipt is reusable"
+
+
+def _newest_receipts_first(receipts: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        sorted(
+            receipts,
+            key=lambda item: (
+                _parse_timestamp(item.get("captured_at")) or datetime.min.replace(tzinfo=UTC),
+                str(item.get("receipt_id") or ""),
+            ),
+            reverse=True,
+        ),
+    )
+
+
+def _receipt_authority_refs_current(
+    receipt: dict[str, Any],
+    validator: dict[str, Any],
+    manifest: dict[str, Any],
+) -> bool:
+    if not _invalidate_on_authority_change(validator):
+        return True
+    expected = _validator_authority_digests(validator, manifest)
+    if not expected:
+        return True
+    supplied = receipt.get("authority_ref_digests")
+    if not isinstance(supplied, dict):
         return False
-    return _receipt_is_fresh(receipt, validator, now)
+    return all(str(supplied.get(authority_id) or "").strip() == digest for authority_id, digest in expected.items())
+
+
+def _validator_authority_digests(
+    validator: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, str]:
+    authority_ids = {
+        str(authority_id).strip()
+        for authority_id in validator.get("authority_ref_ids", [])
+        if str(authority_id).strip()
+    }
+    digests: dict[str, str] = {}
+    for authority_ref in manifest.get("authority_refs", []):
+        authority_id = str(authority_ref.get("authority_id") or "").strip()
+        digest = _optional_str(authority_ref.get("digest"))
+        if authority_id in authority_ids and digest:
+            digests[authority_id] = digest
+    return digests
+
+
+def _invalidate_on_authority_change(validator: dict[str, Any]) -> bool:
+    reuse_policy = validator.get("reuse_policy")
+    if not isinstance(reuse_policy, dict):
+        return True
+    return bool(reuse_policy.get("invalidate_on_authority_change", True))
+
+
+def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
+    raw_policy = validator.get("execution_policy")
+    if not isinstance(raw_policy, dict):
+        return {}
+    policy: dict[str, Any] = {}
+    timeout_seconds = _bounded_int(raw_policy.get("timeout_seconds"), minimum=1)
+    if timeout_seconds is not None:
+        policy["timeout_seconds"] = timeout_seconds
+    retry_count = _bounded_int(raw_policy.get("retry_count"), minimum=0)
+    if retry_count is not None:
+        policy["retry_count"] = retry_count
+    output_budget_bytes = _bounded_int(raw_policy.get("output_budget_bytes"), minimum=0)
+    if output_budget_bytes is not None:
+        policy["output_budget_bytes"] = output_budget_bytes
+    if "fail_on_output_budget_exceeded" in raw_policy:
+        policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
+    return policy
+
+
+def _bounded_int(value: Any, *, minimum: int) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= minimum else None
 
 
 def _receipt_is_fresh(receipt: dict[str, Any], validator: dict[str, Any], now: datetime) -> bool:
@@ -665,7 +808,9 @@ def _plan_id(
         "checks": [
             {
                 "check_id": check.check_id,
+                "cache_decision": check.cache_decision,
                 "execution_mode": check.execution_mode,
+                "execution_policy": check.execution_policy,
                 "receipt_id": check.receipt_id,
             }
             for check in checks

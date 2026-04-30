@@ -86,7 +86,18 @@ def governance_manifest_schema() -> dict[str, Any]:
         "additionalProperties": True,
         "properties": {
             "freshness_seconds": {"minimum": 0, "type": "integer"},
+            "invalidate_on_authority_change": {"type": "boolean"},
             "safe_to_reuse": {"type": "boolean"},
+        },
+        "type": "object",
+    }
+    execution_policy = {
+        "additionalProperties": True,
+        "properties": {
+            "fail_on_output_budget_exceeded": {"type": "boolean"},
+            "output_budget_bytes": {"minimum": 0, "type": "integer"},
+            "retry_count": {"minimum": 0, "type": "integer"},
+            "timeout_seconds": {"minimum": 1, "type": "integer"},
         },
         "type": "object",
     }
@@ -172,6 +183,7 @@ def governance_manifest_schema() -> dict[str, Any]:
                     "properties": {
                         "authority_ref_ids": authority_ref_ids,
                         "command": non_empty_string,
+                        "execution_policy": execution_policy,
                         "owner_repo": non_empty_string,
                         "reuse_policy": reuse_policy,
                         "scopes": authority_ref_ids,
