@@ -12,8 +12,8 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
-- `schemas`: versioned runtime manifest, receipt, policy-decision, and ledger
-  event schemas consumed or emitted by the local runtime.
+- `schemas`: versioned runtime manifest, receipt, policy-decision, evidence
+  projection, and ledger event schemas consumed or emitted by the local runtime.
 - `policies/opa`: OPA/Rego policy surface files for admission, validation
   blocking, and policy-ledger recordability.
 - `examples`: minimal valid runtime manifests used by tests and operator
@@ -126,3 +126,20 @@ for later OPA integration. The Python helper keeps Phase 1 testable without
 requiring an OPA binary in local validation. Both surfaces must keep the same
 boundary: no upstream workspace policy truth, platform release approval, or
 security acceptance is made in this repo.
+
+## Evidence Projection Model
+
+The first evidence-projection primitive adapts compact control receipts into
+downstream workflow surfaces without copying raw artifacts:
+
+- ART completion evidence receives completion summary, changed surfaces,
+  validation evidence, and test evidence rendered from receipt metadata.
+- Review Packets receive item evidence refs, changed-surface explanations,
+  validation evidence, test evidence, and rollback boundary text linked to the
+  same receipt.
+- Git and change records receive receipt ids, artifact digests, and policy
+  decision ids instead of embedded runtime logs.
+
+Projection records always set `raw_artifacts_embedded` to `false`. This keeps
+the control fabric as the runtime evidence authority while ART, Review Packets,
+and Git records stay compact, reviewable, and linked back to receipt digests.

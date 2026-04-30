@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/evidence-projection.schema.json",
+  "additionalProperties": false,
+  "description": "Compact operator-safe evidence projection emitted from control receipts. Raw runtime artifacts must stay referenced by digest/path and must not be embedded.",
+  "properties": {
+    "artifact_refs": {
+      "items": {
+        "$ref": "#/$defs/artifact_ref"
+      },
+      "type": "array"
+    },
+    "denied_or_suppressed": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "included_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "policy_decision_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "pattern": "^policy-decision:[0-9a-f]{24}$",
+            "type": "string"
+          },
+          "outcome": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "projection_id": {
+      "pattern": "^evidence-projection:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "projection_time": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "projection_type": {
+      "enum": [
+        "art_completion_evidence",
+        "change_record_references",
+        "review_packet_evidence"
+      ],
+      "type": "string"
+    },
+    "raw_artifacts_embedded": {
+      "const": false
+    },
+    "receipt_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "outcome": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "receipt_id": {
+          "pattern": "^control-receipt:[0-9a-f]{24}$",
+          "type": "string"
+        },
+        "target_scope": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "captured_at",
+        "digest",
+        "outcome",
+        "receipt_id",
+        "target_scope"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "target_surface": {
+      "enum": [
+        "git-change-record",
+        "workspace-delivery-art",
+        "workspace-delivery-art-review-packet"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_refs",
+    "denied_or_suppressed",
+    "included_evidence",
+    "policy_decision_refs",
+    "projection_id",
+    "projection_time",
+    "projection_type",
+    "raw_artifacts_embedded",
+    "receipt_ref",
+    "schema_version",
+    "target_surface"
+  ],
+  "title": "Workspace Governance Control Fabric Evidence Projection",
+  "type": "object",
+  "$defs": {
+    "artifact_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^artifact:[0-9a-f]{24}$",
+          "type": "string"
+        },
+        "byte_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "purpose": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "byte_count",
+        "digest",
+        "media_type",
+        "path",
+        "purpose"
+      ],
+      "type": "object"
+    }
+  }
+}
