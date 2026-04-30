@@ -85,7 +85,13 @@ That surface is constrained by the workspace-owned contract in
   acceptance and required security review move the profile to `active`.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
   bootstrap status, authority-boundary references, database settings,
-  SQLAlchemy models, and future record helpers.
+  SQLAlchemy models, runtime governance manifest schema helpers, and future
+  record helpers.
+- `schemas/governance-manifest.schema.json` defines the versioned runtime
+  manifest input schema for repo, component, validator, and projection metadata.
+- `examples/governance-manifest.example.json` provides a valid minimal manifest
+  that references upstream authority sources instead of copying their policy
+  meaning.
 - `migrations/` owns Alembic migrations for fabric-local graph, receipt,
   readiness, escalation, and ledger tables. These tables store runtime evidence
   and projections only; they are not upstream authority stores.
@@ -125,6 +131,10 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_worker status --repo-root .
 ```
+
+The scaffold validator also verifies that the static governance manifest schema
+matches the runtime schema helper and that the example manifest passes manifest
+preflight.
 
 Database migration dry run after dependencies are installed:
 

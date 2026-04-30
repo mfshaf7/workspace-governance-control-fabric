@@ -11,6 +11,10 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
+- `schemas`: versioned runtime manifest schemas consumed before graph
+  ingestion.
+- `examples`: minimal valid runtime manifests used by tests and operator
+  documentation.
 - `migrations`: Alembic migration history for the fabric-local PostgreSQL
   schema.
 - `docs/operations`: primary operator-facing workflow documentation.
@@ -30,3 +34,8 @@ ledger writes remain planned capabilities until their scoped ART slices land.
 The implementation must continue to consume the authority contract from
 `workspace-governance/contracts/governance-control-fabric-operator-surface.yaml`
 instead of redefining policy locally.
+
+The governance manifest schema is therefore limited to runtime ingestion shape:
+repo, component, validator, and projection declarations must cite
+`authority_refs` by id. The schema does not decide which policies are required,
+which security finding is acceptable, or which platform gate is approved.

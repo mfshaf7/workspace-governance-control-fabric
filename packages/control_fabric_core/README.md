@@ -9,6 +9,7 @@ Current slice:
 - authority-boundary references
 - bootstrap status snapshot helpers
 - database settings without leaking secrets
+- runtime governance manifest schema and dependency-free manifest validation
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -16,3 +17,8 @@ Current slice:
 
 This package must not copy or redefine workspace-governance policy. Policy
 meaning stays in the upstream authority contracts.
+
+The governance manifest schema is an ingestion boundary for runtime graph
+planning. It records repo, component, validator, and projection declarations
+with authority-reference ids so later graph ingestion can prove which upstream
+contracts were consumed.

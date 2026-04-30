@@ -21,6 +21,8 @@ class FoundationTests(TestCase):
         snapshot = status_snapshot(REPO_ROOT)
 
         self.assertTrue(snapshot["ready"])
+        self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
+        self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertEqual(
             snapshot["authority_contract_ref"],
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",

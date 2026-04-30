@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/governance-manifest.schema.json",
+  "additionalProperties": true,
+  "description": "Runtime ingestion manifest for the Workspace Governance Control Fabric. Policy truth stays in upstream authority refs.",
+  "properties": {
+    "authority_refs": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "authority_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "digest": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "freshness_status": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "ref": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "repo": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "authority_id",
+          "repo",
+          "path",
+          "ref"
+        ],
+        "type": "object"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "components": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "authority_ref_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "component_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "component_type": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_repo": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_paths": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "component_id",
+          "owner_repo",
+          "component_type",
+          "authority_ref_ids"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "manifest_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "owner_repo": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "projections": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "output_ref": {
+            "additionalProperties": true,
+            "properties": {
+              "path": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "repo": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "repo",
+              "path"
+            ],
+            "type": "object"
+          },
+          "owner_repo": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "projection_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "source_ref_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "projection_id",
+          "owner_repo",
+          "source_ref_ids",
+          "output_ref"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "repos": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "authority_ref_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "owner_repo": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "repo_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "repo_name": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo_id",
+          "owner_repo",
+          "authority_ref_ids"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "validators": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "authority_ref_ids": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "command": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_repo": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "validator_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "validator_id",
+          "owner_repo",
+          "command",
+          "scopes",
+          "authority_ref_ids"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "owner_repo",
+    "authority_refs",
+    "repos",
+    "components",
+    "validators",
+    "projections"
+  ],
+  "title": "Workspace Governance Control Fabric Manifest",
+  "type": "object"
+}

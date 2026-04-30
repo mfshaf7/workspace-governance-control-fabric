@@ -137,6 +137,29 @@ Use receipts for operator-safe proof. Use ledger events for audit and handoff.
 Use upstream PRs, ART records, platform records, and security reviews for their
 own authority domains.
 
+## Governance Manifests
+
+The runtime manifest schema lives at:
+
+- `schemas/governance-manifest.schema.json`
+
+The manifest is an ingestion contract for future graph planning. It declares:
+
+- repos
+- components
+- validators
+- projections
+- upstream authority refs
+
+Operators should expect each manifest entity to cite `authority_ref_ids` or
+`source_ref_ids`. A manifest that cannot point back to authority refs is not
+ready for graph ingestion, because the fabric must not invent policy truth from
+local implementation metadata.
+
+The example manifest at `examples/governance-manifest.example.json` is valid
+for scaffold testing and demonstrates the compact shape. It is not deployment
+approval and not a replacement for workspace-governance contracts.
+
 ## Database Foundation
 
 The local runtime database stores only fabric-local implementation records:

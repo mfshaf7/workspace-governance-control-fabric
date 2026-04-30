@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import tomllib
 from pathlib import Path
@@ -24,11 +25,14 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
+    "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
     "docs/operations/operator-surface.md",
+    "examples/governance-manifest.example.json",
     "migrations/env.py",
     "migrations/versions/0001_create_foundation_tables.py",
+    "schemas/governance-manifest.schema.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -94,7 +98,12 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "apps/cli/src"))
     sys.path.insert(0, str(repo_root / "apps/worker/src"))
 
-    from control_fabric_core import status_snapshot, worker_status_snapshot
+    from control_fabric_core import (
+        governance_manifest_schema,
+        status_snapshot,
+        validate_governance_manifest,
+        worker_status_snapshot,
+    )
     from control_fabric_core.db import metadata
     from wgcf_api import create_app
     from wgcf_cli.main import build_parser
@@ -136,6 +145,15 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("worker scaffold must not connect to Temporal yet")
     if worker_snapshot["temporal"]["long_running_worker"]:
         errors.append("worker scaffold must not run as a long-running worker yet")
+    schema_path = repo_root / "schemas/governance-manifest.schema.json"
+    example_path = repo_root / "examples/governance-manifest.example.json"
+    static_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    if static_schema != governance_manifest_schema():
+        errors.append("static governance manifest schema does not match runtime schema")
+    example_manifest = json.loads(example_path.read_text(encoding="utf-8"))
+    manifest_result = validate_governance_manifest(example_manifest)
+    if not manifest_result.valid:
+        errors.append(f"example governance manifest invalid: {list(manifest_result.errors)}")
     return errors
 
 
