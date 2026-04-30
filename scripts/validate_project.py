@@ -17,10 +17,14 @@ REQUIRED_PATHS = (
     "apps/cli/README.md",
     "apps/cli/src/wgcf_cli/main.py",
     "apps/worker/README.md",
+    "apps/worker/src/wgcf_worker/__init__.py",
+    "apps/worker/src/wgcf_worker/__main__.py",
+    "apps/worker/src/wgcf_worker/main.py",
     "packages/control_fabric_core/README.md",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
+    "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
     "docs/operations/operator-surface.md",
     "migrations/env.py",
@@ -63,6 +67,8 @@ def validate_pyproject(repo_root: Path) -> list[str]:
         errors.append("pyproject project.name must be workspace-governance-control-fabric")
     if scripts.get("wgcf") != "wgcf_cli.main:main":
         errors.append("pyproject must expose wgcf = wgcf_cli.main:main")
+    if scripts.get("wgcf-worker") != "wgcf_worker.main:main":
+        errors.append("pyproject must expose wgcf-worker = wgcf_worker.main:main")
     if project.get("requires-python") != ">=3.12":
         errors.append("pyproject requires-python must be >=3.12")
     dependencies = set(project.get("dependencies", []))
@@ -86,26 +92,50 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "packages/control_fabric_core/src"))
     sys.path.insert(0, str(repo_root / "apps/api/src"))
     sys.path.insert(0, str(repo_root / "apps/cli/src"))
+    sys.path.insert(0, str(repo_root / "apps/worker/src"))
 
-    from control_fabric_core import status_snapshot
+    from control_fabric_core import status_snapshot, worker_status_snapshot
     from control_fabric_core.db import metadata
     from wgcf_api import create_app
     from wgcf_cli.main import build_parser
+    from wgcf_worker.main import build_parser as build_worker_parser
 
     snapshot = status_snapshot(repo_root)
+    worker_snapshot = worker_status_snapshot(repo_root)
     errors: list[str] = []
     if not snapshot["ready"]:
         errors.append("status snapshot is not ready")
+    if not worker_snapshot["ready"]:
+        errors.append("worker status snapshot is not ready")
     parser = build_parser()
     parsed = parser.parse_args(["status", "--repo-root", str(repo_root)])
     if parsed.command != "status":
         errors.append("wgcf parser did not accept status command")
+    worker_parser = build_worker_parser()
+    worker_parsed = worker_parser.parse_args(["status", "--repo-root", str(repo_root)])
+    if worker_parsed.command != "status":
+        errors.append("wgcf-worker parser did not accept status command")
     app = create_app(repo_root)
     if app.title != "Workspace Governance Control Fabric":
         errors.append("FastAPI app title is not the control-fabric title")
     missing_tables = REQUIRED_DB_TABLES.difference(metadata.tables)
     if missing_tables:
         errors.append(f"database metadata missing required tables: {sorted(missing_tables)}")
+    capability_ids = {
+        capability["capability_id"]
+        for capability in worker_snapshot["capabilities"]
+    }
+    for required_capability in (
+        "source-snapshot-ingest",
+        "validation-plan-execute",
+        "control-receipt-append",
+    ):
+        if required_capability not in capability_ids:
+            errors.append(f"worker capability missing: {required_capability}")
+    if worker_snapshot["temporal"]["connects_to_temporal"]:
+        errors.append("worker scaffold must not connect to Temporal yet")
+    if worker_snapshot["temporal"]["long_running_worker"]:
+        errors.append("worker scaffold must not run as a long-running worker yet")
     return errors
 
 

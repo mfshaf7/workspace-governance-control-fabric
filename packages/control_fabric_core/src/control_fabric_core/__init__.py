@@ -9,6 +9,7 @@ from .foundation import (
     status_snapshot,
 )
 from .database import DATABASE_URL_ENV, DEFAULT_DATABASE_URL, database_settings
+from .worker import worker_status_snapshot
 
 __all__ = [
     "AUTHORITY_CONTRACT_REF",
@@ -20,4 +21,5 @@ __all__ = [
     "STATUS_BOOTSTRAP",
     "database_settings",
     "status_snapshot",
+    "worker_status_snapshot",
 ]
