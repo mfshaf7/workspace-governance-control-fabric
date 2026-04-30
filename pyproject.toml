@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workspace-governance-control-fabric"
+version = "0.1.0"
+description = "Runtime implementation foundation for the Workspace Governance Control Fabric."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [
+  { name = "Workspace Governance" }
+]
+dependencies = []
+
+[project.scripts]
+wgcf = "wgcf_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = [
+  "apps/cli/src",
+  "packages/control_fabric_core/src"
+]

@@ -53,7 +53,8 @@ of copying their policies here.
 
 ## Current State
 
-This repository is in governance bootstrap state.
+This repository is in governance bootstrap state with the first Python project
+scaffold in place.
 
 The first governed slice registers the repo with workspace governance before
 runtime implementation begins. Product code, service scaffolding, deployment
@@ -68,6 +69,22 @@ That surface is constrained by the workspace-owned contract in
 `workspace-governance`:
 
 - <https://github.com/mfshaf7/workspace-governance/blob/main/contracts/governance-control-fabric-operator-surface.yaml>
+
+## Project Structure
+
+- `apps/cli/` owns the future `wgcf` operator CLI. The scaffold supports
+  `wgcf status` through the Python entrypoint.
+- `apps/api/` reserves the future FastAPI service boundary. Health and version
+  endpoints land in a later scoped slice.
+- `apps/worker/` reserves the future background execution boundary. Worker
+  behavior lands in a later scoped slice.
+- `packages/control_fabric_core/` owns shared runtime primitives such as
+  bootstrap status, authority-boundary references, and future record helpers.
+- `scripts/validate_project.py` validates the scaffold without requiring
+  network access or external services.
+
+See [docs/architecture/project-structure.md](docs/architecture/project-structure.md)
+for the scaffold boundary.
 
 ## Operating Model
 
@@ -88,8 +105,15 @@ operator workflows:
 ## Validation
 
 The initial validation surface checks that the repository keeps its minimum
-governance documentation and review controls in place. Runtime validators will
-be added when the control-fabric implementation is scaffolded.
+governance documentation, review controls, and Python scaffold in place.
+
+Local validation:
+
+```bash
+python3 scripts/validate_project.py --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m unittest discover -s tests
+PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
+```
 
 Primary upstream sources:
 
