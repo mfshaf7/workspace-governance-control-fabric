@@ -8,6 +8,12 @@ from .foundation import (
     STATUS_BOOTSTRAP,
     status_snapshot,
 )
+from .graph_ingestion import (
+    ManifestGraph,
+    ManifestGraphEdge,
+    ManifestGraphNode,
+    build_manifest_graph,
+)
 from .database import DATABASE_URL_ENV, DEFAULT_DATABASE_URL, database_settings
 from .manifests import (
     MANIFEST_SCHEMA_VERSION,
@@ -27,7 +33,11 @@ __all__ = [
     "PACKAGE_VERSION",
     "RUNTIME_REPO",
     "STATUS_BOOTSTRAP",
+    "ManifestGraph",
+    "ManifestGraphEdge",
+    "ManifestGraphNode",
     "ManifestValidationResult",
+    "build_manifest_graph",
     "database_settings",
     "governance_manifest_schema",
     "manifest_entity_ids",

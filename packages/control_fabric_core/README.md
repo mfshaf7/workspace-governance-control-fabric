@@ -10,6 +10,7 @@ Current slice:
 - bootstrap status snapshot helpers
 - database settings without leaking secrets
 - runtime governance manifest schema and dependency-free manifest validation
+- deterministic manifest-to-graph ingestion primitives
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -22,3 +23,7 @@ The governance manifest schema is an ingestion boundary for runtime graph
 planning. It records repo, component, validator, and projection declarations
 with authority-reference ids so later graph ingestion can prove which upstream
 contracts were consumed.
+
+Manifest-to-graph ingestion returns in-memory node and edge records that match
+the fabric-local graph model. It does not persist records or mutate upstream
+authority stores.

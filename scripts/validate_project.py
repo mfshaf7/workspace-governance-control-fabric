@@ -25,6 +25,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
+    "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
@@ -99,6 +100,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "apps/worker/src"))
 
     from control_fabric_core import (
+        build_manifest_graph,
         governance_manifest_schema,
         status_snapshot,
         validate_governance_manifest,
@@ -154,6 +156,11 @@ def validate_imports(repo_root: Path) -> list[str]:
     manifest_result = validate_governance_manifest(example_manifest)
     if not manifest_result.valid:
         errors.append(f"example governance manifest invalid: {list(manifest_result.errors)}")
+    graph = build_manifest_graph(example_manifest)
+    node_types = {node.node_type for node in graph.nodes}
+    for required_node_type in ("authority-reference", "repo", "component", "validator", "projection"):
+        if required_node_type not in node_types:
+            errors.append(f"example governance manifest graph missing node type: {required_node_type}")
     return errors
 
 

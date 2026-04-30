@@ -21,6 +21,11 @@ class FoundationTests(TestCase):
         snapshot = status_snapshot(REPO_ROOT)
 
         self.assertTrue(snapshot["ready"])
+        self.assertTrue(
+            snapshot["required_paths"][
+                "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py"
+            ]
+        )
         self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertEqual(

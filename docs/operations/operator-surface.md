@@ -160,6 +160,12 @@ The example manifest at `examples/governance-manifest.example.json` is valid
 for scaffold testing and demonstrates the compact shape. It is not deployment
 approval and not a replacement for workspace-governance contracts.
 
+Current implementation can build an in-memory graph from a valid manifest. The
+graph records are fabric-local nodes and edges only; they are not persisted by
+this slice and do not mutate authority stores. Operators should treat this as
+the first ingestion proof needed before later validation planning and graph
+query commands.
+
 ## Database Foundation
 
 The local runtime database stores only fabric-local implementation records:
