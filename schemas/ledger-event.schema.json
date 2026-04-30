@@ -6,6 +6,7 @@
   "properties": {
     "action": {
       "enum": [
+        "policy.decision.recorded",
         "validation.run.blocked",
         "validation.run.completed"
       ],
@@ -66,10 +67,14 @@
     },
     "outcome": {
       "enum": [
-        "success",
-        "failure",
+        "allow",
         "blocked",
-        "operator_review_required"
+        "deny",
+        "failure",
+        "operator_review_required",
+        "review_required",
+        "success",
+        "waived"
       ],
       "type": "string"
     },
@@ -79,6 +84,9 @@
         "properties": {
           "digest": {
             "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "outcome": {
             "type": "string"
           },
           "receipt_id": {

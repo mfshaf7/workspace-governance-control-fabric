@@ -89,13 +89,18 @@ That surface is constrained by the workspace-owned contract in
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   deterministic validation planning primitives, bounded validation execution,
-  compact receipts, and local ledger event helpers.
+  compact receipts, local ledger event helpers, and bootstrap policy admission
+  decisions.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
   define the compact proof and append-only event shapes emitted by local
   validation execution. Raw validator output belongs in referenced artifacts,
   not in receipts or ART notes.
+- `schemas/policy-decision.schema.json` and `policies/opa/` define the first
+  policy decision record and OPA/Rego policy surface. Runtime code consumes
+  authority refs and receipts; upstream policy truth stays in
+  `workspace-governance`.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
   that references upstream authority sources instead of copying their policy
   meaning.
@@ -154,6 +159,11 @@ writes stdout/stderr to local artifacts, records sha256 digests and byte/line
 counts, and returns an operator-safe receipt plus ledger event. If the input
 plan is blocked or requires operator review, execution is suppressed and the
 receipt outcome records that state instead of claiming success.
+
+Policy admission currently lives in the core library. It evaluates bootstrap
+repo/component admission inputs, validation blocking posture, waiver posture,
+and policy-decision ledger events from supplied authority refs and receipt refs.
+It does not make workspace policy truth or security acceptance decisions.
 
 Database migration dry run after dependencies are installed:
 

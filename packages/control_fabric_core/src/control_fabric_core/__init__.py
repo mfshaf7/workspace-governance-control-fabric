@@ -30,6 +30,12 @@ from .manifests import (
     manifest_entity_ids,
     validate_governance_manifest,
 )
+from .policy_admission import (
+    PolicyDecision,
+    PolicyReason,
+    build_policy_ledger_event,
+    evaluate_admission_policy,
+)
 from .validation_planning import (
     PlannerDecision,
     SuppressedValidator,
@@ -63,6 +69,8 @@ __all__ = [
     "MANIFEST_SCHEMA_VERSION",
     "PACKAGE_NAME",
     "PACKAGE_VERSION",
+    "PolicyDecision",
+    "PolicyReason",
     "RUNTIME_REPO",
     "STATUS_BOOTSTRAP",
     "ManifestGraph",
@@ -82,10 +90,12 @@ __all__ = [
     "ValidationTarget",
     "ValidationTier",
     "append_ledger_event",
+    "build_policy_ledger_event",
     "build_graph_from_manifest_file",
     "build_manifest_graph",
     "build_validation_plan",
     "database_settings",
+    "evaluate_admission_policy",
     "graph_summary",
     "governance_manifest_schema",
     "load_governance_manifest_file",

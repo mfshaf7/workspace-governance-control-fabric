@@ -19,10 +19,10 @@ defined before implementation so the first runtime code does not invent a
 different workflow.
 
 Only the bootstrap status, manifest graph ingestion, read-only graph query,
-validation planning, and core-library validation execution surfaces are
-implemented now. Treat the remaining CLI commands and API routes below as the
-minimum required interface contract for later slices, not as currently
-available runtime commands.
+validation planning, core-library validation execution, and core-library policy
+admission surfaces are implemented now. Treat the remaining CLI commands and
+API routes below as the minimum required interface contract for later slices,
+not as currently available runtime commands.
 
 ## Authority Boundaries
 
@@ -215,6 +215,25 @@ Current execution behavior:
 
 CLI `wgcf run`, API `POST /v1/validation-runs`, database persistence, and worker
 queue execution remain later slices.
+
+Policy admission uses the schemas and policies at:
+
+- `schemas/policy-decision.schema.json`
+- `policies/opa/admission.rego`
+- `policies/opa/validation_blocking.rego`
+- `policies/opa/policy_ledger.rego`
+
+Current policy behavior:
+
+- evaluates repo/component admission subjects only
+- requires owner repo and upstream authority refs before allow decisions
+- blocks stale authority refs
+- requires successful validation receipts unless validation is not required or
+  a valid waiver is supplied
+- records compact `policy.decision.recorded` ledger events linked to receipt
+  refs where available
+- does not define upstream workspace policy truth, security acceptance, or
+  platform deployment approval
 
 ## Database Foundation
 

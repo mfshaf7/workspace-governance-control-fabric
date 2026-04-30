@@ -75,6 +75,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/graph_queries.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/graph_queries.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/policy_admission.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/policy_admission.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/validation_planning.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
         ),
@@ -91,8 +94,18 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "schemas/ledger-event.schema.json": (
             repo_root / "schemas/ledger-event.schema.json"
         ),
+        "schemas/policy-decision.schema.json": (
+            repo_root / "schemas/policy-decision.schema.json"
+        ),
         "schemas/validation-receipt.schema.json": (
             repo_root / "schemas/validation-receipt.schema.json"
+        ),
+        "policies/opa/admission.rego": repo_root / "policies/opa/admission.rego",
+        "policies/opa/policy_ledger.rego": (
+            repo_root / "policies/opa/policy_ledger.rego"
+        ),
+        "policies/opa/validation_blocking.rego": (
+            repo_root / "policies/opa/validation_blocking.rego"
         ),
         "examples/governance-manifest.example.json": (
             repo_root / "examples/governance-manifest.example.json"

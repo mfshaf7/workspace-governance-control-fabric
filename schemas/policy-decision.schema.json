@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/policy-decision.schema.json",
+  "additionalProperties": false,
+  "description": "Compact policy and admission decision emitted by the control fabric runtime.",
+  "properties": {
+    "authority_refs": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "authority_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "freshness_status": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "authority_id",
+          "freshness_status"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "decision_id": {
+      "pattern": "^policy-decision:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "decision_time": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "allow",
+        "blocked",
+        "deny",
+        "review_required",
+        "waived"
+      ],
+      "type": "string"
+    },
+    "profile_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "detail": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "block",
+              "deny",
+              "review",
+              "waive"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail",
+          "severity"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "receipt_refs": {
+      "items": {
+        "additionalProperties": true,
+        "properties": {
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "receipt_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "receipt_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "required_actions": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "subject_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "subject_type": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "target": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "waiver": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "authority_refs",
+    "decision_id",
+    "decision_time",
+    "outcome",
+    "profile_id",
+    "reasons",
+    "receipt_refs",
+    "required_actions",
+    "schema_version",
+    "subject_id",
+    "subject_type",
+    "target",
+    "waiver"
+  ],
+  "title": "Workspace Governance Control Fabric Policy Decision",
+  "type": "object"
+}

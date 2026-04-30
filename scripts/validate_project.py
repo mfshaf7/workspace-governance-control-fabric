@@ -29,6 +29,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
+    "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
@@ -37,8 +38,12 @@ REQUIRED_PATHS = (
     "examples/governance-manifest.example.json",
     "migrations/env.py",
     "migrations/versions/0001_create_foundation_tables.py",
+    "policies/opa/admission.rego",
+    "policies/opa/policy_ledger.rego",
+    "policies/opa/validation_blocking.rego",
     "schemas/governance-manifest.schema.json",
     "schemas/ledger-event.schema.json",
+    "schemas/policy-decision.schema.json",
     "schemas/validation-receipt.schema.json",
 )
 
@@ -107,7 +112,9 @@ def validate_imports(repo_root: Path) -> list[str]:
 
     from control_fabric_core import (
         build_manifest_graph,
+        build_policy_ledger_event,
         build_validation_plan,
+        evaluate_admission_policy,
         execute_validation_plan,
         governance_manifest_schema,
         query_manifest_graph,
@@ -217,6 +224,36 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("validation receipt must not embed raw validator output")
     if execution_result.ledger_event.target != "repo:workspace-governance-control-fabric":
         errors.append("validation ledger event target did not match plan target")
+    policy_decision = evaluate_admission_policy(
+        {
+            "authority_refs": [
+                {
+                    "authority_id": "wgcf-runtime-repo-guidance",
+                    "digest": "sha256:example",
+                    "freshness_status": "current",
+                },
+            ],
+            "owner_repo": "workspace-governance-control-fabric",
+            "receipt_refs": [
+                {
+                    "digest": execution_result.receipt.digest,
+                    "outcome": execution_result.receipt.outcome,
+                    "receipt_id": execution_result.receipt.receipt_id,
+                },
+            ],
+            "subject_id": "workspace-governance-control-fabric",
+            "subject_type": "repo",
+        },
+        now="2026-04-30T00:00:00Z",
+    )
+    if policy_decision.outcome != "allow":
+        errors.append("synthetic policy admission decision was not allow")
+    policy_event = build_policy_ledger_event(
+        actor="wgcf-project-validator",
+        decision=policy_decision,
+    )
+    if policy_event.action != "policy.decision.recorded":
+        errors.append("policy ledger event action was not recorded")
     return errors
 
 

@@ -18,6 +18,8 @@ Current slice:
 - bounded validation execution helpers that run manifest-planned command checks
   without `shell=True`, write stdout/stderr to local artifacts, and emit compact
   receipts and ledger events
+- bootstrap policy admission helpers that evaluate repo/component admission,
+  validation blocking, waiver posture, and receipt-linked policy ledger events
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -60,3 +62,10 @@ check types as blocked, suppress execution when the planner decision is not
 
 The execution helpers do not persist to PostgreSQL yet, mutate upstream
 authority, decide readiness, or replace Review Packets for ART work.
+
+Policy admission helpers consume authority refs and receipt refs supplied by
+the runtime caller. They return compact allow, deny, blocked, waived, or
+review-required decisions and can build `policy.decision.recorded` ledger
+events linked to receipts. OPA/Rego files under `policies/opa` define the
+policy-engine surface, but upstream policy meaning still belongs to
+`workspace-governance`.
