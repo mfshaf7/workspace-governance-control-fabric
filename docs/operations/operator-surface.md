@@ -166,12 +166,26 @@ The example manifest at `examples/governance-manifest.example.json` is valid
 for scaffold testing and demonstrates the compact shape. It is not deployment
 approval and not a replacement for workspace-governance contracts.
 
-Current implementation can build an in-memory graph from a valid manifest and
-query it through `wgcf graph query` or `GET /v1/graph/query`. The graph records
-are fabric-local nodes and edges only; they are not persisted by this slice and
-do not mutate authority stores. Operators should treat this as the first query
-proof needed before later validation planning, persistence, and receipt
-commands.
+Current implementation can build an in-memory graph from a valid manifest,
+query it through `wgcf graph query` or `GET /v1/graph/query`, and build an
+execution-free validation plan from manifest-declared validators. The graph and
+plan records are fabric-local projections only; they are not persisted by this
+slice and do not mutate authority stores.
+
+Validation planning uses four tiers:
+
+- `smoke`: smallest declared checks for fast local confidence
+- `scoped`: checks declared for the requested repo, component, validator,
+  projection, authority, or ART scope
+- `full`: all manifest-declared validators for the current manifest
+- `release`: full-surface planning plus current authority-ref freshness
+  requirements
+
+The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
+It must explain selected checks, suppressed validators, and any operator-review
+reason. It must not execute validators or claim receipt evidence; later ART
+slices own changed-file scope expansion, receipt reuse, execution, and ledger
+appends.
 
 ## Database Foundation
 

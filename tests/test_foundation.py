@@ -31,6 +31,11 @@ class FoundationTests(TestCase):
                 "packages/control_fabric_core/src/control_fabric_core/graph_queries.py"
             ]
         )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
+            ]
+        )
         self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertEqual(

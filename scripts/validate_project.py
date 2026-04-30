@@ -28,6 +28,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
+    "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
     "docs/operations/operator-surface.md",
@@ -102,6 +103,7 @@ def validate_imports(repo_root: Path) -> list[str]:
 
     from control_fabric_core import (
         build_manifest_graph,
+        build_validation_plan,
         governance_manifest_schema,
         query_manifest_graph,
         status_snapshot,
@@ -169,6 +171,15 @@ def validate_imports(repo_root: Path) -> list[str]:
     art_query = query_manifest_graph(example_manifest, "art:delivery-420")
     if not any(node.node_type == "scope" for node in art_query.nodes):
         errors.append("example governance manifest ART query missing synthetic scope node")
+    validation_plan = build_validation_plan(
+        example_manifest,
+        "repo:workspace-governance-control-fabric",
+        tier="scoped",
+    )
+    if validation_plan.decision.outcome != "planned":
+        errors.append("example governance manifest validation plan was not planned")
+    if not validation_plan.checks:
+        errors.append("example governance manifest validation plan returned no checks")
     return errors
 
 

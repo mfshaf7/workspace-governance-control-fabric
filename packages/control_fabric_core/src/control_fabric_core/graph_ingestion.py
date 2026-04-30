@@ -132,7 +132,7 @@ def build_manifest_graph(manifest: dict[str, Any]) -> ManifestGraph:
         add_node(validator_node)
         _add_authority_edges(add_edge, validator_node.node_id, manifest["validators"], "validator_id", validator_id)
         for scope in validator["scopes"]:
-            target_node_id = _resolve_scope_node_id(scope, repo_nodes)
+            target_node_id = _resolve_scope_node_id(scope, nodes)
             add_edge(
                 validator_node.node_id,
                 target_node_id,
@@ -253,10 +253,7 @@ def _edge_id(source_node_id: str, edge_type: str, target_node_id: str) -> str:
     return f"edge:{digest}"
 
 
-def _resolve_scope_node_id(scope: str, repo_nodes: dict[str, ManifestGraphNode]) -> str:
-    if scope.startswith("repo:"):
-        repo_id = scope.removeprefix("repo:")
-        repo_node = repo_nodes.get(repo_id)
-        if repo_node:
-            return repo_node.node_id
+def _resolve_scope_node_id(scope: str, nodes: dict[str, ManifestGraphNode]) -> str:
+    if scope in nodes:
+        return scope
     return _node_id("scope", scope)

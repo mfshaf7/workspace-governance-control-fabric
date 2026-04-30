@@ -48,7 +48,10 @@ class GovernanceManifestTests(TestCase):
                 "components": ["control-fabric-core"],
                 "projections": ["workspace-repo-authority-graph"],
                 "repos": ["workspace-governance-control-fabric"],
-                "validators": ["control-fabric-project-scaffold"],
+                "validators": [
+                    "control-fabric-status-smoke",
+                    "control-fabric-project-scaffold",
+                ],
             },
         )
 

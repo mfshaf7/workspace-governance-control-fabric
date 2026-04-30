@@ -58,13 +58,32 @@
   ],
   "validators": [
     {
+      "validator_id": "control-fabric-status-smoke",
+      "owner_repo": "workspace-governance-control-fabric",
+      "command": "PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m wgcf_cli status --repo-root .",
+      "scopes": [
+        "repo:workspace-governance-control-fabric"
+      ],
+      "validation_tier": "smoke",
+      "check_type": "command",
+      "required": true,
+      "authority_ref_ids": [
+        "wgcf-runtime-repo-guidance",
+        "wgcf-operator-surface"
+      ]
+    },
+    {
       "validator_id": "control-fabric-project-scaffold",
       "owner_repo": "workspace-governance-control-fabric",
       "command": "python3 scripts/validate_project.py --repo-root .",
       "scopes": [
         "art:delivery-420",
+        "component:control-fabric-core",
         "repo:workspace-governance-control-fabric"
       ],
+      "validation_tier": "scoped",
+      "check_type": "command",
+      "required": true,
       "authority_ref_ids": [
         "wgcf-runtime-repo-guidance",
         "wgcf-operator-surface"
