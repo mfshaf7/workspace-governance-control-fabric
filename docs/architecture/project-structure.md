@@ -61,3 +61,22 @@ query surfaces load a repo-local manifest, build the in-memory graph, and return
 compact repo, component, validator, projection, authority, or ART-oriented
 graph slices. They do not persist records, run validations, approve readiness,
 or mutate upstream authority stores.
+
+## Validation Planning Model
+
+The first validation-planning primitive is deterministic and execution-free. It
+turns a valid governance manifest plus an operator target into a compact plan
+record with:
+
+- a normalized target scope such as `workspace`, `repo:<name>`,
+  `component:<id>`, or `art:<delivery-id>`
+- a requested validation tier: `smoke`, `scoped`, `full`, or `release`
+- selected manifest-declared validators, preserving command, owner, scopes,
+  check type, required posture, and tier metadata
+- suppressed validators with explicit reasons
+- a planner decision: `planned`, `no_matching_validators`, or `blocked`
+
+The planner does not execute validators and does not decide policy from local
+code. It only selects validators that were already declared in the manifest and
+explains the decision. Later slices own changed-file scope expansion, receipt
+reuse, actual validator execution, and ledger/receipt writes.

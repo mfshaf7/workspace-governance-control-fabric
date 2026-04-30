@@ -13,6 +13,8 @@ Current slice:
 - deterministic manifest-to-graph ingestion primitives
 - read-only manifest graph query helpers for repo, component, validator,
   projection, authority, and ART-oriented scopes
+- deterministic validation planning primitives for `smoke`, `scoped`, `full`,
+  and `release` tiers
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -34,3 +36,9 @@ Graph query helpers produce compact slices from those in-memory graph records
 for operator surfaces. They are intentionally file-backed in this phase so API
 and CLI users can inspect repo, component, and ART-oriented context without a
 database dependency or upstream authority write.
+
+Validation planning helpers consume the same manifest and emit compact,
+operator-safe plan records. They select only manifest-declared validators,
+record suppressed validators with reasons, and stop at the decision layer.
+They do not run commands, reuse receipts, append ledger events, or approve
+readiness.

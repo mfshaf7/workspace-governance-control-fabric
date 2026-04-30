@@ -30,6 +30,17 @@ from .manifests import (
     manifest_entity_ids,
     validate_governance_manifest,
 )
+from .validation_planning import (
+    PlannerDecision,
+    SuppressedValidator,
+    ValidationCheck,
+    ValidationCheckType,
+    ValidationPlan,
+    ValidationTarget,
+    ValidationTier,
+    build_validation_plan,
+    normalize_validation_target,
+)
 from .worker import worker_status_snapshot
 
 __all__ = [
@@ -46,13 +57,22 @@ __all__ = [
     "ManifestGraphNode",
     "ManifestGraphQueryResult",
     "ManifestValidationResult",
+    "PlannerDecision",
+    "SuppressedValidator",
+    "ValidationCheck",
+    "ValidationCheckType",
+    "ValidationPlan",
+    "ValidationTarget",
+    "ValidationTier",
     "build_graph_from_manifest_file",
     "build_manifest_graph",
+    "build_validation_plan",
     "database_settings",
     "graph_summary",
     "governance_manifest_schema",
     "load_governance_manifest_file",
     "manifest_entity_ids",
+    "normalize_validation_target",
     "query_manifest_file",
     "query_manifest_graph",
     "status_snapshot",

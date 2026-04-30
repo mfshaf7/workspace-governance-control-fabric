@@ -78,6 +78,14 @@ class ManifestGraphIngestionTests(TestCase):
         )
         self.assertIn(
             (
+                "validator:control-fabric-project-scaffold",
+                "validates-scope",
+                "component:control-fabric-core",
+            ),
+            edge_tuples,
+        )
+        self.assertIn(
+            (
                 "projection:workspace-repo-authority-graph",
                 "projects-from-authority",
                 "authority:workspace-repo-contracts",
