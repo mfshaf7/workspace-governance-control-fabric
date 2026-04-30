@@ -333,6 +333,128 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(check.execution_mode, "skip_fresh_receipt")
         self.assertEqual(check.receipt_id, "receipt:project-scaffold:newer")
 
+    def test_plan_returns_selected_suppressed_external_and_waived_statuses(self) -> None:
+        manifest = load_example_manifest()
+        manifest["validators"].extend(
+            [
+                {
+                    "validator_id": "external-owner-smoke",
+                    "owner_repo": "security-architecture",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["repo:workspace-governance-control-fabric"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+                {
+                    "validator_id": "waived-smoke",
+                    "owner_repo": "workspace-governance-control-fabric",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["repo:workspace-governance-control-fabric"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+            ],
+        )
+
+        plan = build_validation_plan(
+            manifest,
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+            waivers=[
+                {
+                    "expires_at": "2026-05-01T00:00:00Z",
+                    "status": "approved",
+                    "validator_id": "waived-smoke",
+                    "waiver_id": "waiver:waived-smoke",
+                },
+            ],
+            now="2026-04-30T00:00:00Z",
+        )
+
+        statuses = {item.validator_id: item.status for item in plan.check_statuses}
+        self.assertEqual(statuses["control-fabric-status-smoke"], "selected")
+        self.assertEqual(statuses["control-fabric-project-scaffold"], "suppressed")
+        self.assertEqual(statuses["external-owner-smoke"], "external-owner-required")
+        self.assertEqual(statuses["waived-smoke"], "waived")
+
+    def test_plan_returns_stale_and_failed_cache_statuses(self) -> None:
+        manifest = load_example_manifest()
+        manifest["validators"].extend(
+            [
+                {
+                    "validator_id": "stale-cache-smoke",
+                    "owner_repo": "workspace-governance-control-fabric",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["repo:workspace-governance-control-fabric"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "reuse_policy": {"safe_to_reuse": True, "freshness_seconds": 300},
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+                {
+                    "validator_id": "failed-cache-smoke",
+                    "owner_repo": "workspace-governance-control-fabric",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["repo:workspace-governance-control-fabric"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "reuse_policy": {"safe_to_reuse": True, "freshness_seconds": 300},
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+            ],
+        )
+
+        plan = build_validation_plan(
+            manifest,
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+            receipts=[
+                {
+                    "authority_ref_digests": authority_digests(manifest),
+                    "captured_at": "2026-04-30T00:00:00Z",
+                    "digest": "sha256:stale-cache",
+                    "receipt_id": "receipt:stale-cache",
+                    "status": "success",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "smoke",
+                    "validator_id": "stale-cache-smoke",
+                },
+                {
+                    "authority_ref_digests": authority_digests(manifest),
+                    "captured_at": "2026-04-30T00:09:00Z",
+                    "digest": "sha256:failed-cache",
+                    "receipt_id": "receipt:failed-cache",
+                    "status": "failure",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "smoke",
+                    "validator_id": "failed-cache-smoke",
+                },
+            ],
+            now="2026-04-30T00:10:00Z",
+        )
+
+        statuses = {item.validator_id: item.status for item in plan.check_statuses}
+        self.assertEqual(statuses["stale-cache-smoke"], "stale")
+        self.assertEqual(statuses["failed-cache-smoke"], "failed")
+
+    def test_release_block_returns_blocked_check_statuses(self) -> None:
+        manifest = load_example_manifest()
+        manifest["authority_refs"][0]["freshness_status"] = "stale"
+
+        plan = build_validation_plan(manifest, "workspace", tier="release")
+
+        self.assertEqual(plan.decision.outcome, "blocked")
+        self.assertEqual(
+            {item.status for item in plan.check_statuses},
+            {"blocked"},
+        )
+
     def test_target_scope_validation_is_explicit(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not be empty"):
             normalize_validation_target(" ")

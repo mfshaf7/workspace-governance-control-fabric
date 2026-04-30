@@ -274,9 +274,11 @@ remain in receipt-linked artifacts.
 
 The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
 It must explain selected checks, suppressed validators, and any operator-review
-reason. The core execution primitive must respect that decision. If the
-decision is blocked or requires operator review, it emits a compact receipt
-without running validators.
+reason. Plan records also return `check_statuses` so operator and API surfaces
+can distinguish `selected`, `suppressed`, `blocked`, `waived`, `stale`,
+`failed`, and `external-owner-required` checks without parsing prose. The core
+execution primitive must respect that decision. If the decision is blocked or
+requires operator review, it emits a compact receipt without running validators.
 
 Validation execution uses the schemas at:
 

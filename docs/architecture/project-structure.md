@@ -90,6 +90,8 @@ record with:
 - changed-file expansion into repo, component, dev-integration profile,
   manifest-declared ART, and release impact scopes
 - suppressed validators with explicit reasons
+- `check_statuses` that distinguish `selected`, `suppressed`, `blocked`,
+  `waived`, `stale`, `failed`, and `external-owner-required` checks
 - a planner decision: `planned`, `no_matching_validators`, or `blocked`
 
 The planner does not execute validators and does not decide policy from local

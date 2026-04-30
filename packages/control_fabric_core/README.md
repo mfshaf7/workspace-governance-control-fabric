@@ -76,6 +76,9 @@ fresh, still matches authority-ref digests when invalidation is enabled, and
 the validator declares safe reuse. Plans also carry explicit cache, timeout,
 retry, and output-budget decisions. They do not run commands, create receipts,
 append ledger events, or approve readiness.
+Every plan also returns explicit `check_statuses` so downstream operators can
+separate selected, suppressed, blocked, waived, stale, failed, and
+external-owner-required checks without scraping reason text.
 
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported
