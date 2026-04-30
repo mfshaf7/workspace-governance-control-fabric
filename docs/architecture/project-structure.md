@@ -83,6 +83,8 @@ record with:
 - a requested validation tier: `smoke`, `scoped`, `full`, or `release`
 - selected manifest-declared validators, preserving command, owner, scopes,
   check type, required posture, receipt-reuse decision, and tier metadata
+- changed-file expansion into repo, component, dev-integration profile,
+  manifest-declared ART, and release impact scopes
 - suppressed validators with explicit reasons
 - a planner decision: `planned`, `no_matching_validators`, or `blocked`
 

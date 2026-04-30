@@ -77,6 +77,11 @@ def governance_manifest_schema() -> dict[str, Any]:
         "required": ["repo", "path"],
         "type": "object",
     }
+    impact_scopes = {
+        "items": non_empty_string,
+        "type": "array",
+        "uniqueItems": True,
+    }
     reuse_policy = {
         "additionalProperties": True,
         "properties": {
@@ -107,6 +112,7 @@ def governance_manifest_schema() -> dict[str, Any]:
                         "authority_ref_ids": authority_ref_ids,
                         "component_id": non_empty_string,
                         "component_type": non_empty_string,
+                        "impact_scopes": impact_scopes,
                         "owner_repo": non_empty_string,
                         "source_paths": {
                             "items": non_empty_string,
@@ -147,6 +153,12 @@ def governance_manifest_schema() -> dict[str, Any]:
                         "owner_repo": non_empty_string,
                         "repo_id": non_empty_string,
                         "repo_name": non_empty_string,
+                        "source_paths": {
+                            "items": non_empty_string,
+                            "type": "array",
+                            "uniqueItems": True,
+                        },
+                        "impact_scopes": impact_scopes,
                     },
                     "required": list(SECTION_REQUIRED_FIELDS["repos"]),
                     "type": "object",

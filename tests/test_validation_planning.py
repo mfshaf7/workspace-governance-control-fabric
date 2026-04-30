@@ -10,7 +10,11 @@ from unittest import TestCase
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
-from control_fabric_core import build_validation_plan, normalize_validation_target
+from control_fabric_core import (
+    build_validation_plan,
+    normalize_validation_target,
+    validation_target_scope_candidates,
+)
 from control_fabric_core.validation_planning import ValidationTier
 
 
@@ -98,6 +102,69 @@ class ValidationPlanningTests(TestCase):
             "component:control-fabric-core, repo:workspace-governance-control-fabric",
             plan.decision.reasons,
         )
+
+    def test_changed_file_candidates_include_profile_release_and_impact_scopes(self) -> None:
+        manifest = deepcopy(load_example_manifest())
+        manifest["repos"][0]["source_paths"] = ["packages", "dev-integration", "deployments"]
+        manifest["repos"][0]["impact_scopes"] = ["release:wgcf-devint"]
+        manifest["components"][0]["impact_scopes"] = ["art:delivery-498"]
+
+        candidates = validation_target_scope_candidates(
+            manifest,
+            "changed-file:packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
+        )
+
+        self.assertEqual(
+            candidates,
+            (
+                "art:delivery-498",
+                "changed-file:packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
+                "component:control-fabric-core",
+                "release:wgcf-devint",
+                "repo:workspace-governance-control-fabric",
+            ),
+        )
+
+        profile_candidates = validation_target_scope_candidates(
+            manifest,
+            "changed-file:dev-integration/profiles/governance-control-fabric/profile.yaml",
+        )
+
+        self.assertIn("profile:governance-control-fabric", profile_candidates)
+        self.assertIn("release:wgcf-devint", profile_candidates)
+
+    def test_profile_and_release_targets_select_matching_validators(self) -> None:
+        manifest = deepcopy(load_example_manifest())
+        manifest["validators"].extend(
+            [
+                {
+                    "validator_id": "profile-runtime-smoke",
+                    "owner_repo": "workspace-governance-control-fabric",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["profile:governance-control-fabric"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+                {
+                    "validator_id": "release-readiness-smoke",
+                    "owner_repo": "workspace-governance-control-fabric",
+                    "command": "python3 scripts/validate_project.py --repo-root .",
+                    "scopes": ["release:wgcf-devint"],
+                    "validation_tier": "smoke",
+                    "check_type": "command",
+                    "required": True,
+                    "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                },
+            ],
+        )
+
+        profile_plan = build_validation_plan(manifest, "profile:governance-control-fabric", tier="smoke")
+        release_plan = build_validation_plan(manifest, "release:wgcf-devint", tier="smoke")
+
+        self.assertEqual([check.validator_id for check in profile_plan.checks], ["profile-runtime-smoke"])
+        self.assertEqual([check.validator_id for check in release_plan.checks], ["release-readiness-smoke"])
 
     def test_full_workspace_plan_includes_every_manifest_validator(self) -> None:
         plan = build_validation_plan(load_example_manifest(), "workspace", tier="full")

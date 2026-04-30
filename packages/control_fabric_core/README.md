@@ -68,10 +68,12 @@ database dependency or upstream authority write.
 Validation planning helpers consume the same manifest and emit compact,
 operator-safe plan records. They select only manifest-declared validators,
 expand repo-relative changed-file targets through manifest repo and component
-scopes, record suppressed validators with reasons, and stop at the decision
-layer. They may mark a check as `skip_fresh_receipt` when an input receipt is
-successful, fresh, and the validator declares safe reuse. They do not run
-commands, create receipts, append ledger events, or approve readiness.
+scopes, infer dev-integration profile scopes from profile paths, honor
+manifest-declared impact scopes such as ART and release targets, record
+suppressed validators with reasons, and stop at the decision layer. They may
+mark a check as `skip_fresh_receipt` when an input receipt is successful,
+fresh, and the validator declares safe reuse. They do not run commands, create
+receipts, append ledger events, or approve readiness.
 
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported

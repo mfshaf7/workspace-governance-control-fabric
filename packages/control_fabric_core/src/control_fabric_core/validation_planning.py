@@ -48,9 +48,11 @@ KNOWN_TARGET_PREFIXES = (
     "authority:",
     "component:",
     "projection:",
+    "profile:",
     "repo:",
     "validator:",
     "art:",
+    "release:",
     "changed-file:",
 )
 
@@ -272,6 +274,19 @@ def normalize_validation_target(target_scope: str) -> ValidationTarget:
     )
 
 
+def validation_target_scope_candidates(
+    manifest: dict[str, Any],
+    target_scope: str,
+) -> tuple[str, ...]:
+    """Return deterministic scopes that may satisfy a validation target."""
+
+    validation = validate_governance_manifest(manifest)
+    if not validation.valid:
+        raise ValueError(f"manifest is invalid: {'; '.join(validation.errors)}")
+    target = normalize_validation_target(target_scope)
+    return tuple(sorted(_target_scope_candidates(manifest, target)))
+
+
 def _validation_check(
     validator: dict[str, Any],
     target: ValidationTarget,
@@ -418,6 +433,10 @@ def _blocked_reasons(manifest: dict[str, Any], requested_tier: ValidationTier) -
 
 def _declared_scope_ids(manifest: dict[str, Any], graph) -> set[str]:
     scopes = {node.node_id for node in graph.nodes}
+    for repo in manifest.get("repos", []):
+        scopes.update(_impact_scopes(repo))
+    for component in manifest.get("components", []):
+        scopes.update(_impact_scopes(component))
     for validator in manifest["validators"]:
         scopes.update(str(scope).strip() for scope in validator["scopes"])
     return scopes
@@ -444,20 +463,76 @@ def _target_scope_candidates(manifest: dict[str, Any], target: ValidationTarget)
         return scopes
 
     changed_path = target.target_id
-    scopes.update(
-        f"repo:{repo['repo_id'].strip()}"
+    repos = [
+        repo
         for repo in manifest.get("repos", [])
         if str(repo.get("repo_id") or "").strip()
-    )
+    ]
+    for repo in repos:
+        source_paths = _source_paths(repo)
+        if len(repos) == 1 or _path_matches_source_paths(changed_path, source_paths):
+            scopes.add(f"repo:{repo['repo_id'].strip()}")
+            scopes.update(_impact_scopes(repo))
     for component in manifest.get("components", []):
         component_id = str(component.get("component_id") or "").strip()
         if not component_id:
             continue
-        for source_path in component.get("source_paths") or []:
-            normalized_source = str(PurePosixPath(str(source_path).strip().replace("\\", "/")))
-            if changed_path == normalized_source or changed_path.startswith(f"{normalized_source}/"):
-                scopes.add(f"component:{component_id}")
+        if _path_matches_source_paths(changed_path, _source_paths(component)):
+            scopes.add(f"component:{component_id}")
+            scopes.update(_impact_scopes(component))
+    profile_scope = _profile_scope_for_path(changed_path)
+    if profile_scope:
+        scopes.add(profile_scope)
     return scopes
+
+
+def _source_paths(item: dict[str, Any]) -> tuple[str, ...]:
+    raw_paths = item.get("source_paths") or item.get("paths") or []
+    if isinstance(raw_paths, str):
+        raw_paths = [raw_paths]
+    return tuple(
+        str(PurePosixPath(str(path).strip().replace("\\", "/")))
+        for path in raw_paths
+        if str(path).strip()
+    )
+
+
+def _impact_scopes(item: dict[str, Any]) -> set[str]:
+    raw_scopes = item.get("impact_scopes") or item.get("validation_scopes") or []
+    if isinstance(raw_scopes, str):
+        raw_scopes = [raw_scopes]
+    return {
+        str(scope).strip()
+        for scope in raw_scopes
+        if _is_supported_scope(str(scope).strip())
+    }
+
+
+def _path_matches_source_paths(changed_path: str, source_paths: tuple[str, ...]) -> bool:
+    if not source_paths:
+        return False
+    for source_path in source_paths:
+        if source_path in {"", "."}:
+            return True
+        if changed_path == source_path or changed_path.startswith(f"{source_path.rstrip('/')}/"):
+            return True
+    return False
+
+
+def _profile_scope_for_path(changed_path: str) -> str | None:
+    parts = PurePosixPath(changed_path).parts
+    for index in range(len(parts) - 2):
+        if parts[index:index + 2] == ("dev-integration", "profiles"):
+            profile_id = parts[index + 2].strip()
+            if profile_id:
+                return f"profile:{profile_id}"
+    return None
+
+
+def _is_supported_scope(scope: str) -> bool:
+    if scope == "workspace":
+        return True
+    return any(scope.startswith(prefix) and scope.removeprefix(prefix).strip() for prefix in KNOWN_TARGET_PREFIXES)
 
 
 def _receipt_reuse_decision(

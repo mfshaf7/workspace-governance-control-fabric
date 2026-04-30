@@ -65,6 +65,14 @@
             "minLength": 1,
             "type": "string"
           },
+          "impact_scopes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
           "owner_repo": {
             "minLength": 1,
             "type": "string"
@@ -174,6 +182,22 @@
           "repo_name": {
             "minLength": 1,
             "type": "string"
+          },
+          "source_paths": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "impact_scopes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
