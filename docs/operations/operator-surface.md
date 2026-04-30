@@ -18,13 +18,14 @@ The repo is still in bootstrap state. The operator surface is intentionally
 defined before implementation so the first runtime code does not invent a
 different workflow.
 
-Only the bootstrap status, manifest graph ingestion, read-only graph query,
+Only the bootstrap status, core-library source snapshot ingestion, manifest
+graph ingestion, fabric-local graph persistence helpers, read-only graph query,
 validation planning, core-library validation execution, core-library policy
 admission, core-library runtime governance records, core-library evidence
-projection surfaces, and local-k3s dev-integration API access are
-implemented now. Treat the remaining CLI commands and API routes below as the
-minimum required interface contract for later slices, not as currently
-available runtime commands.
+projection surfaces, and local-k3s dev-integration API access are implemented
+now. Treat the remaining CLI
+commands and API routes below as the minimum required interface contract for
+later slices, not as currently available runtime commands.
 
 ## Authority Boundaries
 
@@ -50,11 +51,13 @@ Use this flow for the currently implemented local CLI surface:
 
 1. Check fabric status.
 2. Inspect the manifest graph for the repo, component, or ART scope.
-3. Plan validation for a workspace, repo, component, ART, or changed-file
+3. Inspect compact source snapshot status for authority refs, source kinds,
+   missing sources, and local source roots.
+4. Plan validation for a workspace, repo, component, ART, or changed-file
    scope.
-4. Run the bounded local check and emit a receipt.
-5. List receipt metadata instead of rereading raw output.
-6. Use artifact and ledger references for handoff or audit.
+5. Run the bounded local check and emit a receipt.
+6. List receipt metadata instead of rereading raw output.
+7. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -66,6 +69,7 @@ wgcf status
 wgcf graph query --scope repo:<name> --manifest <path>
 wgcf graph query --scope component:<name> --manifest <path>
 wgcf graph query --scope art:<delivery-id> --manifest <path>
+wgcf sources snapshot --workspace-root <path>
 wgcf plan --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf receipts list
@@ -74,7 +78,6 @@ wgcf receipts list
 Future CLI shape:
 
 ```bash
-wgcf sources snapshot --workspace-root <path>
 wgcf run --plan <plan-id-or-file> --emit-receipt
 wgcf inspect --receipt <receipt-id-or-path>
 wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
@@ -148,6 +151,7 @@ Required route meanings:
 - `GET /v1/status`
 - `GET /v1/graph`
 - `GET /v1/graph/query?scope=<scope>`
+- `GET /v1/source-snapshots/status`
 - `POST /v1/validation-plans`
 - `GET /v1/receipts`
 
@@ -280,8 +284,8 @@ Current execution behavior:
 - never embeds raw stdout/stderr in receipts or ART notes
 
 CLI `wgcf check` now composes planning plus execution into a local receipt and
-ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, database
-persistence, and worker queue execution remain later slices.
+ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, API-side
+persistence wiring, and worker queue execution remain later slices.
 
 Policy admission uses the schemas and policies at:
 
@@ -347,6 +351,13 @@ The database does not become the source of truth for workspace contracts,
 platform deployment state, security acceptance, or Delivery ART state. Those
 remain owned by their upstream repos and systems. The fabric stores digests,
 references, receipts, and decisions derived from those authorities.
+
+Source snapshots are digest-only records for upstream authority files, repo
+manifests, component contracts, and dev-integration profile files. The current
+implementation can build these records in the core library and persist them
+with authority digests, freshness markers, graph nodes, graph edges, and
+synthetic scope nodes through the fabric-local SQLAlchemy model. CLI, API, and
+worker wiring remain later slices.
 
 Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
 redacted database URL, but it must not print database passwords or raw

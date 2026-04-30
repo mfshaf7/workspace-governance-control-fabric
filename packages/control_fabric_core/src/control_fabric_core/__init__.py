@@ -22,6 +22,14 @@ from .graph_queries import (
     query_manifest_file,
     query_manifest_graph,
 )
+from .graph_persistence import (
+    GovernanceStatePersistenceResult,
+    GraphPersistenceResult,
+    SourceSnapshotPersistenceResult,
+    persist_governance_state,
+    persist_manifest_graph,
+    persist_source_snapshot,
+)
 from .database import DATABASE_URL_ENV, DEFAULT_DATABASE_URL, database_settings
 from .evidence_projection import (
     ArtCompletionEvidenceProjection,
@@ -64,6 +72,14 @@ from .runtime_governance_records import (
     record_change_event,
     record_risk_posture,
     record_waiver_decision,
+)
+from .source_snapshots import (
+    AuthoritySourceRef,
+    ExcludedSourceRef,
+    SourceRootSnapshot,
+    SourceSnapshot,
+    build_source_snapshot,
+    source_snapshot_status,
 )
 from .validation_planning import (
     PlannerDecision,
@@ -112,6 +128,8 @@ __all__ = [
     "RUNTIME_REPO",
     "ReviewPacketEvidenceProjection",
     "RuntimeGovernanceRecord",
+    "AuthoritySourceRef",
+    "ExcludedSourceRef",
     "STATUS_BOOTSTRAP",
     "ManifestGraph",
     "ManifestGraphEdge",
@@ -119,6 +137,11 @@ __all__ = [
     "ManifestGraphQueryResult",
     "ManifestValidationResult",
     "PlannerDecision",
+    "GovernanceStatePersistenceResult",
+    "GraphPersistenceResult",
+    "SourceRootSnapshot",
+    "SourceSnapshot",
+    "SourceSnapshotPersistenceResult",
     "SuppressedValidator",
     "ValidationArtifactRef",
     "ValidationCheck",
@@ -136,6 +159,7 @@ __all__ = [
     "build_manifest_graph",
     "build_operator_validation_plan",
     "build_validation_plan",
+    "build_source_snapshot",
     "database_settings",
     "evaluate_admission_policy",
     "graph_summary",
@@ -144,6 +168,9 @@ __all__ = [
     "list_control_receipts",
     "manifest_entity_ids",
     "normalize_validation_target",
+    "persist_governance_state",
+    "persist_manifest_graph",
+    "persist_source_snapshot",
     "query_manifest_file",
     "query_manifest_graph",
     "project_receipt_to_art_completion_evidence",
@@ -156,6 +183,7 @@ __all__ = [
     "record_waiver_decision",
     "run_operator_validation_check",
     "status_snapshot",
+    "source_snapshot_status",
     "execute_validation_plan",
     "validate_governance_manifest",
     "worker_status_snapshot",
