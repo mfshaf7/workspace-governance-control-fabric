@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/validation-receipt.schema.json",
+  "additionalProperties": false,
+  "description": "Operator-safe validation execution receipt. Raw validator output must stay in referenced artifacts.",
+  "properties": {
+    "artifact_refs": {
+      "items": {
+        "$ref": "#/$defs/artifact_ref"
+      },
+      "type": "array"
+    },
+    "captured_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "check_results": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_refs": {
+            "items": {
+              "$ref": "#/$defs/artifact_ref"
+            },
+            "type": "array"
+          },
+          "check_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "command_digest": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "output_summary": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "reused_receipt_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "enum": [
+              "success",
+              "failure",
+              "blocked",
+              "skipped_fresh_receipt"
+            ],
+            "type": "string"
+          },
+          "validator_id": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_refs",
+          "check_id",
+          "command_digest",
+          "duration_ms",
+          "error",
+          "exit_code",
+          "output_summary",
+          "required",
+          "reused_receipt_id",
+          "status",
+          "validator_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "manifest_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "success",
+        "failure",
+        "blocked",
+        "operator_review_required"
+      ],
+      "type": "string"
+    },
+    "plan_id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "planner_decision": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "receipt_id": {
+      "pattern": "^control-receipt:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "suppressed_output_summary": {
+      "additionalProperties": true,
+      "properties": {
+        "raw_output_in_receipt": {
+          "const": false
+        }
+      },
+      "required": [
+        "raw_output_in_receipt"
+      ],
+      "type": "object"
+    },
+    "target_scope": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "tier": {
+      "enum": [
+        "smoke",
+        "scoped",
+        "full",
+        "release"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_refs",
+    "captured_at",
+    "check_results",
+    "digest",
+    "manifest_id",
+    "outcome",
+    "plan_id",
+    "planner_decision",
+    "receipt_id",
+    "schema_version",
+    "suppressed_output_summary",
+    "target_scope",
+    "tier"
+  ],
+  "title": "Workspace Governance Control Fabric Validation Receipt",
+  "type": "object",
+  "$defs": {
+    "artifact_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "pattern": "^artifact:[0-9a-f]{24}$",
+          "type": "string"
+        },
+        "byte_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "media_type": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "path": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "purpose": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "byte_count",
+        "digest",
+        "media_type",
+        "path",
+        "purpose"
+      ],
+      "type": "object"
+    }
+  }
+}
