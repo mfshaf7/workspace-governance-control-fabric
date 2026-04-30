@@ -11,6 +11,12 @@ Current slice:
 - implement `GET /v1/graph` for a read-only manifest graph projection
 - implement `GET /v1/graph/query?scope=<scope>` for compact repo, component,
   validator, projection, authority, or ART-oriented graph slices
+- implement `POST /v1/validation-plans` for compact validation-plan records
+- implement `GET /v1/receipts` for compact local receipt metadata
+
+The API does not run validators yet. Validation execution remains local CLI and
+core-library behavior until platform and security gates approve the runtime
+execution posture.
 
 Run locally after installing dependencies:
 

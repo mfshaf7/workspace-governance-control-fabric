@@ -77,7 +77,8 @@ That surface is constrained by the workspace-owned contract in
   the Python entrypoint.
 - `apps/api/` owns the FastAPI service boundary. The current implementation
   exposes `GET /healthz`, `GET /readyz`, `GET /v1/status`, `GET /v1/graph`,
-  and `GET /v1/graph/query` with version and manifest graph metadata.
+  `GET /v1/graph/query`, `POST /v1/validation-plans`, and `GET /v1/receipts`
+  with compact runtime metadata.
 - `apps/worker/` owns the Temporal-ready worker package boundary. The current
   implementation exposes `wgcf-worker status`, declares future worker
   capabilities, and intentionally does not run long-lived workflow behavior.
@@ -89,9 +90,9 @@ That surface is constrained by the workspace-owned contract in
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   deterministic validation planning primitives, bounded validation execution,
-  compact receipts, local ledger event helpers, bootstrap policy admission
-  decisions, runtime governance records, and compact evidence projection
-  adapters.
+  compact receipts, local ledger event helpers, operator-safe plan/check and
+  receipt-list helpers, bootstrap policy admission decisions, runtime
+  governance records, and compact evidence projection adapters.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -145,12 +146,16 @@ governance documentation, review controls, and Python scaffold in place.
 Local validation:
 
 ```bash
-python3 -m pip install -e ".[test]"
-python3 scripts/validate_project.py --repo-root .
-PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m unittest discover -s tests
-PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
-PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli graph query --repo-root . --scope repo:workspace-governance-control-fabric
-PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_worker status --repo-root .
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[test]"
+.venv/bin/python scripts/validate_project.py --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src:apps/worker/src .venv/bin/python -m unittest discover -s tests
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli status --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli graph query --repo-root . --scope repo:workspace-governance-control-fabric
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli plan --repo-root . --scope repo:workspace-governance-control-fabric --tier smoke
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli check --repo-root . --scope repo:workspace-governance-control-fabric --tier smoke
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli receipts list --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
 ```
 
 The scaffold validator also verifies that the static governance manifest schema
@@ -167,6 +172,13 @@ writes stdout/stderr to local artifacts, records sha256 digests and byte/line
 counts, and returns an operator-safe receipt plus ledger event. If the input
 plan is blocked or requires operator review, execution is suppressed and the
 receipt outcome records that state instead of claiming success.
+
+The CLI now exposes that flow through `wgcf plan`, `wgcf check`, and
+`wgcf receipts list`. `wgcf check` writes raw stdout/stderr to local artifact
+files, writes a compact receipt JSON under `.wgcf/receipts` by default, and
+appends a local ledger JSONL event. The API exposes planning and receipt list
+surfaces only; API-side validation execution remains a later platform-gated
+slice.
 
 Policy admission currently lives in the core library. It evaluates bootstrap
 repo/component admission inputs, validation blocking posture, waiver posture,

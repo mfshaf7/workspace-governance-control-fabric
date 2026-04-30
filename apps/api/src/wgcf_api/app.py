@@ -10,10 +10,13 @@ from fastapi import FastAPI, HTTPException, Query
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
+    DEFAULT_RECEIPT_DIR,
     PACKAGE_VERSION,
     RUNTIME_REPO,
+    build_operator_validation_plan,
     build_graph_from_manifest_file,
     graph_summary,
+    list_control_receipts,
     query_manifest_file,
     status_snapshot,
 )
@@ -89,6 +92,38 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "query": result.to_record(),
         }
 
+    @app.post("/v1/validation-plans")
+    async def validation_plans(request: dict[str, Any]) -> dict[str, Any]:
+        scope = str(request.get("scope") or "").strip()
+        if not scope:
+            raise HTTPException(status_code=400, detail="scope is required")
+        tier = str(request.get("tier") or "scoped").strip()
+        manifest_path = str(request.get("manifest_path") or DEFAULT_MANIFEST_PATH).strip()
+        try:
+            manifest_file = _resolve_manifest_path(resolved_repo_root, manifest_path)
+            plan = build_operator_validation_plan(manifest_file, scope, tier=tier)
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "manifest_path": str(manifest_file.relative_to(resolved_repo_root)),
+            "plan": plan.to_record(),
+        }
+
+    @app.get("/v1/receipts")
+    async def receipts(
+        receipt_dir: str = Query(DEFAULT_RECEIPT_DIR, description="Repo-local compact receipt directory."),
+    ) -> dict[str, Any]:
+        try:
+            receipt_path = _resolve_local_path(resolved_repo_root, receipt_dir, "receipt_dir")
+            summaries = [receipt.to_record() for receipt in list_control_receipts(receipt_path)]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "count": len(summaries),
+            "receipt_dir": str(receipt_path.relative_to(resolved_repo_root)),
+            "receipts": summaries,
+        }
+
     return app
 
 
@@ -99,6 +134,16 @@ def _resolve_manifest_path(repo_root: Path, manifest_path: str) -> Path:
     resolved = candidate.resolve()
     if not resolved.is_relative_to(repo_root):
         raise ValueError("manifest_path must stay inside the repository root")
+    return resolved
+
+
+def _resolve_local_path(repo_root: Path, value: str, label: str) -> Path:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(repo_root):
+        raise ValueError(f"{label} must stay inside the repository root")
     return resolved
 
 

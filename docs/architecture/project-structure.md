@@ -85,8 +85,7 @@ The planner does not execute validators and does not decide policy from local
 code. It only selects validators that were already declared in the manifest,
 expands changed-file targets through manifest repo and component declarations,
 and marks checks as reusable only when a safe-to-reuse validator has a fresh
-successful receipt input. Later slices own actual validator execution and
-durable ledger/receipt writes.
+successful receipt input.
 
 ## Validation Execution Model
 
@@ -105,9 +104,12 @@ produces compact proof records without becoming a policy engine:
 - receipts do not embed raw stdout/stderr
 - ledger events reference receipts and artifacts for append-only audit
 
-The execution model is intentionally local-first. PostgreSQL persistence, API
-execution, CLI `wgcf run`, and worker queue execution stay in later slices so
-this layer remains testable and bounded.
+The execution model is intentionally local-first. The CLI now composes this
+through `wgcf check`, writes compact receipt JSON, appends a local ledger event,
+and lists receipt metadata through `wgcf receipts list`. PostgreSQL
+persistence, API-side validation execution, CLI `wgcf run --plan`, and worker
+queue execution stay in later slices so this layer remains testable and
+bounded.
 
 ## Policy Admission Model
 

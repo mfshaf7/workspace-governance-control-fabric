@@ -18,8 +18,21 @@ from wgcf_api import create_app
 
 
 async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
+    return await asgi_request_json("GET", path)
+
+
+async def asgi_post_json(path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    return await asgi_request_json("POST", path, payload)
+
+
+async def asgi_request_json(
+    method: str,
+    path: str,
+    payload: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any]]:
     app = create_app(REPO_ROOT)
     parsed_path = urlsplit(path)
+    body = json.dumps(payload or {}).encode("utf-8")
     messages: list[dict[str, Any]] = []
     request_sent = False
 
@@ -27,7 +40,7 @@ async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
         nonlocal request_sent
         if not request_sent:
             request_sent = True
-            return {"type": "http.request", "body": b"", "more_body": False}
+            return {"type": "http.request", "body": body, "more_body": False}
         await asyncio.sleep(3600)
         return {"type": "http.disconnect"}
 
@@ -38,11 +51,14 @@ async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "GET",
+        "method": method,
         "path": parsed_path.path,
         "raw_path": parsed_path.path.encode("ascii"),
         "query_string": parsed_path.query.encode("ascii"),
-        "headers": [],
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("ascii")),
+        ],
         "client": ("testclient", 50000),
         "server": ("testserver", 80),
         "scheme": "http",
@@ -105,3 +121,25 @@ class ApiTests(TestCase):
 
         self.assertEqual(status, 400)
         self.assertIn("repository root", payload["detail"])
+
+    def test_validation_plan_endpoint_returns_compact_plan(self) -> None:
+        status, payload = asyncio.run(
+            asgi_post_json(
+                "/v1/validation-plans",
+                {
+                    "scope": "repo:workspace-governance-control-fabric",
+                    "tier": "smoke",
+                },
+            ),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["plan"]["decision"]["outcome"], "planned")
+        self.assertEqual(payload["plan"]["checks"][0]["validator_id"], "control-fabric-status-smoke")
+
+    def test_receipts_endpoint_lists_empty_receipt_directory(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/receipts?receipt_dir=.wgcf/test-missing-receipts"))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["receipts"], [])
