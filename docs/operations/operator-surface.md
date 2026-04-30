@@ -18,13 +18,13 @@ The repo is still in bootstrap state. The operator surface is intentionally
 defined before implementation so the first runtime code does not invent a
 different workflow.
 
-Only the bootstrap status, manifest graph ingestion, read-only graph query,
-validation planning, core-library validation execution, core-library policy
-admission, core-library runtime governance records, core-library evidence
-projection surfaces, and local-k3s dev-integration API access are
-implemented now. Treat the remaining CLI commands and API routes below as the
-minimum required interface contract for later slices, not as currently
-available runtime commands.
+Only the bootstrap status, core-library source snapshot ingestion, manifest
+graph ingestion, read-only graph query, validation planning, core-library
+validation execution, core-library policy admission, core-library runtime
+governance records, core-library evidence projection surfaces, and local-k3s
+dev-integration API access are implemented now. Treat the remaining CLI
+commands and API routes below as the minimum required interface contract for
+later slices, not as currently available runtime commands.
 
 ## Authority Boundaries
 
@@ -347,6 +347,11 @@ The database does not become the source of truth for workspace contracts,
 platform deployment state, security acceptance, or Delivery ART state. Those
 remain owned by their upstream repos and systems. The fabric stores digests,
 references, receipts, and decisions derived from those authorities.
+
+Source snapshots are digest-only records for upstream authority files, repo
+manifests, component contracts, and dev-integration profile files. The current
+implementation can build these records in the core library; CLI, API, worker,
+and PostgreSQL persistence paths are later slices.
 
 Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
 redacted database URL, but it must not print database passwords or raw

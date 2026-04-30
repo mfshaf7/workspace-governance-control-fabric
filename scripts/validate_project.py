@@ -35,6 +35,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
     "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
     "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py",
+    "packages/control_fabric_core/src/control_fabric_core/source_snapshots.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
@@ -132,6 +133,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_governance_record_ledger_event,
         build_manifest_graph,
         build_operator_validation_plan,
+        build_source_snapshot,
         build_policy_ledger_event,
         build_validation_plan,
         evaluate_admission_policy,
@@ -251,6 +253,50 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if operator_plan.decision.outcome != "planned":
         errors.append("operator validation plan was not planned")
+    source_snapshot = build_source_snapshot(repo_root.parent, actor="wgcf-validate-project")
+    source_record = source_snapshot.to_record()
+    authority_repos = {
+        source_ref["repo"]
+        for source_ref in source_record["authority_refs"]
+    }
+    owner_map_present = (
+        repo_root.parent / "workspace-governance/generated/resolved-owner-map.json"
+    ).is_file()
+    if owner_map_present:
+        for required_authority_repo in (
+            "workspace-governance",
+            "platform-engineering",
+            "security-architecture",
+            "operator-orchestration-service",
+            "workspace-governance-control-fabric",
+        ):
+            if required_authority_repo not in authority_repos:
+                errors.append(f"source snapshot missing authority repo: {required_authority_repo}")
+    elif "workspace-governance-control-fabric" not in authority_repos:
+        errors.append("source snapshot missing local runtime repo authority refs")
+    authority_kinds = {
+        source_ref["source_kind"]
+        for source_ref in source_record["authority_refs"]
+    }
+    required_source_kinds = (
+        "workspace-authority",
+        "validator-catalog",
+        "platform-runtime",
+        "security-review",
+        "operator-workflow",
+        "repo-manifest",
+        "dev-integration-profile",
+    )
+    if not owner_map_present:
+        required_source_kinds = ("repo-manifest", "dev-integration-profile")
+        if source_record["summary"]["excluded_ref_count"] == 0:
+            errors.append("isolated source snapshot should report excluded upstream authority refs")
+    for required_kind in required_source_kinds:
+        if required_kind not in authority_kinds:
+            errors.append(f"source snapshot missing source kind: {required_kind}")
+    minimum_authority_refs = 20 if owner_map_present else 3
+    if source_record["summary"]["authority_ref_count"] < minimum_authority_refs:
+        errors.append("source snapshot returned too few authority refs for workspace ingestion")
     synthetic_manifest = json.loads(json.dumps(example_manifest))
     synthetic_manifest["manifest_id"] = "wgcf-validation-project-self-check"
     synthetic_manifest["validators"] = [

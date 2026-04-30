@@ -65,6 +65,13 @@ from .runtime_governance_records import (
     record_risk_posture,
     record_waiver_decision,
 )
+from .source_snapshots import (
+    AuthoritySourceRef,
+    ExcludedSourceRef,
+    SourceRootSnapshot,
+    SourceSnapshot,
+    build_source_snapshot,
+)
 from .validation_planning import (
     PlannerDecision,
     SuppressedValidator,
@@ -112,6 +119,8 @@ __all__ = [
     "RUNTIME_REPO",
     "ReviewPacketEvidenceProjection",
     "RuntimeGovernanceRecord",
+    "AuthoritySourceRef",
+    "ExcludedSourceRef",
     "STATUS_BOOTSTRAP",
     "ManifestGraph",
     "ManifestGraphEdge",
@@ -119,6 +128,8 @@ __all__ = [
     "ManifestGraphQueryResult",
     "ManifestValidationResult",
     "PlannerDecision",
+    "SourceRootSnapshot",
+    "SourceSnapshot",
     "SuppressedValidator",
     "ValidationArtifactRef",
     "ValidationCheck",
@@ -136,6 +147,7 @@ __all__ = [
     "build_manifest_graph",
     "build_operator_validation_plan",
     "build_validation_plan",
+    "build_source_snapshot",
     "database_settings",
     "evaluate_admission_policy",
     "graph_summary",

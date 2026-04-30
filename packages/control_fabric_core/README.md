@@ -9,6 +9,8 @@ Current slice:
 - authority-boundary references
 - bootstrap status snapshot helpers
 - database settings without leaking secrets
+- digest-only source snapshot ingestion across workspace authority repos, repo
+  manifests, component interface manifests, and dev-integration profiles
 - runtime governance manifest schema and dependency-free manifest validation
 - deterministic manifest-to-graph ingestion primitives
 - read-only manifest graph query helpers for repo, component, validator,
@@ -35,6 +37,11 @@ Current slice:
 
 This package must not copy or redefine workspace-governance policy. Policy
 meaning stays in the upstream authority contracts.
+
+Source snapshot ingestion records file digests, local Git refs, source kinds,
+and missing-source exclusions for the authority surfaces WGCF depends on. It
+does not copy contract contents into the fabric and does not write to upstream
+repos.
 
 The governance manifest schema is an ingestion boundary for runtime graph
 planning. It records repo, component, validator, and projection declarations
