@@ -79,6 +79,9 @@ That surface is constrained by the workspace-owned contract in
   metadata.
 - `apps/worker/` reserves the future background execution boundary. Worker
   behavior lands in a later scoped slice.
+- `dev-integration/profiles/governance-control-fabric/` records the proposed
+  local-k3s runtime lane. It is not self-serve launchable until platform
+  acceptance and required security review move the profile to `active`.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
   bootstrap status, authority-boundary references, and future record helpers.
 - `scripts/validate_project.py` validates the scaffold without requiring
