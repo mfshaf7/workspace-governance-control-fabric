@@ -77,6 +77,28 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(plan.decision.outcome, "planned")
         self.assertEqual(plan.checks[0].validator_id, "control-fabric-project-scaffold")
 
+    def test_changed_file_plan_expands_to_repo_and_component_scopes(self) -> None:
+        plan = build_validation_plan(
+            load_example_manifest(),
+            "changed-file:packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
+            tier="scoped",
+        )
+
+        self.assertEqual(plan.decision.outcome, "planned")
+        self.assertEqual(plan.target.target_type, "changed-file")
+        self.assertEqual(
+            [check.validator_id for check in plan.checks],
+            [
+                "control-fabric-project-scaffold",
+                "control-fabric-status-smoke",
+            ],
+        )
+        self.assertIn(
+            "changed-file target expands to "
+            "component:control-fabric-core, repo:workspace-governance-control-fabric",
+            plan.decision.reasons,
+        )
+
     def test_full_workspace_plan_includes_every_manifest_validator(self) -> None:
         plan = build_validation_plan(load_example_manifest(), "workspace", tier="full")
 
@@ -115,9 +137,68 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(first.plan_id, second.plan_id)
         self.assertEqual(first.to_record(), second.to_record())
 
+    def test_fresh_receipt_marks_safe_check_as_skip_candidate(self) -> None:
+        plan = build_validation_plan(
+            load_example_manifest(),
+            "repo:workspace-governance-control-fabric",
+            tier="scoped",
+            receipts=[
+                {
+                    "receipt_id": "receipt:project-scaffold:1",
+                    "validator_id": "control-fabric-project-scaffold",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "scoped",
+                    "status": "success",
+                    "captured_at": "2026-04-30T09:00:00Z",
+                    "digest": "sha256:example-project-scaffold",
+                },
+            ],
+            now="2026-04-30T09:05:00Z",
+        )
+
+        checks = {check.validator_id: check for check in plan.checks}
+        reused = checks["control-fabric-project-scaffold"]
+        self.assertEqual(reused.execution_mode, "skip_fresh_receipt")
+        self.assertEqual(reused.receipt_id, "receipt:project-scaffold:1")
+        self.assertEqual(reused.receipt_digest, "sha256:example-project-scaffold")
+        self.assertIn("fresh_receipts_applied=1", plan.decision.reasons)
+        self.assertEqual(checks["control-fabric-status-smoke"].execution_mode, "run")
+
+    def test_stale_receipt_does_not_skip_validation(self) -> None:
+        plan = build_validation_plan(
+            load_example_manifest(),
+            "repo:workspace-governance-control-fabric",
+            tier="scoped",
+            receipts=[
+                {
+                    "receipt_id": "receipt:project-scaffold:old",
+                    "validator_id": "control-fabric-project-scaffold",
+                    "target_scope": "repo:workspace-governance-control-fabric",
+                    "tier": "scoped",
+                    "status": "success",
+                    "captured_at": "2026-04-30T08:00:00Z",
+                },
+            ],
+            now="2026-04-30T09:05:00Z",
+        )
+
+        self.assertEqual(
+            {check.validator_id: check.execution_mode for check in plan.checks},
+            {
+                "control-fabric-project-scaffold": "run",
+                "control-fabric-status-smoke": "run",
+            },
+        )
+
     def test_target_scope_validation_is_explicit(self) -> None:
         with self.assertRaisesRegex(ValueError, "must not be empty"):
             normalize_validation_target(" ")
 
         with self.assertRaisesRegex(ValueError, "must be workspace or start with"):
             normalize_validation_target("delivery-420")
+
+        with self.assertRaisesRegex(ValueError, "relative repo path"):
+            normalize_validation_target("changed-file:/etc/passwd")
+
+        with self.assertRaisesRegex(ValueError, "relative repo path"):
+            normalize_validation_target("changed-file:../outside")

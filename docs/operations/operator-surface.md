@@ -176,15 +176,25 @@ Validation planning uses four tiers:
 
 - `smoke`: smallest declared checks for fast local confidence
 - `scoped`: checks declared for the requested repo, component, validator,
-  projection, authority, or ART scope
+  projection, authority, ART, or changed-file scope
 - `full`: all manifest-declared validators for the current manifest
 - `release`: full-surface planning plus current authority-ref freshness
   requirements
 
+Changed-file planning accepts `changed-file:<repo-relative-path>` and expands
+it to matching repo and component scopes declared by the manifest. This keeps
+file-based planning deterministic without hardcoding validator policy in code.
+
+Manifest validators may declare `reuse_policy.safe_to_reuse` and
+`reuse_policy.freshness_seconds`. When the planner receives matching successful
+receipt records that are still fresh, it marks those checks as
+`skip_fresh_receipt` candidates in the plan. It does not persist or create
+receipts in this slice.
+
 The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
 It must explain selected checks, suppressed validators, and any operator-review
-reason. It must not execute validators or claim receipt evidence; later ART
-slices own changed-file scope expansion, receipt reuse, execution, and ledger
+reason. It must not execute validators or claim new receipt evidence; later ART
+slices own actual validation execution, durable receipt storage, and ledger
 appends.
 
 ## Database Foundation

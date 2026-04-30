@@ -67,6 +67,10 @@
       "validation_tier": "smoke",
       "check_type": "command",
       "required": true,
+      "reuse_policy": {
+        "safe_to_reuse": true,
+        "freshness_seconds": 300
+      },
       "authority_ref_ids": [
         "wgcf-runtime-repo-guidance",
         "wgcf-operator-surface"
@@ -84,6 +88,10 @@
       "validation_tier": "scoped",
       "check_type": "command",
       "required": true,
+      "reuse_policy": {
+        "safe_to_reuse": true,
+        "freshness_seconds": 900
+      },
       "authority_ref_ids": [
         "wgcf-runtime-repo-guidance",
         "wgcf-operator-surface"

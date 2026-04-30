@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from hashlib import sha256
+from pathlib import PurePosixPath
 from typing import Any
 
 from .graph_ingestion import build_manifest_graph
@@ -42,7 +44,22 @@ VALIDATION_TIER_ORDER = {
 
 DEFAULT_VALIDATION_TIER = ValidationTier.SCOPED
 DEFAULT_CHECK_TYPE = ValidationCheckType.COMMAND
-KNOWN_TARGET_PREFIXES = ("authority:", "component:", "projection:", "repo:", "validator:", "art:")
+KNOWN_TARGET_PREFIXES = (
+    "authority:",
+    "component:",
+    "projection:",
+    "repo:",
+    "validator:",
+    "art:",
+    "changed-file:",
+)
+
+
+class ValidationExecutionMode(StrEnum):
+    """Whether the planned check should run or can reuse a fresh receipt."""
+
+    RUN = "run"
+    SKIP_FRESH_RECEIPT = "skip_fresh_receipt"
 
 
 @dataclass(frozen=True)
@@ -64,8 +81,12 @@ class ValidationCheck:
     check_id: str
     check_type: str
     command: str
+    execution_mode: str
     owner_repo: str
+    receipt_digest: str | None
+    receipt_id: str | None
     required: bool
+    reuse_reason: str | None
     scopes: tuple[str, ...]
     tier: str
     validator_id: str
@@ -138,6 +159,8 @@ def build_validation_plan(
     manifest: dict[str, Any],
     target_scope: str,
     tier: str | ValidationTier = ValidationTier.SCOPED,
+    receipts: list[dict[str, Any]] | None = None,
+    now: datetime | str | None = None,
 ) -> ValidationPlan:
     """Build a deterministic validation plan from manifest-declared validators."""
 
@@ -146,10 +169,13 @@ def build_validation_plan(
         raise ValueError(f"manifest is invalid: {'; '.join(validation.errors)}")
 
     requested_tier = _coerce_tier(tier)
+    receipt_records = tuple(receipts or [])
+    planning_time = _coerce_now(now)
     target = normalize_validation_target(target_scope)
     graph = build_manifest_graph(manifest)
     declared_scope_ids = _declared_scope_ids(manifest, graph)
-    target_declared = target.scope in declared_scope_ids or target.target_type == "workspace"
+    target_scopes = _target_scope_candidates(manifest, target)
+    target_declared = bool(target_scopes & declared_scope_ids) or target.target_type == "workspace"
 
     selected: list[ValidationCheck] = []
     suppressed: list[SuppressedValidator] = []
@@ -163,18 +189,34 @@ def build_validation_plan(
                 ),
             )
             continue
-        if not _scope_included(validator["scopes"], target, requested_tier):
+        if not _scope_included(validator["scopes"], target, requested_tier, manifest):
             suppressed.append(
                 SuppressedValidator(
                     validator_id=validator["validator_id"],
-                    reason=f"validator does not declare target scope {target.scope}",
+                    reason=f"validator does not declare a scope matching {target.scope}",
                 ),
             )
             continue
 
-        selected.append(_validation_check(validator, target, validator_tier, requested_tier))
+        selected.append(
+            _validation_check(
+                validator,
+                target,
+                validator_tier,
+                requested_tier,
+                manifest,
+                receipt_records,
+                planning_time,
+            ),
+        )
 
-    reasons = _decision_reasons(target, requested_tier, selected, target_declared)
+    reasons = _decision_reasons(
+        manifest,
+        target,
+        requested_tier,
+        selected,
+        target_declared,
+    )
     blocked_reasons = _blocked_reasons(manifest, requested_tier)
     if blocked_reasons:
         outcome = "blocked"
@@ -212,6 +254,8 @@ def normalize_validation_target(target_scope: str) -> ValidationTarget:
         raise ValueError("validation target scope must not be empty")
     if scope == "workspace":
         return ValidationTarget(scope=scope, target_type="workspace", target_id="workspace")
+    if scope.startswith("changed-file:"):
+        return _normalize_changed_file_target(scope)
     for prefix in KNOWN_TARGET_PREFIXES:
         if scope.startswith(prefix):
             target_id = scope.removeprefix(prefix).strip()
@@ -233,15 +277,29 @@ def _validation_check(
     target: ValidationTarget,
     validator_tier: ValidationTier,
     requested_tier: ValidationTier,
+    manifest: dict[str, Any],
+    receipts: tuple[dict[str, Any], ...],
+    now: datetime,
 ) -> ValidationCheck:
     validator_id = validator["validator_id"].strip()
+    execution_mode, receipt_id, receipt_digest, reuse_reason = _receipt_reuse_decision(
+        validator,
+        target,
+        requested_tier,
+        receipts,
+        now,
+    )
     return ValidationCheck(
         check_id=_check_id(validator_id, target.scope, requested_tier),
         check_type=_validator_check_type(validator).value,
         command=validator["command"].strip(),
+        execution_mode=execution_mode.value,
         owner_repo=validator["owner_repo"].strip(),
-        reason=_selection_reason(validator, target, validator_tier, requested_tier),
+        reason=_selection_reason(validator, target, validator_tier, requested_tier, manifest),
+        receipt_digest=receipt_digest,
+        receipt_id=receipt_id,
         required=bool(validator.get("required", True)),
+        reuse_reason=reuse_reason,
         scopes=tuple(sorted(str(scope).strip() for scope in validator["scopes"])),
         tier=validator_tier.value,
         validator_id=validator_id,
@@ -283,11 +341,12 @@ def _scope_included(
     validator_scopes: list[str],
     target: ValidationTarget,
     requested_tier: ValidationTier,
+    manifest: dict[str, Any],
 ) -> bool:
     if requested_tier in {ValidationTier.FULL, ValidationTier.RELEASE}:
         return True
     declared_scopes = {str(scope).strip() for scope in validator_scopes}
-    return target.scope in declared_scopes or "workspace" in declared_scopes
+    return bool(declared_scopes & _target_scope_candidates(manifest, target)) or "workspace" in declared_scopes
 
 
 def _selection_reason(
@@ -295,9 +354,16 @@ def _selection_reason(
     target: ValidationTarget,
     validator_tier: ValidationTier,
     requested_tier: ValidationTier,
+    manifest: dict[str, Any],
 ) -> str:
     declared_scopes = {str(scope).strip() for scope in validator["scopes"]}
-    if target.scope in declared_scopes or "workspace" in declared_scopes:
+    matching_scopes = sorted(declared_scopes & _target_scope_candidates(manifest, target))
+    if matching_scopes or "workspace" in declared_scopes:
+        if target.target_type == "changed-file" and matching_scopes:
+            return (
+                f"validator declares scope {matching_scopes[0]} matching "
+                f"{target.scope} at {validator_tier.value} tier"
+            )
         return f"validator declares scope for {target.scope} at {validator_tier.value} tier"
     if requested_tier in {ValidationTier.FULL, ValidationTier.RELEASE}:
         return f"{requested_tier.value} tier includes every manifest-declared validator"
@@ -305,6 +371,7 @@ def _selection_reason(
 
 
 def _decision_reasons(
+    manifest: dict[str, Any],
     target: ValidationTarget,
     requested_tier: ValidationTier,
     checks: list[ValidationCheck],
@@ -315,6 +382,17 @@ def _decision_reasons(
         f"tier={requested_tier.value}",
         f"selected_checks={len(checks)}",
     ]
+    reused_count = sum(
+        1
+        for check in checks
+        if check.execution_mode == ValidationExecutionMode.SKIP_FRESH_RECEIPT.value
+    )
+    if reused_count:
+        reasons.append(f"fresh_receipts_applied={reused_count}")
+    if target.target_type == "changed-file":
+        expanded_scopes = sorted(_target_scope_candidates(manifest, target) - {target.scope})
+        if expanded_scopes:
+            reasons.append("changed-file target expands to " + ", ".join(expanded_scopes))
     if not target_declared:
         reasons.append("target scope is not declared by the manifest graph")
     if requested_tier in {ValidationTier.FULL, ValidationTier.RELEASE}:
@@ -345,6 +423,156 @@ def _declared_scope_ids(manifest: dict[str, Any], graph) -> set[str]:
     return scopes
 
 
+def _normalize_changed_file_target(scope: str) -> ValidationTarget:
+    raw_path = scope.removeprefix("changed-file:").strip().replace("\\", "/")
+    path = PurePosixPath(raw_path)
+    if path.is_absolute() or not raw_path or ".." in path.parts:
+        raise ValueError("validation target changed-file: must include a relative repo path")
+    normalized_path = str(path)
+    if not normalized_path or normalized_path == ".":
+        raise ValueError("validation target changed-file: must include a relative repo path")
+    return ValidationTarget(
+        scope=f"changed-file:{normalized_path}",
+        target_type="changed-file",
+        target_id=normalized_path,
+    )
+
+
+def _target_scope_candidates(manifest: dict[str, Any], target: ValidationTarget) -> set[str]:
+    scopes = {target.scope}
+    if target.target_type != "changed-file":
+        return scopes
+
+    changed_path = target.target_id
+    scopes.update(
+        f"repo:{repo['repo_id'].strip()}"
+        for repo in manifest.get("repos", [])
+        if str(repo.get("repo_id") or "").strip()
+    )
+    for component in manifest.get("components", []):
+        component_id = str(component.get("component_id") or "").strip()
+        if not component_id:
+            continue
+        for source_path in component.get("source_paths") or []:
+            normalized_source = str(PurePosixPath(str(source_path).strip().replace("\\", "/")))
+            if changed_path == normalized_source or changed_path.startswith(f"{normalized_source}/"):
+                scopes.add(f"component:{component_id}")
+    return scopes
+
+
+def _receipt_reuse_decision(
+    validator: dict[str, Any],
+    target: ValidationTarget,
+    requested_tier: ValidationTier,
+    receipts: tuple[dict[str, Any], ...],
+    now: datetime,
+) -> tuple[ValidationExecutionMode, str | None, str | None, str | None]:
+    if not _validator_allows_receipt_reuse(validator):
+        return ValidationExecutionMode.RUN, None, None, None
+
+    validator_id = validator["validator_id"].strip()
+    for receipt in sorted(receipts, key=lambda item: str(item.get("receipt_id") or "")):
+        if not _receipt_matches(receipt, validator_id, target, requested_tier, validator, now):
+            continue
+        receipt_id = str(receipt.get("receipt_id") or "").strip()
+        receipt_digest = _optional_str(receipt.get("digest") or receipt.get("receipt_digest"))
+        return (
+            ValidationExecutionMode.SKIP_FRESH_RECEIPT,
+            receipt_id,
+            receipt_digest,
+            f"fresh successful receipt {receipt_id} covers {target.scope}",
+        )
+
+    return ValidationExecutionMode.RUN, None, None, None
+
+
+def _validator_allows_receipt_reuse(validator: dict[str, Any]) -> bool:
+    reuse_policy = validator.get("reuse_policy")
+    if not isinstance(reuse_policy, dict):
+        return False
+    return bool(reuse_policy.get("safe_to_reuse", False))
+
+
+def _receipt_matches(
+    receipt: dict[str, Any],
+    validator_id: str,
+    target: ValidationTarget,
+    requested_tier: ValidationTier,
+    validator: dict[str, Any],
+    now: datetime,
+) -> bool:
+    if str(receipt.get("validator_id") or "").strip() != validator_id:
+        return False
+    if str(receipt.get("status") or "").strip().lower() not in {"success", "passed", "valid"}:
+        return False
+    receipt_target = str(receipt.get("target_scope") or "").strip()
+    receipt_scopes = {str(scope).strip() for scope in receipt.get("scopes") or []}
+    if target.scope != receipt_target and target.scope not in receipt_scopes:
+        return False
+    receipt_tier = _coerce_tier(str(receipt.get("tier") or DEFAULT_VALIDATION_TIER.value))
+    if VALIDATION_TIER_ORDER[receipt_tier] < VALIDATION_TIER_ORDER[requested_tier]:
+        return False
+    return _receipt_is_fresh(receipt, validator, now)
+
+
+def _receipt_is_fresh(receipt: dict[str, Any], validator: dict[str, Any], now: datetime) -> bool:
+    expires_at = _parse_timestamp(receipt.get("expires_at"))
+    if expires_at is not None:
+        return expires_at >= now
+
+    captured_at = _parse_timestamp(receipt.get("captured_at"))
+    if captured_at is None:
+        return False
+    freshness_seconds = _reuse_freshness_seconds(validator, receipt)
+    return captured_at + timedelta(seconds=freshness_seconds) >= now
+
+
+def _reuse_freshness_seconds(validator: dict[str, Any], receipt: dict[str, Any]) -> int:
+    reuse_policy = validator.get("reuse_policy")
+    raw_value: Any = None
+    if isinstance(reuse_policy, dict):
+        raw_value = reuse_policy.get("freshness_seconds")
+    raw_value = raw_value if raw_value is not None else receipt.get("freshness_seconds")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return 0
+    return max(value, 0)
+
+
+def _coerce_now(now: datetime | str | None) -> datetime:
+    if now is None:
+        return datetime.now(UTC)
+    if isinstance(now, datetime):
+        return now if now.tzinfo else now.replace(tzinfo=UTC)
+    parsed = _parse_timestamp(now)
+    if parsed is None:
+        raise ValueError(f"invalid planning timestamp {now!r}")
+    return parsed
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    raw = str(value).strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _optional_str(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
 def _check_id(validator_id: str, target_scope: str, tier: ValidationTier) -> str:
     digest = sha256(f"{validator_id}|{target_scope}|{tier.value}".encode("utf-8")).hexdigest()[:16]
     return f"check:{digest}"
@@ -359,7 +587,14 @@ def _plan_id(
 ) -> str:
     payload = {
         "blocked_reasons": list(decision.blocked_reasons),
-        "check_ids": [check.check_id for check in checks],
+        "checks": [
+            {
+                "check_id": check.check_id,
+                "execution_mode": check.execution_mode,
+                "receipt_id": check.receipt_id,
+            }
+            for check in checks
+        ],
         "manifest_id": manifest_id,
         "target_scope": target_scope,
         "tier": tier.value,

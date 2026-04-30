@@ -39,6 +39,8 @@ database dependency or upstream authority write.
 
 Validation planning helpers consume the same manifest and emit compact,
 operator-safe plan records. They select only manifest-declared validators,
-record suppressed validators with reasons, and stop at the decision layer.
-They do not run commands, reuse receipts, append ledger events, or approve
-readiness.
+expand repo-relative changed-file targets through manifest repo and component
+scopes, record suppressed validators with reasons, and stop at the decision
+layer. They may mark a check as `skip_fresh_receipt` when an input receipt is
+successful, fresh, and the validator declares safe reuse. They do not run
+commands, create receipts, append ledger events, or approve readiness.
