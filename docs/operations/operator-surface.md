@@ -19,10 +19,11 @@ defined before implementation so the first runtime code does not invent a
 different workflow.
 
 Only the bootstrap status, core-library source snapshot ingestion, manifest
-graph ingestion, read-only graph query, validation planning, core-library
-validation execution, core-library policy admission, core-library runtime
-governance records, core-library evidence projection surfaces, and local-k3s
-dev-integration API access are implemented now. Treat the remaining CLI
+graph ingestion, fabric-local graph persistence helpers, read-only graph query,
+validation planning, core-library validation execution, core-library policy
+admission, core-library runtime governance records, core-library evidence
+projection surfaces, and local-k3s dev-integration API access are implemented
+now. Treat the remaining CLI
 commands and API routes below as the minimum required interface contract for
 later slices, not as currently available runtime commands.
 
@@ -280,8 +281,8 @@ Current execution behavior:
 - never embeds raw stdout/stderr in receipts or ART notes
 
 CLI `wgcf check` now composes planning plus execution into a local receipt and
-ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, database
-persistence, and worker queue execution remain later slices.
+ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, API-side
+persistence wiring, and worker queue execution remain later slices.
 
 Policy admission uses the schemas and policies at:
 
@@ -350,8 +351,10 @@ references, receipts, and decisions derived from those authorities.
 
 Source snapshots are digest-only records for upstream authority files, repo
 manifests, component contracts, and dev-integration profile files. The current
-implementation can build these records in the core library; CLI, API, worker,
-and PostgreSQL persistence paths are later slices.
+implementation can build these records in the core library and persist them
+with authority digests, freshness markers, graph nodes, graph edges, and
+synthetic scope nodes through the fabric-local SQLAlchemy model. CLI, API, and
+worker wiring remain later slices.
 
 Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
 redacted database URL, but it must not print database passwords or raw

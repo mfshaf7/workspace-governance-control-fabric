@@ -60,9 +60,10 @@ fabric-local graph records:
 - edges that preserve declared authority, ownership, validation scope, and
   projection source/output relationships
 
-Persistence into the SQLAlchemy graph tables remains a separate implementation
-step. This keeps schema ingestion testable without making runtime storage the
-authority source.
+Persistence into the SQLAlchemy graph tables is implemented as a separate
+core-library helper. It stores source snapshots, authority digests, freshness
+markers, graph nodes, graph edges, and synthetic scope nodes in the fabric-local
+database without making runtime storage the authority source.
 
 The first graph-query primitive remains file-backed and read-only. API and CLI
 query surfaces load a repo-local manifest, build the in-memory graph, and return
@@ -110,9 +111,9 @@ produces compact proof records without becoming a policy engine:
 
 The execution model is intentionally local-first. The CLI now composes this
 through `wgcf check`, writes compact receipt JSON, appends a local ledger event,
-and lists receipt metadata through `wgcf receipts list`. PostgreSQL
-persistence, API-side validation execution, CLI `wgcf run --plan`, and worker
-queue execution stay in later slices so this layer remains testable and
+and lists receipt metadata through `wgcf receipts list`. API-side validation
+execution, CLI `wgcf run --plan`, worker queue execution, and runtime API
+persistence wiring stay in later slices so this layer remains testable and
 bounded.
 
 ## Policy Admission Model

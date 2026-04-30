@@ -22,6 +22,14 @@ from .graph_queries import (
     query_manifest_file,
     query_manifest_graph,
 )
+from .graph_persistence import (
+    GovernanceStatePersistenceResult,
+    GraphPersistenceResult,
+    SourceSnapshotPersistenceResult,
+    persist_governance_state,
+    persist_manifest_graph,
+    persist_source_snapshot,
+)
 from .database import DATABASE_URL_ENV, DEFAULT_DATABASE_URL, database_settings
 from .evidence_projection import (
     ArtCompletionEvidenceProjection,
@@ -128,8 +136,11 @@ __all__ = [
     "ManifestGraphQueryResult",
     "ManifestValidationResult",
     "PlannerDecision",
+    "GovernanceStatePersistenceResult",
+    "GraphPersistenceResult",
     "SourceRootSnapshot",
     "SourceSnapshot",
+    "SourceSnapshotPersistenceResult",
     "SuppressedValidator",
     "ValidationArtifactRef",
     "ValidationCheck",
@@ -156,6 +167,9 @@ __all__ = [
     "list_control_receipts",
     "manifest_entity_ids",
     "normalize_validation_target",
+    "persist_governance_state",
+    "persist_manifest_graph",
+    "persist_source_snapshot",
     "query_manifest_file",
     "query_manifest_graph",
     "project_receipt_to_art_completion_evidence",

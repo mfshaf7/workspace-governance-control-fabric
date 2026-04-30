@@ -30,6 +30,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
+    "packages/control_fabric_core/src/control_fabric_core/graph_persistence.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
@@ -140,6 +141,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         execute_validation_plan,
         governance_manifest_schema,
         list_control_receipts,
+        persist_governance_state,
         project_receipt_to_art_completion_evidence,
         project_receipt_to_change_record_references,
         project_receipt_to_review_packet_evidence,
@@ -152,6 +154,8 @@ def validate_imports(repo_root: Path) -> list[str]:
         worker_status_snapshot,
     )
     from control_fabric_core.db import metadata
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
     from wgcf_api import create_app
     from wgcf_cli.main import build_parser
     from wgcf_worker.main import build_parser as build_worker_parser
@@ -297,6 +301,22 @@ def validate_imports(repo_root: Path) -> list[str]:
     minimum_authority_refs = 20 if owner_map_present else 3
     if source_record["summary"]["authority_ref_count"] < minimum_authority_refs:
         errors.append("source snapshot returned too few authority refs for workspace ingestion")
+    engine = create_engine("sqlite:///:memory:")
+    metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    with Session() as session:
+        persistence_result = persist_governance_state(
+            session,
+            graph=graph,
+            snapshot=source_snapshot,
+        )
+        session.commit()
+    if persistence_result.source_snapshot.authority_ref_count != source_record["summary"]["authority_ref_count"]:
+        errors.append("source snapshot persistence result did not match source snapshot")
+    if persistence_result.graph.node_count < len(graph.nodes):
+        errors.append("graph persistence result returned fewer nodes than the manifest graph")
+    if persistence_result.graph.edge_count != len(graph.edges):
+        errors.append("graph persistence result did not match manifest graph edges")
     synthetic_manifest = json.loads(json.dumps(example_manifest))
     synthetic_manifest["manifest_id"] = "wgcf-validation-project-self-check"
     synthetic_manifest["validators"] = [
