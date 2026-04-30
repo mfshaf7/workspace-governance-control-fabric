@@ -85,8 +85,8 @@ That surface is constrained by the workspace-owned contract in
   acceptance and required security review move the profile to `active`.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
   bootstrap status, authority-boundary references, database settings,
-  SQLAlchemy models, runtime governance manifest schema helpers, and future
-  record helpers.
+  SQLAlchemy models, runtime governance manifest schema helpers,
+  manifest-to-graph ingestion primitives, and future record helpers.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
@@ -134,7 +134,7 @@ PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_work
 
 The scaffold validator also verifies that the static governance manifest schema
 matches the runtime schema helper and that the example manifest passes manifest
-preflight.
+preflight and graph-ingestion checks.
 
 Database migration dry run after dependencies are installed:
 

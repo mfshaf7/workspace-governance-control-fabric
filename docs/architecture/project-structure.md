@@ -39,3 +39,18 @@ The governance manifest schema is therefore limited to runtime ingestion shape:
 repo, component, validator, and projection declarations must cite
 `authority_refs` by id. The schema does not decide which policies are required,
 which security finding is acceptable, or which platform gate is approved.
+
+The first graph-ingestion primitive converts a valid manifest into in-memory
+fabric-local graph records:
+
+- authority-reference nodes
+- repo nodes
+- component nodes
+- validator nodes
+- projection nodes
+- edges that preserve declared authority, ownership, validation scope, and
+  projection source/output relationships
+
+Persistence into the SQLAlchemy graph tables remains a separate implementation
+step. This keeps schema ingestion testable without making runtime storage the
+authority source.
