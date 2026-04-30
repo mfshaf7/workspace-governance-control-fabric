@@ -1,0 +1,46 @@
+schema_version: 1
+profile_id: governance-control-fabric
+summary: Proposed local-k3s dev-integration lane for the Workspace Governance Control Fabric runtime.
+runtime:
+  platform: local-k3s
+  state_model: persistent
+  namespace_pattern: devint-{profile}-{operator}
+  state_root_template: .dev-integration/{profile}/{operator}
+  components:
+    - workspace-governance-control-fabric-api
+    - workspace-governance-control-fabric-worker
+    - platform-postgresql
+testing:
+  smoke:
+    mutation_mode: read-only
+source_repos:
+  - repo: workspace-governance-control-fabric
+    purpose: Control-fabric API, worker, storage, receipt, ledger, and CLI implementation source.
+  - repo: workspace-governance
+    purpose: Authority contracts, runtime-lane policy, component inventory, and validation rules consumed by the control fabric.
+  - repo: platform-engineering
+    purpose: Future local-k3s runtime, shared Postgres, runner, and stage handoff owner.
+commands:
+  up: dev-integration/profiles/governance-control-fabric/scripts/up.sh
+  status: dev-integration/profiles/governance-control-fabric/scripts/status.sh
+  access: dev-integration/profiles/governance-control-fabric/scripts/access.sh
+  smoke: dev-integration/profiles/governance-control-fabric/scripts/smoke.sh
+  down: dev-integration/profiles/governance-control-fabric/scripts/down.sh
+  reset: dev-integration/profiles/governance-control-fabric/scripts/reset.sh
+  promote_check: dev-integration/profiles/governance-control-fabric/scripts/promote-check.sh
+session:
+  required_artifacts:
+    - control-fabric-session.yaml
+    - api-health.json
+    - readiness.json
+    - smoke-summary.txt
+    - promotion-report.yaml
+stage_handoff:
+  owner_repo: platform-engineering
+  governed_surface: workspace-governance-control-fabric-stage
+  required_checks:
+    - API readiness
+    - component inventory read
+    - authority contract load
+    - validation planner dry run
+    - receipt and ledger smoke
