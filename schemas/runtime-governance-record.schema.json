@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/runtime-governance-record.schema.json",
+  "additionalProperties": false,
+  "description": "Fabric-local runtime governance record for blocker, approval, waiver, risk, and change evidence events. Records are references and audit state only; they do not grant authority.",
+  "properties": {
+    "authority_boundary": {
+      "const": "record-only-not-authority"
+    },
+    "authority_refs": {
+      "items": {
+        "$ref": "#/$defs/ref"
+      },
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "decision": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "details": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/ref"
+      },
+      "type": "array"
+    },
+    "next_required_action": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "owner_repo": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "record_id": {
+      "pattern": "^runtime-governance-record:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "record_type": {
+      "enum": [
+        "approval_decision",
+        "blocker_decision",
+        "change_record",
+        "risk_posture",
+        "waiver_decision"
+      ],
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "target": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "authority_boundary",
+    "authority_refs",
+    "created_at",
+    "decision",
+    "details",
+    "evidence_refs",
+    "next_required_action",
+    "owner_repo",
+    "record_id",
+    "record_type",
+    "schema_version",
+    "target"
+  ],
+  "title": "Workspace Governance Control Fabric Runtime Governance Record",
+  "type": "object",
+  "$defs": {
+    "ref": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "minProperties": 1,
+      "type": "object"
+    }
+  }
+}

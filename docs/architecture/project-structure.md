@@ -12,8 +12,9 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
-- `schemas`: versioned runtime manifest, receipt, policy-decision, evidence
-  projection, and ledger event schemas consumed or emitted by the local runtime.
+- `schemas`: versioned runtime manifest, receipt, policy-decision, runtime
+  governance record, evidence projection, and ledger event schemas consumed or
+  emitted by the local runtime.
 - `policies/opa`: OPA/Rego policy surface files for admission, validation
   blocking, and policy-ledger recordability.
 - `examples`: minimal valid runtime manifests used by tests and operator
@@ -126,6 +127,25 @@ for later OPA integration. The Python helper keeps Phase 1 testable without
 requiring an OPA binary in local validation. Both surfaces must keep the same
 boundary: no upstream workspace policy truth, platform release approval, or
 security acceptance is made in this repo.
+
+## Runtime Governance Record Model
+
+Runtime governance records are fabric-local audit records for decisions and
+references that operators need to see quickly:
+
+- blocker and impediment decisions preserve decision path, owner, impact, next
+  action, authority refs, and evidence refs
+- approval and waiver records preserve upstream authority refs, approver or
+  waiver metadata, expiry posture, and decision outcome
+- risk posture records preserve ROAM-style state and risk ownership without
+  accepting risk locally
+- change-record events link changed surfaces to compact receipt, artifact, and
+  policy-decision refs
+
+Every runtime governance record sets `authority_boundary` to
+`record-only-not-authority`. Ledger events make the record auditable, but WGCF
+does not mutate ART, approve security posture, accept risk, or replace platform
+release gates.
 
 ## Evidence Projection Model
 

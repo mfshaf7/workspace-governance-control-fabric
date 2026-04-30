@@ -31,6 +31,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
+    "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
@@ -46,6 +47,7 @@ REQUIRED_PATHS = (
     "schemas/governance-manifest.schema.json",
     "schemas/ledger-event.schema.json",
     "schemas/policy-decision.schema.json",
+    "schemas/runtime-governance-record.schema.json",
     "schemas/validation-receipt.schema.json",
 )
 
@@ -113,6 +115,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "apps/worker/src"))
 
     from control_fabric_core import (
+        build_governance_record_ledger_event,
         build_manifest_graph,
         build_policy_ledger_event,
         build_validation_plan,
@@ -123,6 +126,8 @@ def validate_imports(repo_root: Path) -> list[str]:
         project_receipt_to_change_record_references,
         project_receipt_to_review_packet_evidence,
         query_manifest_graph,
+        record_blocker_decision,
+        record_change_event,
         status_snapshot,
         validate_governance_manifest,
         worker_status_snapshot,
@@ -290,6 +295,51 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if not any(ref.get("evidence_type") == "control_receipt" for ref in change_projection.evidence_refs):
         errors.append("change-record evidence projection missing receipt ref")
+    blocker_record = record_blocker_decision(
+        blocker_owner="Workspace Governance Control Fabric",
+        decision_path="remove",
+        impact="project validator synthetic blocker",
+        next_required_action="land durable control",
+        owner_repo="workspace-governance-control-fabric",
+        statement="synthetic blocker record check",
+        target="repo:workspace-governance-control-fabric",
+        authority_refs=[
+            {
+                "authority_id": "wgcf-runtime-repo-guidance",
+                "digest": "sha256:example",
+            },
+        ],
+        evidence_refs=[
+            {
+                "digest": execution_result.receipt.digest,
+                "outcome": execution_result.receipt.outcome,
+                "receipt_id": execution_result.receipt.receipt_id,
+            },
+        ],
+        now="2026-04-30T00:00:00Z",
+    )
+    blocker_event = build_governance_record_ledger_event(
+        actor="wgcf-project-validator",
+        record=blocker_record,
+    )
+    if blocker_event.action != "governance.blocker.recorded":
+        errors.append("runtime governance blocker ledger event action was not recorded")
+    change_record = record_change_event(
+        changed_surfaces=["scripts/validate_project.py"],
+        evidence_refs=[
+            {
+                "digest": execution_result.receipt.digest,
+                "outcome": execution_result.receipt.outcome,
+                "receipt_id": execution_result.receipt.receipt_id,
+            },
+        ],
+        owner_repo="workspace-governance-control-fabric",
+        record_ref="docs/records/change-records/example.md",
+        target="repo:workspace-governance-control-fabric",
+        now="2026-04-30T00:00:00Z",
+    )
+    if change_record.decision != "recorded":
+        errors.append("runtime governance change record was not recorded")
     return errors
 
 
