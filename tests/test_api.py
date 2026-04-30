@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 from unittest import TestCase
 
 
@@ -18,6 +19,7 @@ from wgcf_api import create_app
 
 async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
     app = create_app(REPO_ROOT)
+    parsed_path = urlsplit(path)
     messages: list[dict[str, Any]] = []
     request_sent = False
 
@@ -37,9 +39,9 @@ async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
         "method": "GET",
-        "path": path,
-        "raw_path": path.encode("ascii"),
-        "query_string": b"",
+        "path": parsed_path.path,
+        "raw_path": parsed_path.path.encode("ascii"),
+        "query_string": parsed_path.query.encode("ascii"),
         "headers": [],
         "client": ("testclient", 50000),
         "server": ("testserver", 80),
@@ -80,3 +82,26 @@ class ApiTests(TestCase):
             payload["authority_contract_ref"],
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",
         )
+
+    def test_graph_returns_manifest_graph_summary(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/graph"))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["summary"]["manifest_id"], "wgcf-bootstrap-manifest")
+        self.assertGreater(payload["summary"]["node_count"], 0)
+        self.assertIn("nodes", payload["graph"])
+
+    def test_graph_query_returns_scope_slice(self) -> None:
+        status, payload = asyncio.run(
+            asgi_get_json("/v1/graph/query?scope=repo:workspace-governance-control-fabric"),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["query"]["scope"], "repo:workspace-governance-control-fabric")
+        self.assertGreater(payload["query"]["summary"]["node_count"], 0)
+
+    def test_graph_rejects_manifest_path_escape(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/graph?manifest_path=../outside.json"))
+
+        self.assertEqual(status, 400)
+        self.assertIn("repository root", payload["detail"])

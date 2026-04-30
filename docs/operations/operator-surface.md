@@ -18,9 +18,10 @@ The repo is still in bootstrap state. The operator surface is intentionally
 defined before implementation so the first runtime code does not invent a
 different workflow.
 
-Until implementation lands, treat the commands and API routes below as the
-minimum required interface contract, not as currently available runtime
-commands.
+Only the bootstrap status, manifest graph ingestion, and read-only graph query
+surfaces are implemented now. Treat the remaining commands and API routes below
+as the minimum required interface contract for later slices, not as currently
+available runtime commands.
 
 ## Authority Boundaries
 
@@ -60,6 +61,9 @@ artifacts referenced by receipts and ledger events.
 
 ```bash
 wgcf status
+wgcf graph query --scope repo:<name> --manifest <path>
+wgcf graph query --scope component:<name> --manifest <path>
+wgcf graph query --scope art:<delivery-id> --manifest <path>
 wgcf sources snapshot --workspace-root <path>
 wgcf plan --scope workspace|repo|component|operator-surface --target <id> --profile <profile>
 wgcf run --plan <plan-id-or-file> --emit-receipt
@@ -112,6 +116,8 @@ Required route meanings:
 - `GET /healthz`
 - `GET /readyz`
 - `GET /v1/status`
+- `GET /v1/graph`
+- `GET /v1/graph/query?scope=<scope>`
 - `POST /v1/source-snapshots`
 - `POST /v1/validation-plans`
 - `POST /v1/validation-runs`
@@ -160,11 +166,12 @@ The example manifest at `examples/governance-manifest.example.json` is valid
 for scaffold testing and demonstrates the compact shape. It is not deployment
 approval and not a replacement for workspace-governance contracts.
 
-Current implementation can build an in-memory graph from a valid manifest. The
-graph records are fabric-local nodes and edges only; they are not persisted by
-this slice and do not mutate authority stores. Operators should treat this as
-the first ingestion proof needed before later validation planning and graph
-query commands.
+Current implementation can build an in-memory graph from a valid manifest and
+query it through `wgcf graph query` or `GET /v1/graph/query`. The graph records
+are fabric-local nodes and edges only; they are not persisted by this slice and
+do not mutate authority stores. Operators should treat this as the first query
+proof needed before later validation planning, persistence, and receipt
+commands.
 
 ## Database Foundation
 

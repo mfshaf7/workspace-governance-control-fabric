@@ -73,10 +73,11 @@ That surface is constrained by the workspace-owned contract in
 ## Project Structure
 
 - `apps/cli/` owns the future `wgcf` operator CLI. The scaffold supports
-  `wgcf status` through the Python entrypoint.
+  `wgcf status` and read-only `wgcf graph query` manifest graph slices through
+  the Python entrypoint.
 - `apps/api/` owns the FastAPI service boundary. The current implementation
-  exposes `GET /healthz`, `GET /readyz`, and `GET /v1/status` with version
-  metadata.
+  exposes `GET /healthz`, `GET /readyz`, `GET /v1/status`, `GET /v1/graph`,
+  and `GET /v1/graph/query` with version and manifest graph metadata.
 - `apps/worker/` owns the Temporal-ready worker package boundary. The current
   implementation exposes `wgcf-worker status`, declares future worker
   capabilities, and intentionally does not run long-lived workflow behavior.
@@ -86,7 +87,8 @@ That surface is constrained by the workspace-owned contract in
 - `packages/control_fabric_core/` owns shared runtime primitives such as
   bootstrap status, authority-boundary references, database settings,
   SQLAlchemy models, runtime governance manifest schema helpers,
-  manifest-to-graph ingestion primitives, and future record helpers.
+  manifest-to-graph ingestion primitives, read-only graph query helpers, and
+  future record helpers.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
@@ -129,12 +131,13 @@ python3 -m pip install -e ".[test]"
 python3 scripts/validate_project.py --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m unittest discover -s tests
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli graph query --repo-root . --scope repo:workspace-governance-control-fabric
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_worker status --repo-root .
 ```
 
 The scaffold validator also verifies that the static governance manifest schema
 matches the runtime schema helper and that the example manifest passes manifest
-preflight and graph-ingestion checks.
+preflight, graph-ingestion checks, and repo/ART-scope graph query checks.
 
 Database migration dry run after dependencies are installed:
 

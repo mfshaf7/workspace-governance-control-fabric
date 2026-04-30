@@ -26,6 +26,11 @@ class FoundationTests(TestCase):
                 "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py"
             ]
         )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "packages/control_fabric_core/src/control_fabric_core/graph_queries.py"
+            ]
+        )
         self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertEqual(
@@ -76,3 +81,41 @@ class FoundationTests(TestCase):
         payload = json.loads(buffer.getvalue())
         self.assertTrue(payload["ready"])
         self.assertNotIn("url", payload["database"])
+
+    def test_cli_graph_query_returns_scope_slice_json(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(
+                [
+                    "graph",
+                    "query",
+                    "--repo-root",
+                    str(REPO_ROOT),
+                    "--scope",
+                    "repo:workspace-governance-control-fabric",
+                    "--json",
+                ],
+            )
+
+        self.assertEqual(result, 0)
+        payload = json.loads(buffer.getvalue())
+        self.assertEqual(payload["query"]["scope"], "repo:workspace-governance-control-fabric")
+        self.assertGreater(payload["query"]["summary"]["node_count"], 0)
+
+    def test_cli_graph_query_human_output_is_compact(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(
+                [
+                    "graph",
+                    "query",
+                    "--repo-root",
+                    str(REPO_ROOT),
+                    "--scope",
+                    "component:control-fabric-core",
+                ],
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn("Workspace Governance Control Fabric Graph Query", buffer.getvalue())
+        self.assertIn("component:control-fabric-core", buffer.getvalue())
