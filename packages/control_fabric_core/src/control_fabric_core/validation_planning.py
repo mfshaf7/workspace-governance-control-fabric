@@ -863,6 +863,16 @@ def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
         policy["output_budget_bytes"] = output_budget_bytes
     if "fail_on_output_budget_exceeded" in raw_policy:
         policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
+    if "operator_approved" in raw_policy:
+        policy["operator_approved"] = bool(raw_policy["operator_approved"])
+    for field_name in ("profile", "safety_class"):
+        text_value = _optional_str(raw_policy.get(field_name))
+        if text_value:
+            policy[field_name] = text_value
+    for field_name in ("allowed_env_vars", "allowed_executables", "allowed_roots", "blocked_env_vars"):
+        list_value = _string_list(raw_policy.get(field_name))
+        if list_value:
+            policy[field_name] = list_value
     return policy
 
 
@@ -874,6 +884,16 @@ def _bounded_int(value: Any, *, minimum: int) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed >= minimum else None
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return sorted({str(item).strip() for item in value if str(item).strip()})
 
 
 def _receipt_is_fresh(receipt: dict[str, Any], validator: dict[str, Any], now: datetime) -> bool:

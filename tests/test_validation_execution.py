@@ -284,6 +284,116 @@ class ValidationExecutionTests(TestCase):
         self.assertEqual(check_result.output_summary["output_budget"]["action"], "fail")
         self.assertNotIn(marker, json.dumps(result.receipt.to_record(), sort_keys=True))
 
+    def test_command_allowlist_blocks_unapproved_executable(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"print('should-not-run')\"",
+                execution_policy={"allowed_executables": ["bash"]},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(result.receipt.outcome, "failure")
+        self.assertEqual(check_result.status, "blocked")
+        self.assertIn("command allowlist", check_result.error or "")
+        self.assertEqual(check_result.artifact_refs, ())
+
+    def test_secret_like_env_override_requires_allowlist(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest("API_TOKEN=secret python3 -c \"print('should-not-run')\""),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(check_result.status, "blocked")
+        self.assertIn("secret-like environment variable", check_result.error or "")
+        self.assertEqual(check_result.artifact_refs, ())
+
+    def test_explicit_env_allowlist_can_pass_secret_like_override(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "API_TOKEN=allowed python3 -c \"import os; print(os.environ['API_TOKEN'])\"",
+                execution_policy={"allowed_env_vars": ["API_TOKEN"]},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+            stdout_text = Path(result.receipt.check_results[0].artifact_refs[0].path).read_text(encoding="utf-8")
+
+        self.assertEqual(result.receipt.outcome, "success")
+        self.assertEqual(stdout_text.strip(), "allowed")
+
+    def test_allowed_roots_blocks_repo_root_outside_policy(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"print('should-not-run')\"",
+                execution_policy={"allowed_roots": ["packages/control_fabric_core"]},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(check_result.status, "blocked")
+        self.assertIn("allowed_roots", check_result.error or "")
+
+    def test_privileged_safety_class_requires_operator_approval(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"print('should-not-run')\"",
+                execution_policy={"safety_class": "privileged"},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(check_result.status, "blocked")
+        self.assertIn("explicit operator approval", check_result.error or "")
+
     def test_blocked_plan_does_not_execute_checks(self) -> None:
         plan = build_validation_plan(
             minimal_manifest(

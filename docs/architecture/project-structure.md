@@ -112,6 +112,11 @@ produces compact proof records without becoming a policy engine:
 - commands run from the supplied repo root with `shell=False`
 - leading environment assignments such as `PYTHONPATH=...` are parsed
   deterministically
+- command execution uses a sanitized base environment, explicit environment
+  allow and block lists, executable allowlists, allowed-root checks, safety
+  class checks, and profile metadata before invocation
+- `network`, `privileged`, and `host-control` safety classes require explicit
+  operator approval in the execution policy
 - stdout and stderr are written to local artifact files
 - receipts contain artifact ids, digests, byte counts, line counts, exit codes,
   durations, timeout/retry/output-budget decisions, planner decision context,

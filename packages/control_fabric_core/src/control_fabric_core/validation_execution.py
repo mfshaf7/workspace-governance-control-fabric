@@ -28,6 +28,30 @@ from .validation_planning import (
 RECEIPT_SCHEMA_VERSION = 1
 LEDGER_SCHEMA_VERSION = 1
 COMMAND_TIMEOUT_SECONDS = 120
+DEFAULT_SAFETY_CLASS = "local-read-only"
+DEFAULT_EXECUTION_PROFILE = "developer"
+OPERATOR_APPROVAL_REQUIRED_SAFETY_CLASSES = {"host-control", "network", "privileged"}
+SUPPORTED_SAFETY_CLASSES = {
+    "host-control",
+    "local-artifact-write",
+    "local-read-only",
+    "network",
+    "privileged",
+}
+DEFAULT_COMMAND_ENV_NAMES = {
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "PYTHONPATH",
+    "REQUESTS_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "VIRTUAL_ENV",
+}
+SECRET_LIKE_ENV_RE = re.compile(r"(?:TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE[_-]?KEY|API[_-]?KEY)", re.I)
 
 
 @dataclass(frozen=True)
@@ -356,6 +380,24 @@ def _run_command_check(
             validator_id=check.validator_id,
         )
     execution_policy = _execution_policy(check)
+    safety_block = _safety_block_reason(
+        args=args,
+        env_overrides=env_overrides,
+        execution_policy=execution_policy,
+        repo_root=repo_root,
+        supplied_env=env or {},
+    )
+    if safety_block is not None:
+        return _blocked_check_result(
+            check,
+            command_digest=_digest_text(check.command),
+            duration_ms=0,
+            error=safety_block["reason"],
+            output_summary={
+                "safety": safety_block,
+                "suppressed": True,
+            },
+        )
     effective_timeout_seconds = _policy_int(
         execution_policy.get("timeout_seconds"),
         default=timeout_seconds,
@@ -368,7 +410,7 @@ def _run_command_check(
     )
     fail_on_budget = bool(execution_policy.get("fail_on_output_budget_exceeded", False))
 
-    command_env = dict(os.environ)
+    command_env = _base_command_env()
     command_env["PATH"] = _python_first_path(command_env.get("PATH"))
     if env:
         command_env.update(env)
@@ -463,6 +505,7 @@ def _run_command_check(
         "attempts": attempt_summaries,
         "output_budget": budget_decision,
         "retry_count": retry_count,
+        "safety": _safety_summary(args=args, execution_policy=execution_policy),
         "stderr": _stream_summary(final_stderr, final_stderr_ref),
         "stdout": _stream_summary(final_stdout, final_stdout_ref),
         "timed_out": timed_out,
@@ -479,6 +522,29 @@ def _run_command_check(
         required=check.required,
         reused_receipt_id=None,
         status=status,
+        validator_id=check.validator_id,
+    )
+
+
+def _blocked_check_result(
+    check,
+    *,
+    command_digest: str | None,
+    duration_ms: int | None,
+    error: str,
+    output_summary: dict[str, Any],
+) -> ValidationCheckResult:
+    return ValidationCheckResult(
+        artifact_refs=(),
+        check_id=check.check_id,
+        command_digest=command_digest,
+        duration_ms=duration_ms,
+        error=error,
+        exit_code=None,
+        output_summary=output_summary,
+        required=check.required,
+        reused_receipt_id=None,
+        status="blocked",
         validator_id=check.validator_id,
     )
 
@@ -515,6 +581,143 @@ def _output_budget_decision(
         "budget_bytes": output_budget_bytes,
         "exceeded": exceeded,
         "observed_bytes": observed_bytes,
+    }
+
+
+def _safety_block_reason(
+    *,
+    args: list[str],
+    env_overrides: dict[str, str],
+    execution_policy: dict[str, Any],
+    repo_root: Path,
+    supplied_env: dict[str, str],
+) -> dict[str, Any] | None:
+    safety_class = _safety_class(execution_policy)
+    profile = _execution_profile(execution_policy)
+    summary = _safety_summary(args=args, execution_policy=execution_policy)
+    if safety_class not in SUPPORTED_SAFETY_CLASSES:
+        return {
+            **summary,
+            "decision": "blocked",
+            "reason": f"unsupported safety class {safety_class!r}",
+        }
+    if (
+        safety_class in OPERATOR_APPROVAL_REQUIRED_SAFETY_CLASSES
+        and not bool(execution_policy.get("operator_approved", False))
+    ):
+        return {
+            **summary,
+            "decision": "blocked",
+            "reason": f"safety class {safety_class!r} requires explicit operator approval",
+        }
+    allowed_executables = _string_set(execution_policy.get("allowed_executables"))
+    if allowed_executables and not _executable_allowed(args[0], allowed_executables):
+        return {
+            **summary,
+            "decision": "blocked",
+            "reason": f"executable {args[0]!r} is not in the command allowlist for profile {profile!r}",
+        }
+    root_decision = _allowed_root_decision(repo_root, execution_policy)
+    if root_decision is not None:
+        return {
+            **summary,
+            "decision": "blocked",
+            "reason": root_decision,
+        }
+    env_decision = _env_decision({**supplied_env, **env_overrides}, execution_policy)
+    if env_decision is not None:
+        return {
+            **summary,
+            "decision": "blocked",
+            "reason": env_decision,
+        }
+    return None
+
+
+def _safety_summary(*, args: list[str], execution_policy: dict[str, Any]) -> dict[str, Any]:
+    allowed_env_vars = sorted(_string_set(execution_policy.get("allowed_env_vars")))
+    blocked_env_vars = sorted(_string_set(execution_policy.get("blocked_env_vars")))
+    return {
+        "allowed_env_vars": allowed_env_vars,
+        "allowed_executables": sorted(_string_set(execution_policy.get("allowed_executables"))),
+        "allowed_roots": sorted(_string_set(execution_policy.get("allowed_roots"))),
+        "blocked_env_vars": blocked_env_vars,
+        "decision": "allowed",
+        "executable": args[0] if args else None,
+        "profile": _execution_profile(execution_policy),
+        "safety_class": _safety_class(execution_policy),
+        "sanitized_base_env": True,
+    }
+
+
+def _safety_class(execution_policy: dict[str, Any]) -> str:
+    return str(execution_policy.get("safety_class") or DEFAULT_SAFETY_CLASS).strip()
+
+
+def _execution_profile(execution_policy: dict[str, Any]) -> str:
+    return str(execution_policy.get("profile") or DEFAULT_EXECUTION_PROFILE).strip()
+
+
+def _string_set(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return set()
+    return {str(item).strip() for item in value if str(item).strip()}
+
+
+def _executable_allowed(executable: str, allowed_executables: set[str]) -> bool:
+    executable_name = Path(executable).name
+    return executable in allowed_executables or executable_name in allowed_executables
+
+
+def _allowed_root_decision(repo_root: Path, execution_policy: dict[str, Any]) -> str | None:
+    allowed_roots = _string_set(execution_policy.get("allowed_roots"))
+    if not allowed_roots:
+        return None
+    resolved_roots = {_resolve_policy_root(repo_root, root) for root in allowed_roots}
+    if any(_is_relative_to(repo_root, allowed_root) for allowed_root in resolved_roots):
+        return None
+    return "repo root is outside the validator allowed_roots policy"
+
+
+def _resolve_policy_root(repo_root: Path, root: str) -> Path:
+    candidate = Path(root)
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    return candidate.resolve()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _env_decision(env_overrides: dict[str, str], execution_policy: dict[str, Any]) -> str | None:
+    if not env_overrides:
+        return None
+    allowed_env_vars = _string_set(execution_policy.get("allowed_env_vars"))
+    blocked_env_vars = _string_set(execution_policy.get("blocked_env_vars"))
+    for key in sorted(env_overrides):
+        if key in blocked_env_vars:
+            return f"environment variable {key!r} is explicitly blocked"
+        if allowed_env_vars and key not in allowed_env_vars:
+            return f"environment variable {key!r} is not in the allowed_env_vars policy"
+        if SECRET_LIKE_ENV_RE.search(key) and key not in allowed_env_vars:
+            return f"secret-like environment variable {key!r} requires explicit allowlist"
+    return None
+
+
+def _base_command_env() -> dict[str, str]:
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key in DEFAULT_COMMAND_ENV_NAMES and value
     }
 
 

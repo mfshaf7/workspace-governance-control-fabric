@@ -85,6 +85,9 @@ implementation boundary. They run only planned command checks, treat unsupported
 check types as blocked, suppress execution when the planner decision is not
 `planned`, and produce:
 
+- validator safety preflight for safety class, profile, executable allowlist,
+  allowed roots, sanitized environment handling, explicit env allow/block
+  policy, and output limits
 - stdout/stderr artifact references with sha256 digests, byte counts, and line
   counts
 - compact timeout, retry, and output-budget metadata

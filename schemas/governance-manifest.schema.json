@@ -232,16 +232,59 @@
           "execution_policy": {
             "additionalProperties": true,
             "properties": {
+              "allowed_env_vars": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "allowed_executables": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "allowed_roots": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "blocked_env_vars": {
+                "items": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
               "fail_on_output_budget_exceeded": {
+                "type": "boolean"
+              },
+              "operator_approved": {
                 "type": "boolean"
               },
               "output_budget_bytes": {
                 "minimum": 0,
                 "type": "integer"
               },
+              "profile": {
+                "minLength": 1,
+                "type": "string"
+              },
               "retry_count": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "safety_class": {
+                "minLength": 1,
+                "type": "string"
               },
               "timeout_seconds": {
                 "minimum": 1,
