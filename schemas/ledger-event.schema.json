@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/ledger-event.schema.json",
+  "additionalProperties": false,
+  "description": "Append-only audit event emitted by the local control fabric runtime.",
+  "properties": {
+    "action": {
+      "enum": [
+        "validation.run.blocked",
+        "validation.run.completed"
+      ],
+      "type": "string"
+    },
+    "actor": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "artifact_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "pattern": "^artifact:[0-9a-f]{24}$",
+            "type": "string"
+          },
+          "byte_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "media_type": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "path": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "purpose": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "byte_count",
+          "digest",
+          "media_type",
+          "path",
+          "purpose"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "event_id": {
+      "pattern": "^ledger-event:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "event_time": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "success",
+        "failure",
+        "blocked",
+        "operator_review_required"
+      ],
+      "type": "string"
+    },
+    "receipt_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "receipt_id": {
+            "pattern": "^control-receipt:[0-9a-f]{24}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "receipt_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "target": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "actor",
+    "artifact_refs",
+    "event_id",
+    "event_time",
+    "outcome",
+    "receipt_refs",
+    "schema_version",
+    "target"
+  ],
+  "title": "Workspace Governance Control Fabric Ledger Event",
+  "type": "object"
+}

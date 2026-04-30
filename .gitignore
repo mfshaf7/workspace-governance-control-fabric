@@ -7,3 +7,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+.art/drafts/
+.art/review-packets/
+.art/outputs/
+.art/archive/

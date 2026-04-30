@@ -18,9 +18,10 @@ The repo is still in bootstrap state. The operator surface is intentionally
 defined before implementation so the first runtime code does not invent a
 different workflow.
 
-Only the bootstrap status, manifest graph ingestion, and read-only graph query
-surfaces are implemented now. Treat the remaining commands and API routes below
-as the minimum required interface contract for later slices, not as currently
+Only the bootstrap status, manifest graph ingestion, read-only graph query,
+validation planning, and core-library validation execution surfaces are
+implemented now. Treat the remaining CLI commands and API routes below as the
+minimum required interface contract for later slices, not as currently
 available runtime commands.
 
 ## Authority Boundaries
@@ -167,10 +168,10 @@ for scaffold testing and demonstrates the compact shape. It is not deployment
 approval and not a replacement for workspace-governance contracts.
 
 Current implementation can build an in-memory graph from a valid manifest,
-query it through `wgcf graph query` or `GET /v1/graph/query`, and build an
-execution-free validation plan from manifest-declared validators. The graph and
-plan records are fabric-local projections only; they are not persisted by this
-slice and do not mutate authority stores.
+query it through `wgcf graph query` or `GET /v1/graph/query`, build a validation
+plan from manifest-declared validators, and execute a plan through the core
+library. The graph and plan records are fabric-local projections only; they are
+not persisted by this slice and do not mutate authority stores.
 
 Validation planning uses four tiers:
 
@@ -188,14 +189,32 @@ file-based planning deterministic without hardcoding validator policy in code.
 Manifest validators may declare `reuse_policy.safe_to_reuse` and
 `reuse_policy.freshness_seconds`. When the planner receives matching successful
 receipt records that are still fresh, it marks those checks as
-`skip_fresh_receipt` candidates in the plan. It does not persist or create
-receipts in this slice.
+`skip_fresh_receipt` candidates in the plan.
 
 The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
 It must explain selected checks, suppressed validators, and any operator-review
-reason. It must not execute validators or claim new receipt evidence; later ART
-slices own actual validation execution, durable receipt storage, and ledger
-appends.
+reason. The core execution primitive must respect that decision. If the
+decision is blocked or requires operator review, it emits a compact receipt
+without running validators.
+
+Validation execution uses the schemas at:
+
+- `schemas/validation-receipt.schema.json`
+- `schemas/ledger-event.schema.json`
+
+Current execution behavior:
+
+- runs only manifest-planned command checks
+- runs with `shell=False` from the supplied repo root
+- supports simple leading environment assignments such as `PYTHONPATH=...`
+- writes full stdout/stderr to local artifact files
+- includes only artifact refs, digests, byte counts, line counts, exit codes,
+  duration, planner decision, and outcome in receipts
+- appends ledger events as JSONL through the core helper
+- never embeds raw stdout/stderr in receipts or ART notes
+
+CLI `wgcf run`, API `POST /v1/validation-runs`, database persistence, and worker
+queue execution remain later slices.
 
 ## Database Foundation
 

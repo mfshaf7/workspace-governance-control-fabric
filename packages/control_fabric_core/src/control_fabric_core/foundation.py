@@ -78,12 +78,21 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/validation_planning.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/validation_execution.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_execution.py"
+        ),
         "migrations/env.py": repo_root / "migrations/env.py",
         "migrations/versions/0001_create_foundation_tables.py": (
             repo_root / "migrations/versions/0001_create_foundation_tables.py"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"
+        ),
+        "schemas/ledger-event.schema.json": (
+            repo_root / "schemas/ledger-event.schema.json"
+        ),
+        "schemas/validation-receipt.schema.json": (
+            repo_root / "schemas/validation-receipt.schema.json"
         ),
         "examples/governance-manifest.example.json": (
             repo_root / "examples/governance-manifest.example.json"

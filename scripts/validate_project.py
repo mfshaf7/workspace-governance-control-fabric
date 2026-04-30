@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -28,6 +29,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
+    "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
@@ -36,6 +38,8 @@ REQUIRED_PATHS = (
     "migrations/env.py",
     "migrations/versions/0001_create_foundation_tables.py",
     "schemas/governance-manifest.schema.json",
+    "schemas/ledger-event.schema.json",
+    "schemas/validation-receipt.schema.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -104,6 +108,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     from control_fabric_core import (
         build_manifest_graph,
         build_validation_plan,
+        execute_validation_plan,
         governance_manifest_schema,
         query_manifest_graph,
         status_snapshot,
@@ -180,6 +185,38 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("example governance manifest validation plan was not planned")
     if not validation_plan.checks:
         errors.append("example governance manifest validation plan returned no checks")
+    synthetic_manifest = json.loads(json.dumps(example_manifest))
+    synthetic_manifest["manifest_id"] = "wgcf-validation-project-self-check"
+    synthetic_manifest["validators"] = [
+        {
+            "validator_id": "wgcf-validation-execution-self-check",
+            "owner_repo": "workspace-governance-control-fabric",
+            "command": "python3 -c \"print('wgcf receipt ok')\"",
+            "scopes": ["repo:workspace-governance-control-fabric"],
+            "validation_tier": "smoke",
+            "check_type": "command",
+            "required": True,
+            "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+        },
+    ]
+    synthetic_plan = build_validation_plan(
+        synthetic_manifest,
+        "repo:workspace-governance-control-fabric",
+        tier="smoke",
+    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        execution_result = execute_validation_plan(
+            synthetic_plan,
+            repo_root,
+            Path(temp_dir),
+            now="2026-04-30T00:00:00Z",
+            timeout_seconds=120,
+        )
+    receipt_record = execution_result.receipt.to_record()
+    if receipt_record["suppressed_output_summary"]["raw_output_in_receipt"]:
+        errors.append("validation receipt must not embed raw validator output")
+    if execution_result.ledger_event.target != "repo:workspace-governance-control-fabric":
+        errors.append("validation ledger event target did not match plan target")
     return errors
 
 

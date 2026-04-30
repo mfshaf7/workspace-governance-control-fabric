@@ -12,8 +12,8 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
-- `schemas`: versioned runtime manifest schemas consumed before graph
-  ingestion.
+- `schemas`: versioned runtime manifest, receipt, and ledger event schemas
+  consumed or emitted by the local runtime.
 - `examples`: minimal valid runtime manifests used by tests and operator
   documentation.
 - `migrations`: Alembic migration history for the fabric-local PostgreSQL
@@ -26,11 +26,12 @@ not decide which validations are required. Scoped validation planning remains a
 separate ART feature so the planner can consume workspace-governance contracts
 instead of hardcoding validation policy into storage.
 
-The worker foundation is intentionally execution-neutral. It declares the
-future Temporal task-queue boundary and planned worker capabilities, but it does
-not import the Temporal SDK, connect to a Temporal server, poll a queue, or run
-long-lived workflows. Source snapshots, validation plan execution, and receipt
-ledger writes remain planned capabilities until their scoped ART slices land.
+The worker foundation is intentionally queue-neutral. It declares the future
+Temporal task-queue boundary and planned worker capabilities, but it does not
+import the Temporal SDK, connect to a Temporal server, poll a queue, or run
+long-lived workflows. The core library now owns the local validation execution
+and receipt/ledger primitives; worker activation remains a later runtime
+adapter.
 
 The implementation must continue to consume the authority contract from
 `workspace-governance/contracts/governance-control-fabric-operator-surface.yaml`
@@ -83,3 +84,24 @@ expands changed-file targets through manifest repo and component declarations,
 and marks checks as reusable only when a safe-to-reuse validator has a fresh
 successful receipt input. Later slices own actual validator execution and
 durable ledger/receipt writes.
+
+## Validation Execution Model
+
+The first validation-execution primitive consumes a `ValidationPlan` and
+produces compact proof records without becoming a policy engine:
+
+- only `planned` planner decisions are executable; blocked or review-required
+  plans emit a blocked/operator-review receipt without running commands
+- only command checks are executed in this slice
+- commands run from the supplied repo root with `shell=False`
+- leading environment assignments such as `PYTHONPATH=...` are parsed
+  deterministically
+- stdout and stderr are written to local artifact files
+- receipts contain artifact ids, digests, byte counts, line counts, exit codes,
+  durations, planner decision context, and outcome
+- receipts do not embed raw stdout/stderr
+- ledger events reference receipts and artifacts for append-only audit
+
+The execution model is intentionally local-first. PostgreSQL persistence, API
+execution, CLI `wgcf run`, and worker queue execution stay in later slices so
+this layer remains testable and bounded.

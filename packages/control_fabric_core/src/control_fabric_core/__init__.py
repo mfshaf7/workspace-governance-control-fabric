@@ -42,12 +42,24 @@ from .validation_planning import (
     build_validation_plan,
     normalize_validation_target,
 )
+from .validation_execution import (
+    ControlReceipt,
+    LedgerEvent,
+    ValidationArtifactRef,
+    ValidationCheckResult,
+    ValidationExecutionResult,
+    append_ledger_event,
+    execute_validation_plan,
+    write_control_receipt,
+)
 from .worker import worker_status_snapshot
 
 __all__ = [
     "AUTHORITY_CONTRACT_REF",
+    "ControlReceipt",
     "DATABASE_URL_ENV",
     "DEFAULT_DATABASE_URL",
+    "LedgerEvent",
     "MANIFEST_SCHEMA_VERSION",
     "PACKAGE_NAME",
     "PACKAGE_VERSION",
@@ -60,12 +72,16 @@ __all__ = [
     "ManifestValidationResult",
     "PlannerDecision",
     "SuppressedValidator",
+    "ValidationArtifactRef",
     "ValidationCheck",
+    "ValidationCheckResult",
     "ValidationCheckType",
     "ValidationExecutionMode",
+    "ValidationExecutionResult",
     "ValidationPlan",
     "ValidationTarget",
     "ValidationTier",
+    "append_ledger_event",
     "build_graph_from_manifest_file",
     "build_manifest_graph",
     "build_validation_plan",
@@ -78,6 +94,8 @@ __all__ = [
     "query_manifest_file",
     "query_manifest_graph",
     "status_snapshot",
+    "execute_validation_plan",
     "validate_governance_manifest",
     "worker_status_snapshot",
+    "write_control_receipt",
 ]

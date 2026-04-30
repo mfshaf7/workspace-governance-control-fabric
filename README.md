@@ -88,9 +88,14 @@ That surface is constrained by the workspace-owned contract in
   bootstrap status, authority-boundary references, database settings,
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
-  deterministic validation planning primitives, and future record helpers.
+  deterministic validation planning primitives, bounded validation execution,
+  compact receipts, and local ledger event helpers.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
+- `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
+  define the compact proof and append-only event shapes emitted by local
+  validation execution. Raw validator output belongs in referenced artifacts,
+  not in receipts or ART notes.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
   that references upstream authority sources instead of copying their policy
   meaning.
@@ -138,7 +143,17 @@ PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_work
 The scaffold validator also verifies that the static governance manifest schema
 matches the runtime schema helper and that the example manifest passes manifest
 preflight, graph-ingestion checks, repo/ART-scope graph query checks, and a
-scoped validation plan build.
+scoped validation plan build. It also runs a synthetic local validator through
+the bounded execution path to prove receipt generation suppresses raw output
+and emits a ledger event.
+
+Validation execution currently lives in the core library. It executes only
+manifest-planned command checks, uses `subprocess.run(..., shell=False)`,
+supports simple leading environment assignments such as `PYTHONPATH=...`,
+writes stdout/stderr to local artifacts, records sha256 digests and byte/line
+counts, and returns an operator-safe receipt plus ledger event. If the input
+plan is blocked or requires operator review, execution is suppressed and the
+receipt outcome records that state instead of claiming success.
 
 Database migration dry run after dependencies are installed:
 
