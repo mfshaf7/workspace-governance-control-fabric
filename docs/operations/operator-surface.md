@@ -112,6 +112,27 @@ Use receipts for operator-safe proof. Use ledger events for audit and handoff.
 Use upstream PRs, ART records, platform records, and security reviews for their
 own authority domains.
 
+## Database Foundation
+
+The local runtime database stores only fabric-local implementation records:
+
+- governance graph nodes and edges
+- source snapshots
+- validation plans and runs
+- control receipts
+- readiness decisions
+- ledger events
+- escalation records
+
+The database does not become the source of truth for workspace contracts,
+platform deployment state, security acceptance, or Delivery ART state. Those
+remain owned by their upstream repos and systems. The fabric stores digests,
+references, receipts, and decisions derived from those authorities.
+
+Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
+redacted database URL, but it must not print database passwords or raw
+connection secrets.
+
 ## Profiles
 
 - `local-read-only`

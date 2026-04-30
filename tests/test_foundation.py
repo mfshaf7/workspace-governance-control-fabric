@@ -59,3 +59,13 @@ class FoundationTests(TestCase):
     def test_cli_status_json_is_serializable(self) -> None:
         snapshot = status_snapshot(REPO_ROOT)
         self.assertIsInstance(json.dumps(snapshot, sort_keys=True), str)
+
+    def test_cli_status_accepts_command_local_json_flag(self) -> None:
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(["status", "--repo-root", str(REPO_ROOT), "--json"])
+
+        self.assertEqual(result, 0)
+        payload = json.loads(buffer.getvalue())
+        self.assertTrue(payload["ready"])
+        self.assertNotIn("url", payload["database"])

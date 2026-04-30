@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Repository root to inspect. Defaults to the current directory.",
     )
+    status_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
     return parser
 
 
@@ -38,6 +44,8 @@ def render_status_human(snapshot: dict[str, object]) -> str:
         f"- {path}: {'present' if present else 'missing'}"
         for path, present in sorted(required_paths.items())
     ]
+    database = snapshot["database"]
+    assert isinstance(database, dict)
     return "\n".join(
         [
             "Workspace Governance Control Fabric",
@@ -45,6 +53,7 @@ def render_status_human(snapshot: dict[str, object]) -> str:
             f"status: {snapshot['status']}",
             f"ready: {str(snapshot['ready']).lower()}",
             f"authority: {snapshot['authority_contract_ref']}",
+            f"database: {database['safe_url']}",
             "required paths:",
             *path_lines,
         ],

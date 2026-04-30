@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .database import database_settings
+
 
 PACKAGE_NAME = "workspace-governance-control-fabric"
 PACKAGE_VERSION = "0.1.0"
@@ -65,6 +67,11 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "README.md": repo_root / "README.md",
         "AGENTS.md": repo_root / "AGENTS.md",
         "pyproject.toml": repo_root / "pyproject.toml",
+        "alembic.ini": repo_root / "alembic.ini",
+        "migrations/env.py": repo_root / "migrations/env.py",
+        "migrations/versions/0001_create_foundation_tables.py": (
+            repo_root / "migrations/versions/0001_create_foundation_tables.py"
+        ),
         str(OPERATOR_SURFACE_PATH): repo_root / OPERATOR_SURFACE_PATH,
     }
     return {name: path.exists() and path.is_file() for name, path in paths.items()}
@@ -83,5 +90,6 @@ def status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any]:
         "operator_surface_path": str(OPERATOR_SURFACE_PATH),
         "required_paths": required_paths,
         "ready": all(required_paths.values()),
+        "database": database_settings().to_status(),
         "authority_boundaries": [asdict(boundary) for boundary in AUTHORITY_BOUNDARIES],
     }
