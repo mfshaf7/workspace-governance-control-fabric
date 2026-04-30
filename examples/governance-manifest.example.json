@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "manifest_id": "wgcf-bootstrap-manifest",
+  "owner_repo": "workspace-governance-control-fabric",
+  "metadata": {
+    "description": "Example runtime ingestion manifest for the initial control-fabric graph schema front."
+  },
+  "authority_refs": [
+    {
+      "authority_id": "wgcf-operator-surface",
+      "repo": "workspace-governance",
+      "path": "contracts/governance-control-fabric-operator-surface.yaml",
+      "ref": "main",
+      "digest": "sha256:example-operator-surface",
+      "freshness_status": "current"
+    },
+    {
+      "authority_id": "wgcf-runtime-repo-guidance",
+      "repo": "workspace-governance-control-fabric",
+      "path": "AGENTS.md",
+      "ref": "main",
+      "digest": "sha256:example-runtime-repo-guidance",
+      "freshness_status": "current"
+    },
+    {
+      "authority_id": "workspace-repo-contracts",
+      "repo": "workspace-governance",
+      "path": "contracts/repos.yaml",
+      "ref": "main",
+      "digest": "sha256:example-repos-contract",
+      "freshness_status": "current"
+    }
+  ],
+  "repos": [
+    {
+      "repo_id": "workspace-governance-control-fabric",
+      "repo_name": "workspace-governance-control-fabric",
+      "owner_repo": "workspace-governance-control-fabric",
+      "authority_ref_ids": [
+        "wgcf-runtime-repo-guidance",
+        "wgcf-operator-surface"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "component_id": "control-fabric-core",
+      "component_type": "runtime-package",
+      "owner_repo": "workspace-governance-control-fabric",
+      "source_paths": [
+        "packages/control_fabric_core/src/control_fabric_core"
+      ],
+      "authority_ref_ids": [
+        "wgcf-runtime-repo-guidance",
+        "wgcf-operator-surface"
+      ]
+    }
+  ],
+  "validators": [
+    {
+      "validator_id": "control-fabric-project-scaffold",
+      "owner_repo": "workspace-governance-control-fabric",
+      "command": "python3 scripts/validate_project.py --repo-root .",
+      "scopes": [
+        "repo:workspace-governance-control-fabric"
+      ],
+      "authority_ref_ids": [
+        "wgcf-runtime-repo-guidance",
+        "wgcf-operator-surface"
+      ]
+    }
+  ],
+  "projections": [
+    {
+      "projection_id": "workspace-repo-authority-graph",
+      "owner_repo": "workspace-governance-control-fabric",
+      "source_ref_ids": [
+        "workspace-repo-contracts",
+        "wgcf-operator-surface"
+      ],
+      "output_ref": {
+        "repo": "workspace-governance-control-fabric",
+        "path": "fabric-local/governance-graph"
+      }
+    }
+  ]
+}

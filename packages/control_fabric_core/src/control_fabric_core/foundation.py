@@ -73,6 +73,12 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0001_create_foundation_tables.py": (
             repo_root / "migrations/versions/0001_create_foundation_tables.py"
         ),
+        "schemas/governance-manifest.schema.json": (
+            repo_root / "schemas/governance-manifest.schema.json"
+        ),
+        "examples/governance-manifest.example.json": (
+            repo_root / "examples/governance-manifest.example.json"
+        ),
         str(WORKER_ENTRYPOINT_PATH): repo_root / WORKER_ENTRYPOINT_PATH,
         str(OPERATOR_SURFACE_PATH): repo_root / OPERATOR_SURFACE_PATH,
     }
