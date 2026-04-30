@@ -74,8 +74,9 @@ That surface is constrained by the workspace-owned contract in
 
 - `apps/cli/` owns the future `wgcf` operator CLI. The scaffold supports
   `wgcf status` through the Python entrypoint.
-- `apps/api/` reserves the future FastAPI service boundary. Health and version
-  endpoints land in a later scoped slice.
+- `apps/api/` owns the FastAPI service boundary. The current implementation
+  exposes `GET /healthz`, `GET /readyz`, and `GET /v1/status` with version
+  metadata.
 - `apps/worker/` reserves the future background execution boundary. Worker
   behavior lands in a later scoped slice.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
@@ -110,9 +111,16 @@ governance documentation, review controls, and Python scaffold in place.
 Local validation:
 
 ```bash
+python3 -m pip install -e ".[test]"
 python3 scripts/validate_project.py --repo-root .
-PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m unittest discover -s tests
-PYTHONPATH=packages/control_fabric_core/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m unittest discover -s tests
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
+```
+
+Local API smoke after dependencies are installed:
+
+```bash
+uvicorn wgcf_api.app:app --app-dir apps/api/src --host 127.0.0.1 --port 8080
 ```
 
 Primary upstream sources:

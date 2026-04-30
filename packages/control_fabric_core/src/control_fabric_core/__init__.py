@@ -3,6 +3,7 @@
 from .foundation import (
     AUTHORITY_CONTRACT_REF,
     PACKAGE_NAME,
+    PACKAGE_VERSION,
     RUNTIME_REPO,
     STATUS_BOOTSTRAP,
     status_snapshot,
@@ -11,6 +12,7 @@ from .foundation import (
 __all__ = [
     "AUTHORITY_CONTRACT_REF",
     "PACKAGE_NAME",
+    "PACKAGE_VERSION",
     "RUNTIME_REPO",
     "STATUS_BOOTSTRAP",
     "status_snapshot",

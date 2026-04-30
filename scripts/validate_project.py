@@ -12,6 +12,7 @@ from pathlib import Path
 REQUIRED_PATHS = (
     "pyproject.toml",
     "apps/api/README.md",
+    "apps/api/src/wgcf_api/app.py",
     "apps/cli/README.md",
     "apps/cli/src/wgcf_cli/main.py",
     "apps/worker/README.md",
@@ -46,14 +47,19 @@ def validate_pyproject(repo_root: Path) -> list[str]:
         errors.append("pyproject must expose wgcf = wgcf_cli.main:main")
     if project.get("requires-python") != ">=3.12":
         errors.append("pyproject requires-python must be >=3.12")
+    dependencies = set(project.get("dependencies", []))
+    if not any(dependency.startswith("fastapi") for dependency in dependencies):
+        errors.append("pyproject dependencies must include fastapi for the API app")
     return errors
 
 
 def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "packages/control_fabric_core/src"))
+    sys.path.insert(0, str(repo_root / "apps/api/src"))
     sys.path.insert(0, str(repo_root / "apps/cli/src"))
 
     from control_fabric_core import status_snapshot
+    from wgcf_api import create_app
     from wgcf_cli.main import build_parser
 
     snapshot = status_snapshot(repo_root)
@@ -64,6 +70,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     parsed = parser.parse_args(["status", "--repo-root", str(repo_root)])
     if parsed.command != "status":
         errors.append("wgcf parser did not accept status command")
+    app = create_app(repo_root)
+    if app.title != "Workspace Governance Control Fabric":
+        errors.append("FastAPI app title is not the control-fabric title")
     return errors
 
 
