@@ -20,10 +20,11 @@ different workflow.
 
 Only the bootstrap status, manifest graph ingestion, read-only graph query,
 validation planning, core-library validation execution, core-library policy
-admission, core-library runtime governance records, and core-library evidence
-projection surfaces are implemented now. Treat the remaining CLI commands and
-API routes below as the minimum required interface contract for later slices,
-not as currently available runtime commands.
+admission, core-library runtime governance records, core-library evidence
+projection surfaces, and local-k3s dev-integration API access are
+implemented now. Treat the remaining CLI commands and API routes below as the
+minimum required interface contract for later slices, not as currently
+available runtime commands.
 
 ## Authority Boundaries
 
@@ -114,10 +115,31 @@ from `WGCF_TEMPORAL_NAMESPACE`, `WGCF_TEMPORAL_TASK_QUEUE`, and
 `WGCF_TEMPORAL_ADDRESS`, but it treats them as configuration shape only until a
 future runtime slice activates the worker lane.
 
+## Dev-Integration API Access
+
+The first operator-access path is the `governance-control-fabric`
+dev-integration profile. It deploys local PostgreSQL plus the published WGCF
+API image into local k3s, runs database migrations, exposes a ClusterIP
+Service, and writes access, health, readiness, database-migration, and smoke
+artifacts under `.dev-integration/governance-control-fabric/<operator>`.
+
+```bash
+make -C /home/mfshaf7/projects/platform-engineering devint-up PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-status PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-smoke PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-access PROFILE=governance-control-fabric
+make -C /home/mfshaf7/projects/platform-engineering devint-down PROFILE=governance-control-fabric
+```
+
+This path is intentionally local dev-integration. It is not a stage deployment,
+does not create a governed platform PostgreSQL instance, and does not activate
+the worker runtime.
+
 ## Required API Shape
 
-The API is a future integration surface. Do not deploy it until platform and
-security gates approve the runtime posture.
+The API is now available for local dev-integration contract iteration. Do not
+deploy it to governed stage or prod until platform and security gates approve
+that runtime posture.
 
 Required route meanings:
 
@@ -345,7 +367,8 @@ production worker yet and should not be deployed as one.
 - `local-read-only`
   - local snapshots, validation plans, checks, receipts, and ledger events
 - `dev-integration`
-  - future local-k3s runtime integration after platform and security gates
+  - active local-k3s API and PostgreSQL runtime integration for local contract
+    iteration
 - `governed-stage`
   - future governed deployment posture after release and security approval
 

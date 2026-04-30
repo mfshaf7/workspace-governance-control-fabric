@@ -1,4 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-"$(dirname "$0")/_proposed-profile.sh" status
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
+
+need_cmd k3s
+ensure_state_dirs
+write_access_file
+
+echo "profile: ${PROFILE_ID}"
+echo "namespace: ${NAMESPACE}"
+echo "operator: ${OPERATOR}"
+echo "state root: ${STATE_ROOT}"
+echo "image: ${API_IMAGE}"
+echo "access artifact: ${ACCESS_FILE}"
+echo
+kubectl_cmd -n "${NAMESPACE}" get deploy,pods,svc -l "devint.profile=${PROFILE_ID}" || true
+echo
+kubectl_cmd -n "${NAMESPACE}" get statefulset,pvc,job -l "devint.profile=${PROFILE_ID}" || true
