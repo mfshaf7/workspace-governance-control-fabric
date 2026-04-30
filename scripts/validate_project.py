@@ -26,6 +26,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
+    "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
@@ -102,6 +103,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     from control_fabric_core import (
         build_manifest_graph,
         governance_manifest_schema,
+        query_manifest_graph,
         status_snapshot,
         validate_governance_manifest,
         worker_status_snapshot,
@@ -161,6 +163,12 @@ def validate_imports(repo_root: Path) -> list[str]:
     for required_node_type in ("authority-reference", "repo", "component", "validator", "projection"):
         if required_node_type not in node_types:
             errors.append(f"example governance manifest graph missing node type: {required_node_type}")
+    repo_query = query_manifest_graph(example_manifest, "repo:workspace-governance-control-fabric")
+    if not repo_query.nodes:
+        errors.append("example governance manifest repo query returned no nodes")
+    art_query = query_manifest_graph(example_manifest, "art:delivery-420")
+    if not any(node.node_type == "scope" for node in art_query.nodes):
+        errors.append("example governance manifest ART query missing synthetic scope node")
     return errors
 
 

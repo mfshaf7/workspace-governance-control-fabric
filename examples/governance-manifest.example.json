@@ -62,6 +62,7 @@
       "owner_repo": "workspace-governance-control-fabric",
       "command": "python3 scripts/validate_project.py --repo-root .",
       "scopes": [
+        "art:delivery-420",
         "repo:workspace-governance-control-fabric"
       ],
       "authority_ref_ids": [

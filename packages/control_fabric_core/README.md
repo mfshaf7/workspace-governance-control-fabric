@@ -11,6 +11,8 @@ Current slice:
 - database settings without leaking secrets
 - runtime governance manifest schema and dependency-free manifest validation
 - deterministic manifest-to-graph ingestion primitives
+- read-only manifest graph query helpers for repo, component, validator,
+  projection, authority, and ART-oriented scopes
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -27,3 +29,8 @@ contracts were consumed.
 Manifest-to-graph ingestion returns in-memory node and edge records that match
 the fabric-local graph model. It does not persist records or mutate upstream
 authority stores.
+
+Graph query helpers produce compact slices from those in-memory graph records
+for operator surfaces. They are intentionally file-backed in this phase so API
+and CLI users can inspect repo, component, and ART-oriented context without a
+database dependency or upstream authority write.

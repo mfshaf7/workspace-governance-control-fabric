@@ -8,6 +8,9 @@ Current slice:
 - implement `GET /healthz`
 - implement `GET /readyz`
 - implement `GET /v1/status` with version and authority-reference metadata
+- implement `GET /v1/graph` for a read-only manifest graph projection
+- implement `GET /v1/graph/query?scope=<scope>` for compact repo, component,
+  validator, projection, authority, or ART-oriented graph slices
 
 Run locally after installing dependencies:
 

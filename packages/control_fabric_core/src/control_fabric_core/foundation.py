@@ -72,6 +72,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/graph_queries.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/graph_queries.py"
+        ),
         "migrations/env.py": repo_root / "migrations/env.py",
         "migrations/versions/0001_create_foundation_tables.py": (
             repo_root / "migrations/versions/0001_create_foundation_tables.py"

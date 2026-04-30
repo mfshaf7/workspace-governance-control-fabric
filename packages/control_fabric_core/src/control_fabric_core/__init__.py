@@ -14,6 +14,14 @@ from .graph_ingestion import (
     ManifestGraphNode,
     build_manifest_graph,
 )
+from .graph_queries import (
+    ManifestGraphQueryResult,
+    build_graph_from_manifest_file,
+    graph_summary,
+    load_governance_manifest_file,
+    query_manifest_file,
+    query_manifest_graph,
+)
 from .database import DATABASE_URL_ENV, DEFAULT_DATABASE_URL, database_settings
 from .manifests import (
     MANIFEST_SCHEMA_VERSION,
@@ -36,11 +44,17 @@ __all__ = [
     "ManifestGraph",
     "ManifestGraphEdge",
     "ManifestGraphNode",
+    "ManifestGraphQueryResult",
     "ManifestValidationResult",
+    "build_graph_from_manifest_file",
     "build_manifest_graph",
     "database_settings",
+    "graph_summary",
     "governance_manifest_schema",
+    "load_governance_manifest_file",
     "manifest_entity_ids",
+    "query_manifest_file",
+    "query_manifest_graph",
     "status_snapshot",
     "validate_governance_manifest",
     "worker_status_snapshot",
