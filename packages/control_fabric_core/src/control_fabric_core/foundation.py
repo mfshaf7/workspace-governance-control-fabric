@@ -13,6 +13,7 @@ from typing import Any
 
 
 PACKAGE_NAME = "workspace-governance-control-fabric"
+PACKAGE_VERSION = "0.1.0"
 RUNTIME_REPO = "workspace-governance-control-fabric"
 STATUS_BOOTSTRAP = "bootstrap"
 AUTHORITY_CONTRACT_REF = (
@@ -76,6 +77,7 @@ def status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any]:
     required_paths = repo_required_paths(root)
     return {
         "repo": RUNTIME_REPO,
+        "version": PACKAGE_VERSION,
         "status": STATUS_BOOTSTRAP,
         "authority_contract_ref": AUTHORITY_CONTRACT_REF,
         "operator_surface_path": str(OPERATOR_SURFACE_PATH),

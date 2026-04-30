@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import sys
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 from unittest import TestCase
 
@@ -47,7 +49,12 @@ class FoundationTests(TestCase):
         self.assertNotIn("Traceback", rendered)
 
     def test_cli_status_returns_zero(self) -> None:
-        self.assertEqual(main(["status", "--repo-root", str(REPO_ROOT)]), 0)
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            result = main(["status", "--repo-root", str(REPO_ROOT)])
+
+        self.assertEqual(result, 0)
+        self.assertIn("ready: true", buffer.getvalue())
 
     def test_cli_status_json_is_serializable(self) -> None:
         snapshot = status_snapshot(REPO_ROOT)

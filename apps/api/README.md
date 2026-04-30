@@ -1,13 +1,19 @@
 # Control Fabric API
 
-This app will own the future FastAPI service surface for the Workspace
-Governance Control Fabric.
+This app owns the FastAPI service surface for the Workspace Governance Control
+Fabric runtime.
 
 Current slice:
 
-- reserve the API app boundary
-- document that API implementation is intentionally deferred
+- implement `GET /healthz`
+- implement `GET /readyz`
+- implement `GET /v1/status` with version and authority-reference metadata
 
-The first API implementation is owned by the later health/version endpoint
-slice. Until then, this directory must not imply that a deployable service is
-available.
+Run locally after installing dependencies:
+
+```bash
+uvicorn wgcf_api.app:app --app-dir apps/api/src --host 127.0.0.1 --port 8080
+```
+
+This service is local-first only until platform and security gates approve a
+runtime deployment posture.
