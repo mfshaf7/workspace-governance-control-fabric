@@ -60,6 +60,15 @@ runtime implementation begins. Product code, service scaffolding, deployment
 state, and security-specific controls should land through later scoped work
 items after the repo boundary is admitted.
 
+The primary operator surface is now defined before implementation:
+
+- [docs/operations/operator-surface.md](docs/operations/operator-surface.md)
+
+That surface is constrained by the workspace-owned contract in
+`workspace-governance`:
+
+- <https://github.com/mfshaf7/workspace-governance/blob/main/contracts/governance-control-fabric-operator-surface.yaml>
+
 ## Operating Model
 
 All meaningful changes should land through a branch and pull request after the

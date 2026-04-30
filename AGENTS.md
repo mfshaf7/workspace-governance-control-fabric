@@ -6,6 +6,14 @@ Control Fabric.
 Read `README.md` first. Then verify whether the requested change belongs here
 or in an upstream authority repo.
 
+Primary operator surface:
+
+- `docs/operations/operator-surface.md`
+
+Authority contract:
+
+- `workspace-governance/contracts/governance-control-fabric-operator-surface.yaml`
+
 ## What This Repo Owns
 
 - runtime implementation for the governance control fabric
@@ -41,6 +49,9 @@ or in an upstream authority repo.
   requirement before claiming completion.
 - If a change creates or materially changes an operator-facing workflow, add or
   update one primary operator instruction surface in this repo.
+- If a change alters CLI, API, record, profile, blocker, escalation, or denied
+  action semantics, update the workspace-governance authority contract before
+  implementing the changed meaning here.
 
 ## Review Guidelines
 
