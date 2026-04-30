@@ -65,6 +65,14 @@
             "minLength": 1,
             "type": "string"
           },
+          "impact_scopes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
           "owner_repo": {
             "minLength": 1,
             "type": "string"
@@ -174,6 +182,22 @@
           "repo_name": {
             "minLength": 1,
             "type": "string"
+          },
+          "source_paths": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "impact_scopes": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
           }
         },
         "required": [
@@ -205,6 +229,27 @@
             "minLength": 1,
             "type": "string"
           },
+          "execution_policy": {
+            "additionalProperties": true,
+            "properties": {
+              "fail_on_output_budget_exceeded": {
+                "type": "boolean"
+              },
+              "output_budget_bytes": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "retry_count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "timeout_seconds": {
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "type": "object"
+          },
           "owner_repo": {
             "minLength": 1,
             "type": "string"
@@ -215,6 +260,9 @@
               "freshness_seconds": {
                 "minimum": 0,
                 "type": "integer"
+              },
+              "invalidate_on_authority_change": {
+                "type": "boolean"
               },
               "safe_to_reuse": {
                 "type": "boolean"

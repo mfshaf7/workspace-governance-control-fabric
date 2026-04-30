@@ -256,16 +256,29 @@ Changed-file planning accepts `changed-file:<repo-relative-path>` and expands
 it to matching repo and component scopes declared by the manifest. This keeps
 file-based planning deterministic without hardcoding validator policy in code.
 
-Manifest validators may declare `reuse_policy.safe_to_reuse` and
-`reuse_policy.freshness_seconds`. When the planner receives matching successful
-receipt records that are still fresh, it marks those checks as
-`skip_fresh_receipt` candidates in the plan.
+Manifest validators may declare `reuse_policy.safe_to_reuse`,
+`reuse_policy.freshness_seconds`, and
+`reuse_policy.invalidate_on_authority_change`. When the planner receives
+matching successful receipt records that are still fresh and still match the
+validator authority-ref digests, it marks those checks as
+`skip_fresh_receipt` candidates in the plan. If authority digests are missing or
+changed and invalidation is enabled, the planner selects the validator to run
+again and records the cache decision reason in the plan.
+
+Manifest validators may also declare `execution_policy.timeout_seconds`,
+`execution_policy.retry_count`, `execution_policy.output_budget_bytes`, and
+`execution_policy.fail_on_output_budget_exceeded`. These are runtime execution
+controls only; they do not decide workspace policy. Receipts record timeout,
+retry, and output-budget decisions as compact metadata while raw stdout/stderr
+remain in receipt-linked artifacts.
 
 The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
 It must explain selected checks, suppressed validators, and any operator-review
-reason. The core execution primitive must respect that decision. If the
-decision is blocked or requires operator review, it emits a compact receipt
-without running validators.
+reason. Plan records also return `check_statuses` so operator and API surfaces
+can distinguish `selected`, `suppressed`, `blocked`, `waived`, `stale`,
+`failed`, and `external-owner-required` checks without parsing prose. The core
+execution primitive must respect that decision. If the decision is blocked or
+requires operator review, it emits a compact receipt without running validators.
 
 Validation execution uses the schemas at:
 
@@ -280,6 +293,8 @@ Current execution behavior:
 - writes full stdout/stderr to local artifact files
 - includes only artifact refs, digests, byte counts, line counts, exit codes,
   duration, planner decision, and outcome in receipts
+- records per-check timeout, retry, and output-budget decisions in compact
+  receipt metadata
 - appends ledger events as JSONL through the core helper
 - never embeds raw stdout/stderr in receipts or ART notes
 

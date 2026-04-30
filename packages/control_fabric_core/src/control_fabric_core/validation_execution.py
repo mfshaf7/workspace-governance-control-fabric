@@ -355,51 +355,121 @@ def _run_command_check(
             status="blocked",
             validator_id=check.validator_id,
         )
+    execution_policy = _execution_policy(check)
+    effective_timeout_seconds = _policy_int(
+        execution_policy.get("timeout_seconds"),
+        default=timeout_seconds,
+        minimum=1,
+    )
+    retry_count = _policy_int(execution_policy.get("retry_count"), default=0, minimum=0)
+    output_budget_bytes = _optional_policy_int(
+        execution_policy.get("output_budget_bytes"),
+        minimum=0,
+    )
+    fail_on_budget = bool(execution_policy.get("fail_on_output_budget_exceeded", False))
+
     command_env = dict(os.environ)
     command_env["PATH"] = _python_first_path(command_env.get("PATH"))
     if env:
         command_env.update(env)
     command_env.update(env_overrides)
 
-    stdout = b""
-    stderr = b""
+    check_dir = artifact_root / _safe_path_id(check.check_id)
+    artifact_refs: list[ValidationArtifactRef] = []
+    attempt_summaries: list[dict[str, Any]] = []
+    final_stdout = b""
+    final_stderr = b""
+    final_stdout_ref: ValidationArtifactRef | None = None
+    final_stderr_ref: ValidationArtifactRef | None = None
     exit_code: int | None = None
     error: str | None = None
     timed_out = False
-    try:
-        completed = subprocess.run(
-            args,
-            cwd=repo_root,
-            env=command_env,
-            capture_output=True,
-            check=False,
-            timeout=timeout_seconds,
+    max_attempts = retry_count + 1
+    for attempt in range(1, max_attempts + 1):
+        stdout = b""
+        stderr = b""
+        attempt_exit_code: int | None = None
+        attempt_error: str | None = None
+        attempt_timed_out = False
+        try:
+            completed = subprocess.run(
+                args,
+                cwd=repo_root,
+                env=command_env,
+                capture_output=True,
+                check=False,
+                timeout=effective_timeout_seconds,
+            )
+            stdout = completed.stdout or b""
+            stderr = completed.stderr or b""
+            attempt_exit_code = completed.returncode
+        except subprocess.TimeoutExpired as exc:
+            stdout = _bytes_or_empty(exc.stdout)
+            stderr = _bytes_or_empty(exc.stderr)
+            attempt_error = f"command timed out after {effective_timeout_seconds} seconds"
+            attempt_timed_out = True
+        except OSError as exc:
+            attempt_error = str(exc)
+
+        if max_attempts > 1:
+            stdout_ref = _write_artifact(check_dir, f"attempt-{attempt}-stdout", stdout)
+            stderr_ref = _write_artifact(check_dir, f"attempt-{attempt}-stderr", stderr)
+        else:
+            stdout_ref = _write_artifact(check_dir, "stdout", stdout)
+            stderr_ref = _write_artifact(check_dir, "stderr", stderr)
+        artifact_refs.extend((stdout_ref, stderr_ref))
+        attempt_summaries.append(
+            {
+                "attempt": attempt,
+                "exit_code": attempt_exit_code,
+                "stderr": _stream_summary(stderr, stderr_ref),
+                "stdout": _stream_summary(stdout, stdout_ref),
+                "timed_out": attempt_timed_out,
+            },
         )
-        stdout = completed.stdout or b""
-        stderr = completed.stderr or b""
-        exit_code = completed.returncode
-    except subprocess.TimeoutExpired as exc:
-        stdout = _bytes_or_empty(exc.stdout)
-        stderr = _bytes_or_empty(exc.stderr)
-        error = f"command timed out after {timeout_seconds} seconds"
-        timed_out = True
-    except OSError as exc:
-        error = str(exc)
+        if attempt_error:
+            attempt_summaries[-1]["error"] = attempt_error
+
+        final_stdout = stdout
+        final_stderr = stderr
+        final_stdout_ref = stdout_ref
+        final_stderr_ref = stderr_ref
+        exit_code = attempt_exit_code
+        error = attempt_error
+        timed_out = attempt_timed_out
+        if attempt_exit_code == 0 and attempt_error is None:
+            break
 
     completed_at = datetime.now(UTC)
     duration_ms = int((completed_at - started).total_seconds() * 1000)
-    check_dir = artifact_root / _safe_path_id(check.check_id)
-    stdout_ref = _write_artifact(check_dir, "stdout", stdout)
-    stderr_ref = _write_artifact(check_dir, "stderr", stderr)
-    artifact_refs = (stdout_ref, stderr_ref)
-    status = "success" if exit_code == 0 and error is None else "failure"
+    budget_decision = _output_budget_decision(
+        tuple(artifact_refs),
+        output_budget_bytes,
+        fail_on_budget,
+    )
+    if budget_decision["exceeded"] and fail_on_budget:
+        status = "failure"
+        budget_error = (
+            f"output budget exceeded: {budget_decision['observed_bytes']} bytes "
+            f"over {budget_decision['budget_bytes']} byte budget"
+        )
+        error = f"{error}; {budget_error}" if error else budget_error
+    else:
+        status = "success" if exit_code == 0 and error is None else "failure"
+    assert final_stdout_ref is not None
+    assert final_stderr_ref is not None
     output_summary = {
-        "stderr": _stream_summary(stderr, stderr_ref),
-        "stdout": _stream_summary(stdout, stdout_ref),
+        "attempt_count": len(attempt_summaries),
+        "attempts": attempt_summaries,
+        "output_budget": budget_decision,
+        "retry_count": retry_count,
+        "stderr": _stream_summary(final_stderr, final_stderr_ref),
+        "stdout": _stream_summary(final_stdout, final_stdout_ref),
         "timed_out": timed_out,
+        "timeout_seconds": effective_timeout_seconds,
     }
     return ValidationCheckResult(
-        artifact_refs=artifact_refs,
+        artifact_refs=tuple(artifact_refs),
         check_id=check.check_id,
         command_digest=_digest_text(check.command),
         duration_ms=duration_ms,
@@ -411,6 +481,41 @@ def _run_command_check(
         status=status,
         validator_id=check.validator_id,
     )
+
+
+def _execution_policy(check) -> dict[str, Any]:
+    policy = getattr(check, "execution_policy", {})
+    return policy if isinstance(policy, dict) else {}
+
+
+def _policy_int(value: Any, *, default: int, minimum: int) -> int:
+    parsed = _optional_policy_int(value, minimum=minimum)
+    return default if parsed is None else parsed
+
+
+def _optional_policy_int(value: Any, *, minimum: int) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= minimum else None
+
+
+def _output_budget_decision(
+    artifact_refs: tuple[ValidationArtifactRef, ...],
+    output_budget_bytes: int | None,
+    fail_on_budget: bool,
+) -> dict[str, Any]:
+    observed_bytes = sum(artifact.byte_count for artifact in artifact_refs)
+    exceeded = output_budget_bytes is not None and observed_bytes > output_budget_bytes
+    return {
+        "action": "fail" if exceeded and fail_on_budget else "record_only",
+        "budget_bytes": output_budget_bytes,
+        "exceeded": exceeded,
+        "observed_bytes": observed_bytes,
+    }
 
 
 def _parse_command(command: str) -> tuple[dict[str, str], list[str]]:

@@ -48,9 +48,11 @@ KNOWN_TARGET_PREFIXES = (
     "authority:",
     "component:",
     "projection:",
+    "profile:",
     "repo:",
     "validator:",
     "art:",
+    "release:",
     "changed-file:",
 )
 
@@ -78,10 +80,12 @@ class ValidationTarget:
 class ValidationCheck:
     """One selected validator command or contract check in a plan."""
 
+    cache_decision: dict[str, Any]
     check_id: str
     check_type: str
     command: str
     execution_mode: str
+    execution_policy: dict[str, Any]
     owner_repo: str
     receipt_digest: str | None
     receipt_id: str | None
@@ -107,6 +111,20 @@ class SuppressedValidator:
     reason: str
 
     def to_record(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ValidationCheckStatus:
+    """Operator-readable status for one manifest-declared validator."""
+
+    owner_repo: str
+    reason: str
+    required: bool
+    status: str
+    validator_id: str
+
+    def to_record(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -137,6 +155,7 @@ class PlannerDecision:
 class ValidationPlan:
     """Operator-safe validation plan record."""
 
+    check_statuses: tuple[ValidationCheckStatus, ...]
     checks: tuple[ValidationCheck, ...]
     decision: PlannerDecision
     manifest_id: str
@@ -146,6 +165,7 @@ class ValidationPlan:
 
     def to_record(self) -> dict[str, Any]:
         return {
+            "check_statuses": [status.to_record() for status in self.check_statuses],
             "checks": [check.to_record() for check in self.checks],
             "decision": self.decision.to_record(),
             "manifest_id": self.manifest_id,
@@ -160,6 +180,7 @@ def build_validation_plan(
     target_scope: str,
     tier: str | ValidationTier = ValidationTier.SCOPED,
     receipts: list[dict[str, Any]] | None = None,
+    waivers: list[dict[str, Any]] | None = None,
     now: datetime | str | None = None,
 ) -> ValidationPlan:
     """Build a deterministic validation plan from manifest-declared validators."""
@@ -170,6 +191,7 @@ def build_validation_plan(
 
     requested_tier = _coerce_tier(tier)
     receipt_records = tuple(receipts or [])
+    waiver_records = tuple(waivers or [])
     planning_time = _coerce_now(now)
     target = normalize_validation_target(target_scope)
     graph = build_manifest_graph(manifest)
@@ -179,36 +201,46 @@ def build_validation_plan(
 
     selected: list[ValidationCheck] = []
     suppressed: list[SuppressedValidator] = []
+    check_statuses: list[ValidationCheckStatus] = []
     for validator in sorted(manifest["validators"], key=lambda item: item["validator_id"]):
         validator_tier = _validator_tier(validator)
         if not _tier_included(validator_tier, requested_tier):
-            suppressed.append(
-                SuppressedValidator(
-                    validator_id=validator["validator_id"],
-                    reason=f"validator tier {validator_tier.value} is above requested tier {requested_tier.value}",
-                ),
+            reason = f"validator tier {validator_tier.value} is above requested tier {requested_tier.value}"
+            suppressed.append(SuppressedValidator(validator_id=validator["validator_id"], reason=reason))
+            check_statuses.append(
+                _check_status(validator, "suppressed", reason),
             )
             continue
         if not _scope_included(validator["scopes"], target, requested_tier, manifest):
-            suppressed.append(
-                SuppressedValidator(
-                    validator_id=validator["validator_id"],
-                    reason=f"validator does not declare a scope matching {target.scope}",
+            reason = f"validator does not declare a scope matching {target.scope}"
+            suppressed.append(SuppressedValidator(validator_id=validator["validator_id"], reason=reason))
+            check_statuses.append(
+                _check_status(validator, "suppressed", reason),
+            )
+            continue
+
+        waiver = _valid_validator_waiver(validator, waiver_records, planning_time)
+        if waiver:
+            check_statuses.append(
+                _check_status(
+                    validator,
+                    "waived",
+                    f"validator is covered by waiver {waiver['waiver_id']}",
                 ),
             )
             continue
 
-        selected.append(
-            _validation_check(
-                validator,
-                target,
-                validator_tier,
-                requested_tier,
-                manifest,
-                receipt_records,
-                planning_time,
-            ),
+        selected_check = _validation_check(
+            validator,
+            target,
+            validator_tier,
+            requested_tier,
+            manifest,
+            receipt_records,
+            planning_time,
         )
+        selected.append(selected_check)
+        check_statuses.append(_selected_check_status(selected_check, manifest))
 
     reasons = _decision_reasons(
         manifest,
@@ -221,7 +253,13 @@ def build_validation_plan(
     if blocked_reasons:
         outcome = "blocked"
         requires_operator_review = True
-    elif selected:
+        check_statuses = [
+            _replace_status(status, "blocked", "; ".join(blocked_reasons))
+            if status.status in {"selected", "stale", "failed", "external-owner-required"}
+            else status
+            for status in check_statuses
+        ]
+    elif selected or any(status.status == "waived" for status in check_statuses):
         outcome = "planned"
         requires_operator_review = False
     else:
@@ -235,8 +273,16 @@ def build_validation_plan(
         requires_operator_review=requires_operator_review,
         suppressed_validators=tuple(suppressed),
     )
-    plan_id = _plan_id(manifest["manifest_id"], target.scope, requested_tier, selected, decision)
+    plan_id = _plan_id(
+        manifest["manifest_id"],
+        target.scope,
+        requested_tier,
+        selected,
+        decision,
+        check_statuses,
+    )
     return ValidationPlan(
+        check_statuses=tuple(check_statuses),
         checks=tuple(selected),
         decision=decision,
         manifest_id=manifest["manifest_id"],
@@ -272,6 +318,19 @@ def normalize_validation_target(target_scope: str) -> ValidationTarget:
     )
 
 
+def validation_target_scope_candidates(
+    manifest: dict[str, Any],
+    target_scope: str,
+) -> tuple[str, ...]:
+    """Return deterministic scopes that may satisfy a validation target."""
+
+    validation = validate_governance_manifest(manifest)
+    if not validation.valid:
+        raise ValueError(f"manifest is invalid: {'; '.join(validation.errors)}")
+    target = normalize_validation_target(target_scope)
+    return tuple(sorted(_target_scope_candidates(manifest, target)))
+
+
 def _validation_check(
     validator: dict[str, Any],
     target: ValidationTarget,
@@ -282,18 +341,21 @@ def _validation_check(
     now: datetime,
 ) -> ValidationCheck:
     validator_id = validator["validator_id"].strip()
-    execution_mode, receipt_id, receipt_digest, reuse_reason = _receipt_reuse_decision(
+    execution_mode, receipt_id, receipt_digest, reuse_reason, cache_decision = _receipt_reuse_decision(
         validator,
         target,
         requested_tier,
         receipts,
         now,
+        manifest,
     )
     return ValidationCheck(
+        cache_decision=cache_decision,
         check_id=_check_id(validator_id, target.scope, requested_tier),
         check_type=_validator_check_type(validator).value,
         command=validator["command"].strip(),
         execution_mode=execution_mode.value,
+        execution_policy=_validator_execution_policy(validator),
         owner_repo=validator["owner_repo"].strip(),
         reason=_selection_reason(validator, target, validator_tier, requested_tier, manifest),
         receipt_digest=receipt_digest,
@@ -370,6 +432,81 @@ def _selection_reason(
     return f"validator selected for {target.scope}"
 
 
+def _check_status(
+    validator: dict[str, Any],
+    status: str,
+    reason: str,
+) -> ValidationCheckStatus:
+    return ValidationCheckStatus(
+        owner_repo=str(validator.get("owner_repo") or "").strip(),
+        reason=reason,
+        required=bool(validator.get("required", True)),
+        status=status,
+        validator_id=str(validator.get("validator_id") or "").strip(),
+    )
+
+
+def _replace_status(
+    status: ValidationCheckStatus,
+    new_status: str,
+    reason: str,
+) -> ValidationCheckStatus:
+    return ValidationCheckStatus(
+        owner_repo=status.owner_repo,
+        reason=reason,
+        required=status.required,
+        status=new_status,
+        validator_id=status.validator_id,
+    )
+
+
+def _selected_check_status(
+    check: ValidationCheck,
+    manifest: dict[str, Any],
+) -> ValidationCheckStatus:
+    reason_code = str(check.cache_decision.get("reason_code") or "")
+    if reason_code in {"authority-digest-mismatch", "receipt-stale"}:
+        status = "stale"
+    elif reason_code == "receipt-failed":
+        status = "failed"
+    elif check.owner_repo != str(manifest.get("owner_repo") or "").strip():
+        status = "external-owner-required"
+    else:
+        status = "selected"
+    return ValidationCheckStatus(
+        owner_repo=check.owner_repo,
+        reason=str(check.cache_decision.get("reason") or check.reason),
+        required=check.required,
+        status=status,
+        validator_id=check.validator_id,
+    )
+
+
+def _valid_validator_waiver(
+    validator: dict[str, Any],
+    waivers: tuple[dict[str, Any], ...],
+    now: datetime,
+) -> dict[str, Any] | None:
+    validator_id = str(validator.get("validator_id") or "").strip()
+    for waiver in sorted(waivers, key=lambda item: str(item.get("waiver_id") or "")):
+        if str(waiver.get("validator_id") or "").strip() != validator_id:
+            continue
+        waiver_id = _optional_str(waiver.get("waiver_id"))
+        if not waiver_id:
+            continue
+        status = str(waiver.get("status") or "approved").strip().lower()
+        if status not in {"active", "approved", "current"}:
+            continue
+        expires_at = _parse_timestamp(waiver.get("expires_at"))
+        if expires_at is not None and expires_at < now:
+            continue
+        return {
+            "expires_at": expires_at.isoformat().replace("+00:00", "Z") if expires_at else None,
+            "waiver_id": waiver_id,
+        }
+    return None
+
+
 def _decision_reasons(
     manifest: dict[str, Any],
     target: ValidationTarget,
@@ -418,6 +555,10 @@ def _blocked_reasons(manifest: dict[str, Any], requested_tier: ValidationTier) -
 
 def _declared_scope_ids(manifest: dict[str, Any], graph) -> set[str]:
     scopes = {node.node_id for node in graph.nodes}
+    for repo in manifest.get("repos", []):
+        scopes.update(_impact_scopes(repo))
+    for component in manifest.get("components", []):
+        scopes.update(_impact_scopes(component))
     for validator in manifest["validators"]:
         scopes.update(str(scope).strip() for scope in validator["scopes"])
     return scopes
@@ -444,20 +585,76 @@ def _target_scope_candidates(manifest: dict[str, Any], target: ValidationTarget)
         return scopes
 
     changed_path = target.target_id
-    scopes.update(
-        f"repo:{repo['repo_id'].strip()}"
+    repos = [
+        repo
         for repo in manifest.get("repos", [])
         if str(repo.get("repo_id") or "").strip()
-    )
+    ]
+    for repo in repos:
+        source_paths = _source_paths(repo)
+        if len(repos) == 1 or _path_matches_source_paths(changed_path, source_paths):
+            scopes.add(f"repo:{repo['repo_id'].strip()}")
+            scopes.update(_impact_scopes(repo))
     for component in manifest.get("components", []):
         component_id = str(component.get("component_id") or "").strip()
         if not component_id:
             continue
-        for source_path in component.get("source_paths") or []:
-            normalized_source = str(PurePosixPath(str(source_path).strip().replace("\\", "/")))
-            if changed_path == normalized_source or changed_path.startswith(f"{normalized_source}/"):
-                scopes.add(f"component:{component_id}")
+        if _path_matches_source_paths(changed_path, _source_paths(component)):
+            scopes.add(f"component:{component_id}")
+            scopes.update(_impact_scopes(component))
+    profile_scope = _profile_scope_for_path(changed_path)
+    if profile_scope:
+        scopes.add(profile_scope)
     return scopes
+
+
+def _source_paths(item: dict[str, Any]) -> tuple[str, ...]:
+    raw_paths = item.get("source_paths") or item.get("paths") or []
+    if isinstance(raw_paths, str):
+        raw_paths = [raw_paths]
+    return tuple(
+        str(PurePosixPath(str(path).strip().replace("\\", "/")))
+        for path in raw_paths
+        if str(path).strip()
+    )
+
+
+def _impact_scopes(item: dict[str, Any]) -> set[str]:
+    raw_scopes = item.get("impact_scopes") or item.get("validation_scopes") or []
+    if isinstance(raw_scopes, str):
+        raw_scopes = [raw_scopes]
+    return {
+        str(scope).strip()
+        for scope in raw_scopes
+        if _is_supported_scope(str(scope).strip())
+    }
+
+
+def _path_matches_source_paths(changed_path: str, source_paths: tuple[str, ...]) -> bool:
+    if not source_paths:
+        return False
+    for source_path in source_paths:
+        if source_path in {"", "."}:
+            return True
+        if changed_path == source_path or changed_path.startswith(f"{source_path.rstrip('/')}/"):
+            return True
+    return False
+
+
+def _profile_scope_for_path(changed_path: str) -> str | None:
+    parts = PurePosixPath(changed_path).parts
+    for index in range(len(parts) - 2):
+        if parts[index:index + 2] == ("dev-integration", "profiles"):
+            profile_id = parts[index + 2].strip()
+            if profile_id:
+                return f"profile:{profile_id}"
+    return None
+
+
+def _is_supported_scope(scope: str) -> bool:
+    if scope == "workspace":
+        return True
+    return any(scope.startswith(prefix) and scope.removeprefix(prefix).strip() for prefix in KNOWN_TARGET_PREFIXES)
 
 
 def _receipt_reuse_decision(
@@ -466,13 +663,34 @@ def _receipt_reuse_decision(
     requested_tier: ValidationTier,
     receipts: tuple[dict[str, Any], ...],
     now: datetime,
-) -> tuple[ValidationExecutionMode, str | None, str | None, str | None]:
+    manifest: dict[str, Any],
+) -> tuple[ValidationExecutionMode, str | None, str | None, str | None, dict[str, Any]]:
     if not _validator_allows_receipt_reuse(validator):
-        return ValidationExecutionMode.RUN, None, None, None
+        return (
+            ValidationExecutionMode.RUN,
+            None,
+            None,
+            None,
+            {
+                "action": "run",
+                "reason": "validator reuse_policy.safe_to_reuse is not true",
+            },
+        )
 
     validator_id = validator["validator_id"].strip()
-    for receipt in sorted(receipts, key=lambda item: str(item.get("receipt_id") or "")):
-        if not _receipt_matches(receipt, validator_id, target, requested_tier, validator, now):
+    rejected_receipts: list[dict[str, Any]] = []
+    for receipt in _newest_receipts_first(receipts):
+        matches, rejection = _receipt_match_decision(
+            receipt,
+            validator_id,
+            target,
+            requested_tier,
+            validator,
+            now,
+            manifest,
+        )
+        if not matches:
+            rejected_receipts.append(rejection)
             continue
         receipt_id = str(receipt.get("receipt_id") or "").strip()
         receipt_digest = _optional_str(receipt.get("digest") or receipt.get("receipt_digest"))
@@ -481,9 +699,38 @@ def _receipt_reuse_decision(
             receipt_id,
             receipt_digest,
             f"fresh successful receipt {receipt_id} covers {target.scope}",
+            {
+                "action": "reuse",
+                "freshness_seconds": _reuse_freshness_seconds(validator, receipt),
+                "invalidate_on_authority_change": _invalidate_on_authority_change(validator),
+                "reason": f"fresh successful receipt {receipt_id} covers {target.scope}",
+                "reason_code": "fresh-receipt-reused",
+                "receipt_id": receipt_id,
+            },
         )
 
-    return ValidationExecutionMode.RUN, None, None, None
+    primary_rejection = next(
+        (
+            rejection
+            for rejection in rejected_receipts
+            if rejection.get("code") != "validator-mismatch"
+        ),
+        rejected_receipts[0] if rejected_receipts else {},
+    )
+    return (
+        ValidationExecutionMode.RUN,
+        None,
+        None,
+        None,
+        {
+            "action": "run",
+            "invalidate_on_authority_change": _invalidate_on_authority_change(validator),
+            "reason": str(primary_rejection.get("reason") or "no reusable receipt supplied"),
+            "reason_code": str(primary_rejection.get("code") or "no-reusable-receipt"),
+            "rejected_receipt_count": len(rejected_receipts),
+            "rejected_receipts": rejected_receipts[:5],
+        },
+    )
 
 
 def _validator_allows_receipt_reuse(validator: dict[str, Any]) -> bool:
@@ -493,26 +740,140 @@ def _validator_allows_receipt_reuse(validator: dict[str, Any]) -> bool:
     return bool(reuse_policy.get("safe_to_reuse", False))
 
 
-def _receipt_matches(
+def _receipt_match_decision(
     receipt: dict[str, Any],
     validator_id: str,
     target: ValidationTarget,
     requested_tier: ValidationTier,
     validator: dict[str, Any],
     now: datetime,
-) -> bool:
+    manifest: dict[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    receipt_id = str(receipt.get("receipt_id") or "<unknown>").strip()
     if str(receipt.get("validator_id") or "").strip() != validator_id:
-        return False
+        return False, _receipt_rejection(receipt_id, "validator-mismatch", "validator mismatch")
     if str(receipt.get("status") or "").strip().lower() not in {"success", "passed", "valid"}:
-        return False
+        return False, _receipt_rejection(receipt_id, "receipt-failed", "receipt is not successful")
     receipt_target = str(receipt.get("target_scope") or "").strip()
     receipt_scopes = {str(scope).strip() for scope in receipt.get("scopes") or []}
-    if target.scope != receipt_target and target.scope not in receipt_scopes:
-        return False
-    receipt_tier = _coerce_tier(str(receipt.get("tier") or DEFAULT_VALIDATION_TIER.value))
+    target_candidates = _target_scope_candidates(manifest, target)
+    if (
+        target.scope != receipt_target
+        and receipt_target not in target_candidates
+        and target.scope not in receipt_scopes
+        and not (target_candidates & receipt_scopes)
+    ):
+        return False, _receipt_rejection(receipt_id, "scope-mismatch", "scope mismatch")
+    try:
+        receipt_tier = _coerce_tier(str(receipt.get("tier") or DEFAULT_VALIDATION_TIER.value))
+    except ValueError:
+        return False, _receipt_rejection(receipt_id, "invalid-receipt-tier", "invalid receipt tier")
     if VALIDATION_TIER_ORDER[receipt_tier] < VALIDATION_TIER_ORDER[requested_tier]:
+        return False, _receipt_rejection(
+            receipt_id,
+            "tier-mismatch",
+            f"receipt tier {receipt_tier.value} is below requested tier {requested_tier.value}",
+        )
+    if not _receipt_authority_refs_current(receipt, validator, manifest):
+        return False, _receipt_rejection(
+            receipt_id,
+            "authority-digest-mismatch",
+            "authority digest changed or missing",
+        )
+    if not _receipt_is_fresh(receipt, validator, now):
+        return False, _receipt_rejection(receipt_id, "receipt-stale", "receipt is stale")
+    return True, {"code": "receipt-reusable", "reason": "receipt is reusable", "receipt_id": receipt_id}
+
+
+def _receipt_rejection(receipt_id: str, code: str, reason: str) -> dict[str, Any]:
+    return {
+        "code": code,
+        "reason": f"{receipt_id}: {reason}",
+        "receipt_id": receipt_id,
+    }
+
+
+def _newest_receipts_first(receipts: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        sorted(
+            receipts,
+            key=lambda item: (
+                _parse_timestamp(item.get("captured_at")) or datetime.min.replace(tzinfo=UTC),
+                str(item.get("receipt_id") or ""),
+            ),
+            reverse=True,
+        ),
+    )
+
+
+def _receipt_authority_refs_current(
+    receipt: dict[str, Any],
+    validator: dict[str, Any],
+    manifest: dict[str, Any],
+) -> bool:
+    if not _invalidate_on_authority_change(validator):
+        return True
+    expected = _validator_authority_digests(validator, manifest)
+    if not expected:
+        return True
+    supplied = receipt.get("authority_ref_digests")
+    if not isinstance(supplied, dict):
         return False
-    return _receipt_is_fresh(receipt, validator, now)
+    return all(str(supplied.get(authority_id) or "").strip() == digest for authority_id, digest in expected.items())
+
+
+def _validator_authority_digests(
+    validator: dict[str, Any],
+    manifest: dict[str, Any],
+) -> dict[str, str]:
+    authority_ids = {
+        str(authority_id).strip()
+        for authority_id in validator.get("authority_ref_ids", [])
+        if str(authority_id).strip()
+    }
+    digests: dict[str, str] = {}
+    for authority_ref in manifest.get("authority_refs", []):
+        authority_id = str(authority_ref.get("authority_id") or "").strip()
+        digest = _optional_str(authority_ref.get("digest"))
+        if authority_id in authority_ids and digest:
+            digests[authority_id] = digest
+    return digests
+
+
+def _invalidate_on_authority_change(validator: dict[str, Any]) -> bool:
+    reuse_policy = validator.get("reuse_policy")
+    if not isinstance(reuse_policy, dict):
+        return True
+    return bool(reuse_policy.get("invalidate_on_authority_change", True))
+
+
+def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
+    raw_policy = validator.get("execution_policy")
+    if not isinstance(raw_policy, dict):
+        return {}
+    policy: dict[str, Any] = {}
+    timeout_seconds = _bounded_int(raw_policy.get("timeout_seconds"), minimum=1)
+    if timeout_seconds is not None:
+        policy["timeout_seconds"] = timeout_seconds
+    retry_count = _bounded_int(raw_policy.get("retry_count"), minimum=0)
+    if retry_count is not None:
+        policy["retry_count"] = retry_count
+    output_budget_bytes = _bounded_int(raw_policy.get("output_budget_bytes"), minimum=0)
+    if output_budget_bytes is not None:
+        policy["output_budget_bytes"] = output_budget_bytes
+    if "fail_on_output_budget_exceeded" in raw_policy:
+        policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
+    return policy
+
+
+def _bounded_int(value: Any, *, minimum: int) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= minimum else None
 
 
 def _receipt_is_fresh(receipt: dict[str, Any], validator: dict[str, Any], now: datetime) -> bool:
@@ -584,13 +945,23 @@ def _plan_id(
     tier: ValidationTier,
     checks: list[ValidationCheck],
     decision: PlannerDecision,
+    check_statuses: list[ValidationCheckStatus],
 ) -> str:
     payload = {
         "blocked_reasons": list(decision.blocked_reasons),
+        "check_statuses": [
+            {
+                "status": status.status,
+                "validator_id": status.validator_id,
+            }
+            for status in check_statuses
+        ],
         "checks": [
             {
                 "check_id": check.check_id,
+                "cache_decision": check.cache_decision,
                 "execution_mode": check.execution_mode,
+                "execution_policy": check.execution_policy,
                 "receipt_id": check.receipt_id,
             }
             for check in checks

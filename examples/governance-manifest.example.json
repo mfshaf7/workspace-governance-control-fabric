@@ -69,7 +69,14 @@
       "required": true,
       "reuse_policy": {
         "safe_to_reuse": true,
-        "freshness_seconds": 300
+        "freshness_seconds": 300,
+        "invalidate_on_authority_change": true
+      },
+      "execution_policy": {
+        "timeout_seconds": 30,
+        "retry_count": 0,
+        "output_budget_bytes": 200000,
+        "fail_on_output_budget_exceeded": false
       },
       "authority_ref_ids": [
         "wgcf-runtime-repo-guidance",
@@ -90,7 +97,14 @@
       "required": true,
       "reuse_policy": {
         "safe_to_reuse": true,
-        "freshness_seconds": 900
+        "freshness_seconds": 900,
+        "invalidate_on_authority_change": true
+      },
+      "execution_policy": {
+        "timeout_seconds": 120,
+        "retry_count": 0,
+        "output_budget_bytes": 500000,
+        "fail_on_output_budget_exceeded": false
       },
       "authority_ref_ids": [
         "wgcf-runtime-repo-guidance",

@@ -92,6 +92,7 @@ from .validation_planning import (
     ValidationTier,
     build_validation_plan,
     normalize_validation_target,
+    validation_target_scope_candidates,
 )
 from .validation_execution import (
     ControlReceipt,
@@ -186,6 +187,7 @@ __all__ = [
     "source_snapshot_status",
     "execute_validation_plan",
     "validate_governance_manifest",
+    "validation_target_scope_candidates",
     "worker_status_snapshot",
     "write_control_receipt",
 ]

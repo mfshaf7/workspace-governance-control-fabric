@@ -22,6 +22,7 @@ def minimal_manifest(
     command: str,
     *,
     check_type: str = "command",
+    execution_policy: dict | None = None,
     required: bool = True,
     reuse_policy: dict | None = None,
     stale_authority: bool = False,
@@ -36,6 +37,8 @@ def minimal_manifest(
         "required": required,
         "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
     }
+    if execution_policy is not None:
+        validator["execution_policy"] = execution_policy
     if reuse_policy is not None:
         validator["reuse_policy"] = reuse_policy
 
@@ -63,6 +66,14 @@ def minimal_manifest(
         "components": [],
         "validators": [validator],
         "projections": [],
+    }
+
+
+def authority_digests(manifest: dict) -> dict[str, str]:
+    return {
+        authority_ref["authority_id"]: authority_ref["digest"]
+        for authority_ref in manifest["authority_refs"]
+        if authority_ref.get("digest")
     }
 
 
@@ -169,6 +180,7 @@ class ValidationExecutionTests(TestCase):
             tier="smoke",
             receipts=[
                 {
+                    "authority_ref_digests": authority_digests(manifest),
                     "receipt_id": "receipt:existing-success",
                     "validator_id": "wgcf-test-validator",
                     "target_scope": "repo:workspace-governance-control-fabric",
@@ -193,6 +205,84 @@ class ValidationExecutionTests(TestCase):
         self.assertEqual(result.receipt.artifact_refs, ())
         self.assertEqual(result.receipt.check_results[0].status, "skipped_fresh_receipt")
         self.assertEqual(result.receipt.check_results[0].reused_receipt_id, "receipt:existing-success")
+
+    def test_retry_policy_records_each_attempt_without_raw_receipt_output(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"import sys; print('retry-me'); sys.exit(7)\"",
+                execution_policy={"retry_count": 2},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(result.receipt.outcome, "failure")
+        self.assertEqual(check_result.status, "failure")
+        self.assertEqual(len(check_result.artifact_refs), 6)
+        self.assertEqual(check_result.output_summary["attempt_count"], 3)
+        self.assertEqual(check_result.output_summary["retry_count"], 2)
+        self.assertNotIn("retry-me", json.dumps(result.receipt.to_record(), sort_keys=True))
+
+    def test_timeout_policy_records_timeout_decision(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"import time; time.sleep(2)\"",
+                execution_policy={"timeout_seconds": 1},
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(result.receipt.outcome, "failure")
+        self.assertTrue(check_result.output_summary["timed_out"])
+        self.assertEqual(check_result.output_summary["timeout_seconds"], 1)
+        self.assertIn("timed out", check_result.error or "")
+
+    def test_output_budget_can_fail_a_noisy_check_without_embedding_output(self) -> None:
+        marker = "NOISY-VALIDATOR-OUTPUT"
+        plan = build_validation_plan(
+            minimal_manifest(
+                f"python3 -c \"print('{marker}')\"",
+                execution_policy={
+                    "fail_on_output_budget_exceeded": True,
+                    "output_budget_bytes": 5,
+                },
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        self.assertEqual(result.receipt.outcome, "failure")
+        self.assertTrue(check_result.output_summary["output_budget"]["exceeded"])
+        self.assertEqual(check_result.output_summary["output_budget"]["action"], "fail")
+        self.assertNotIn(marker, json.dumps(result.receipt.to_record(), sort_keys=True))
 
     def test_blocked_plan_does_not_execute_checks(self) -> None:
         plan = build_validation_plan(

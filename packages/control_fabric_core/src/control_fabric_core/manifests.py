@@ -77,11 +77,27 @@ def governance_manifest_schema() -> dict[str, Any]:
         "required": ["repo", "path"],
         "type": "object",
     }
+    impact_scopes = {
+        "items": non_empty_string,
+        "type": "array",
+        "uniqueItems": True,
+    }
     reuse_policy = {
         "additionalProperties": True,
         "properties": {
             "freshness_seconds": {"minimum": 0, "type": "integer"},
+            "invalidate_on_authority_change": {"type": "boolean"},
             "safe_to_reuse": {"type": "boolean"},
+        },
+        "type": "object",
+    }
+    execution_policy = {
+        "additionalProperties": True,
+        "properties": {
+            "fail_on_output_budget_exceeded": {"type": "boolean"},
+            "output_budget_bytes": {"minimum": 0, "type": "integer"},
+            "retry_count": {"minimum": 0, "type": "integer"},
+            "timeout_seconds": {"minimum": 1, "type": "integer"},
         },
         "type": "object",
     }
@@ -107,6 +123,7 @@ def governance_manifest_schema() -> dict[str, Any]:
                         "authority_ref_ids": authority_ref_ids,
                         "component_id": non_empty_string,
                         "component_type": non_empty_string,
+                        "impact_scopes": impact_scopes,
                         "owner_repo": non_empty_string,
                         "source_paths": {
                             "items": non_empty_string,
@@ -147,6 +164,12 @@ def governance_manifest_schema() -> dict[str, Any]:
                         "owner_repo": non_empty_string,
                         "repo_id": non_empty_string,
                         "repo_name": non_empty_string,
+                        "source_paths": {
+                            "items": non_empty_string,
+                            "type": "array",
+                            "uniqueItems": True,
+                        },
+                        "impact_scopes": impact_scopes,
                     },
                     "required": list(SECTION_REQUIRED_FIELDS["repos"]),
                     "type": "object",
@@ -160,6 +183,7 @@ def governance_manifest_schema() -> dict[str, Any]:
                     "properties": {
                         "authority_ref_ids": authority_ref_ids,
                         "command": non_empty_string,
+                        "execution_policy": execution_policy,
                         "owner_repo": non_empty_string,
                         "reuse_policy": reuse_policy,
                         "scopes": authority_ref_ids,
