@@ -8,6 +8,9 @@ Current slice:
 - runtime identity constants
 - authority-boundary references
 - bootstrap status snapshot helpers
+- database settings without leaking secrets
+- SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
+  and ledger records
 
 This package must not copy or redefine workspace-governance policy. Policy
 meaning stays in the upstream authority contracts.

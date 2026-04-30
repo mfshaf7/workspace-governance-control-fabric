@@ -83,7 +83,11 @@ That surface is constrained by the workspace-owned contract in
   local-k3s runtime lane. It is not self-serve launchable until platform
   acceptance and required security review move the profile to `active`.
 - `packages/control_fabric_core/` owns shared runtime primitives such as
-  bootstrap status, authority-boundary references, and future record helpers.
+  bootstrap status, authority-boundary references, database settings,
+  SQLAlchemy models, and future record helpers.
+- `migrations/` owns Alembic migrations for fabric-local graph, receipt,
+  readiness, escalation, and ledger tables. These tables store runtime evidence
+  and projections only; they are not upstream authority stores.
 - `scripts/validate_project.py` validates the scaffold without requiring
   network access or external services.
 
@@ -119,6 +123,15 @@ python3 scripts/validate_project.py --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m unittest discover -s tests
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
 ```
+
+Database migration dry run after dependencies are installed:
+
+```bash
+PYTHONPATH=packages/control_fabric_core/src alembic upgrade head --sql
+```
+
+The default database URL is local-only and can be overridden with
+`WGCF_DATABASE_URL`. Operator status redacts database passwords.
 
 Local API smoke after dependencies are installed:
 

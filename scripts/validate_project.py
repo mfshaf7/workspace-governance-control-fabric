@@ -11,16 +11,34 @@ from pathlib import Path
 
 REQUIRED_PATHS = (
     "pyproject.toml",
+    "alembic.ini",
     "apps/api/README.md",
     "apps/api/src/wgcf_api/app.py",
     "apps/cli/README.md",
     "apps/cli/src/wgcf_cli/main.py",
     "apps/worker/README.md",
     "packages/control_fabric_core/README.md",
+    "packages/control_fabric_core/src/control_fabric_core/database.py",
+    "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
     "docs/architecture/project-structure.md",
     "docs/operations/operator-surface.md",
+    "migrations/env.py",
+    "migrations/versions/0001_create_foundation_tables.py",
 )
+
+REQUIRED_DB_TABLES = {
+    "authority_references",
+    "control_receipts",
+    "escalation_records",
+    "governance_edges",
+    "governance_nodes",
+    "ledger_events",
+    "readiness_decisions",
+    "source_snapshots",
+    "validation_plans",
+    "validation_runs",
+}
 
 
 def validate_paths(repo_root: Path) -> list[str]:
@@ -48,8 +66,14 @@ def validate_pyproject(repo_root: Path) -> list[str]:
     if project.get("requires-python") != ">=3.12":
         errors.append("pyproject requires-python must be >=3.12")
     dependencies = set(project.get("dependencies", []))
+    if not any(dependency.startswith("alembic") for dependency in dependencies):
+        errors.append("pyproject dependencies must include alembic for migration management")
     if not any(dependency.startswith("fastapi") for dependency in dependencies):
         errors.append("pyproject dependencies must include fastapi for the API app")
+    if not any(dependency.startswith("psycopg") for dependency in dependencies):
+        errors.append("pyproject dependencies must include psycopg for PostgreSQL connectivity")
+    if not any(dependency.startswith("sqlalchemy") for dependency in dependencies):
+        errors.append("pyproject dependencies must include sqlalchemy for the DB foundation")
     if not any(dependency.startswith("starlette") and "<0.47" in dependency for dependency in dependencies):
         errors.append("pyproject dependencies must pin starlette below 0.47 for TestClient compatibility")
     test_dependencies = set(pyproject.get("project", {}).get("optional-dependencies", {}).get("test", []))
@@ -64,6 +88,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "apps/cli/src"))
 
     from control_fabric_core import status_snapshot
+    from control_fabric_core.db import metadata
     from wgcf_api import create_app
     from wgcf_cli.main import build_parser
 
@@ -78,6 +103,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     app = create_app(repo_root)
     if app.title != "Workspace Governance Control Fabric":
         errors.append("FastAPI app title is not the control-fabric title")
+    missing_tables = REQUIRED_DB_TABLES.difference(metadata.tables)
+    if missing_tables:
+        errors.append(f"database metadata missing required tables: {sorted(missing_tables)}")
     return errors
 
 
