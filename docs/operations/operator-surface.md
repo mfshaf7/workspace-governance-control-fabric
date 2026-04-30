@@ -140,6 +140,36 @@ Future route meanings:
 
 No required route mutates upstream authority stores.
 
+## Governance Operations Console Readiness
+
+The future Governance Operations Console must be built on stable WGCF API
+semantics, not private UI-only assumptions.
+
+Readiness criteria live at:
+
+- [../architecture/governance-operations-console-readiness.md](../architecture/governance-operations-console-readiness.md)
+
+The console may read compact status, graph, validation, receipt, readiness,
+ledger, and escalation state after those routes are implemented and approved
+for deployment. It must not become an authority source, bypass broker-owned ART
+mutation, or expose raw artifacts without an approved artifact custody path.
+
+No dashboard implementation is part of the current operator surface.
+
+## Context Governance Gateway Packet Seam
+
+The future Context Governance Gateway is a separate packet producer. WGCF
+consumes packet metadata, receipt refs, digests, and readiness signals; it does
+not capture raw context or implement the gateway.
+
+Integration seam:
+
+- [../architecture/context-governance-gateway-integration.md](../architecture/context-governance-gateway-integration.md)
+
+Default posture is deny raw model projection. WGCF evidence projections may
+carry packet ids, producer receipt refs, digests, policy decisions, and safe
+summaries only.
+
 ## Records Operators Should Expect
 
 - `source-snapshot`

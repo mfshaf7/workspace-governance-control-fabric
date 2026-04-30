@@ -22,6 +22,10 @@ The control fabric is split by runtime responsibility:
 - `migrations`: Alembic migration history for the fabric-local PostgreSQL
   schema.
 - `docs/operations`: primary operator-facing workflow documentation.
+- `docs/architecture/governance-operations-console-readiness.md`: API
+  readiness criteria for the future Governance Operations Console.
+- `docs/architecture/context-governance-gateway-integration.md`: integration
+  seam for a future Context Governance Gateway packet producer.
 
 The database foundation is intentionally policy-neutral. It stores graph,
 receipt, readiness, escalation, and ledger state for the runtime, but it does
@@ -165,3 +169,17 @@ downstream workflow surfaces without copying raw artifacts:
 Projection records always set `raw_artifacts_embedded` to `false`. This keeps
 the control fabric as the runtime evidence authority while ART, Review Packets,
 and Git records stay compact, reviewable, and linked back to receipt digests.
+
+## Future Operator Console Readiness
+
+The Governance Operations Console is future scope. The control fabric must first
+stabilize API semantics for status, graph, validation, receipts, readiness
+decisions, ledger events, and escalations. Console-facing routes must preserve
+authority boundaries and compact evidence behavior before any UI is built.
+
+## Future Context Packet Producer Seam
+
+A future Context Governance Gateway may produce governed context packets for AI,
+operator, CI, or automation workflows. WGCF should consume packet metadata and
+receipt refs only. It must not own raw context capture, redaction scanners,
+object storage, or LLM gateway behavior.
