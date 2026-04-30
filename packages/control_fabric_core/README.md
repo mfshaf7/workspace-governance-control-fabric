@@ -20,6 +20,9 @@ Current slice:
   receipts and ledger events
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
+- compact evidence projection helpers that adapt control receipts into ART,
+  Review Packet, and Git/change-record evidence references without copying raw
+  artifacts
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -69,3 +72,15 @@ review-required decisions and can build `policy.decision.recorded` ledger
 events linked to receipts. OPA/Rego files under `policies/opa` define the
 policy-engine surface, but upstream policy meaning still belongs to
 `workspace-governance`.
+
+Evidence projection helpers consume `ControlReceipt` records and optional
+policy decisions to produce downstream-safe records for three surfaces:
+
+- ART completion evidence payload fields
+- Review Packet item-evidence, validation, test, and rollback references
+- Git/change-record references to receipt ids, artifact digests, and policy
+  decision ids
+
+Projection helpers do not read raw artifact files, embed stdout/stderr, mutate
+ART, or write change records. They only convert receipt metadata into compact
+operator-facing references.

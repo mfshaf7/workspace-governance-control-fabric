@@ -25,6 +25,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/README.md",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
+    "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
@@ -41,6 +42,7 @@ REQUIRED_PATHS = (
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
+    "schemas/evidence-projection.schema.json",
     "schemas/governance-manifest.schema.json",
     "schemas/ledger-event.schema.json",
     "schemas/policy-decision.schema.json",
@@ -117,6 +119,9 @@ def validate_imports(repo_root: Path) -> list[str]:
         evaluate_admission_policy,
         execute_validation_plan,
         governance_manifest_schema,
+        project_receipt_to_art_completion_evidence,
+        project_receipt_to_change_record_references,
+        project_receipt_to_review_packet_evidence,
         query_manifest_graph,
         status_snapshot,
         validate_governance_manifest,
@@ -254,6 +259,37 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if policy_event.action != "policy.decision.recorded":
         errors.append("policy ledger event action was not recorded")
+    art_projection = project_receipt_to_art_completion_evidence(
+        execution_result.receipt,
+        changed_surfaces=[
+            "`scripts/validate_project.py`: validates compact receipt projection adapters.",
+        ],
+        policy_decisions=[policy_decision],
+        now="2026-04-30T00:00:00Z",
+    )
+    if art_projection.projection.raw_artifacts_embedded:
+        errors.append("ART evidence projection must not embed raw artifacts")
+    if not art_projection.to_completion_payload()["validation_evidence"]:
+        errors.append("ART evidence projection did not render validation evidence")
+    review_projection = project_receipt_to_review_packet_evidence(
+        execution_result.receipt,
+        changed_surface_explanations=[
+            "`packages/control_fabric_core`: projects receipt evidence into Review Packets.",
+        ],
+        item_ids=[451],
+        policy_decisions=[policy_decision],
+        now="2026-04-30T00:00:00Z",
+    )
+    if not review_projection.item_evidence_refs:
+        errors.append("Review Packet evidence projection missing item evidence refs")
+    change_projection = project_receipt_to_change_record_references(
+        execution_result.receipt,
+        change_record_path="docs/records/change-records/example.md",
+        policy_decisions=[policy_decision],
+        now="2026-04-30T00:00:00Z",
+    )
+    if not any(ref.get("evidence_type") == "control_receipt" for ref in change_projection.evidence_refs):
+        errors.append("change-record evidence projection missing receipt ref")
     return errors
 
 

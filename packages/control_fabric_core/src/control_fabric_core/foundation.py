@@ -40,7 +40,7 @@ AUTHORITY_BOUNDARIES = (
     ),
     AuthorityBoundary(
         repo=RUNTIME_REPO,
-        owns="runtime implementation for validation planning, readiness, receipts, ledger, API, worker, and CLI",
+        owns="runtime implementation for validation planning, readiness, receipts, ledger, projection adapters, API, worker, and CLI",
         fabric_behavior="implement the approved control-fabric operator surface",
     ),
     AuthorityBoundary(
@@ -78,6 +78,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/policy_admission.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/policy_admission.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/validation_planning.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
         ),
@@ -96,6 +99,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "schemas/policy-decision.schema.json": (
             repo_root / "schemas/policy-decision.schema.json"
+        ),
+        "schemas/evidence-projection.schema.json": (
+            repo_root / "schemas/evidence-projection.schema.json"
         ),
         "schemas/validation-receipt.schema.json": (
             repo_root / "schemas/validation-receipt.schema.json"

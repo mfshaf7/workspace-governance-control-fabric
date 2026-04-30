@@ -89,8 +89,8 @@ That surface is constrained by the workspace-owned contract in
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   deterministic validation planning primitives, bounded validation execution,
-  compact receipts, local ledger event helpers, and bootstrap policy admission
-  decisions.
+  compact receipts, local ledger event helpers, bootstrap policy admission
+  decisions, and compact evidence projection adapters.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -101,6 +101,9 @@ That surface is constrained by the workspace-owned contract in
   policy decision record and OPA/Rego policy surface. Runtime code consumes
   authority refs and receipts; upstream policy truth stays in
   `workspace-governance`.
+- `schemas/evidence-projection.schema.json` defines compact projection records
+  that adapt control receipts into ART closeout evidence, Review Packet
+  evidence, and Git/change-record references without embedding raw artifacts.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
   that references upstream authority sources instead of copying their policy
   meaning.
@@ -164,6 +167,12 @@ Policy admission currently lives in the core library. It evaluates bootstrap
 repo/component admission inputs, validation blocking posture, waiver posture,
 and policy-decision ledger events from supplied authority refs and receipt refs.
 It does not make workspace policy truth or security acceptance decisions.
+
+Evidence projection currently lives in the core library. It converts
+receipt-linked runtime evidence into compact downstream views for ART
+completion evidence, source-backed Review Packets, and Git/change-record
+references. These projections carry receipt ids, digests, policy decision refs,
+and artifact refs only; raw runtime output stays in receipt-linked artifacts.
 
 Database migration dry run after dependencies are installed:
 

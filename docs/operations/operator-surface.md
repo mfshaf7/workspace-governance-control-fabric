@@ -19,10 +19,11 @@ defined before implementation so the first runtime code does not invent a
 different workflow.
 
 Only the bootstrap status, manifest graph ingestion, read-only graph query,
-validation planning, core-library validation execution, and core-library policy
-admission surfaces are implemented now. Treat the remaining CLI commands and
-API routes below as the minimum required interface contract for later slices,
-not as currently available runtime commands.
+validation planning, core-library validation execution, core-library policy
+admission, and core-library evidence projection surfaces are implemented now.
+Treat the remaining CLI commands and API routes below as the minimum required
+interface contract for later slices, not as currently available runtime
+commands.
 
 ## Authority Boundaries
 
@@ -135,6 +136,7 @@ No required route mutates upstream authority stores.
 - `validation-plan`
 - `validation-run`
 - `control-receipt`
+- `evidence-projection`
 - `readiness-decision`
 - `ledger-event`
 - `authority-reference`
@@ -234,6 +236,19 @@ Current policy behavior:
   refs where available
 - does not define upstream workspace policy truth, security acceptance, or
   platform deployment approval
+
+Evidence projection uses the schema at:
+
+- `schemas/evidence-projection.schema.json`
+
+Current projection behavior:
+
+- projects control receipts into compact ART completion evidence fields
+- projects control receipts into Review Packet item-evidence references
+- projects control receipts into Git/change-record receipt and artifact refs
+- includes policy decision ids when supplied by the caller
+- never reads or embeds raw artifact content
+- does not mutate ART, Review Packets, Git records, or upstream authority stores
 
 ## Database Foundation
 
