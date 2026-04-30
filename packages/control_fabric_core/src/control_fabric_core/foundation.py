@@ -22,6 +22,7 @@ AUTHORITY_CONTRACT_REF = (
     "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml"
 )
 OPERATOR_SURFACE_PATH = Path("docs/operations/operator-surface.md")
+WORKER_ENTRYPOINT_PATH = Path("apps/worker/src/wgcf_worker/main.py")
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,7 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0001_create_foundation_tables.py": (
             repo_root / "migrations/versions/0001_create_foundation_tables.py"
         ),
+        str(WORKER_ENTRYPOINT_PATH): repo_root / WORKER_ENTRYPOINT_PATH,
         str(OPERATOR_SURFACE_PATH): repo_root / OPERATOR_SURFACE_PATH,
     }
     return {name: path.exists() and path.is_file() for name, path in paths.items()}

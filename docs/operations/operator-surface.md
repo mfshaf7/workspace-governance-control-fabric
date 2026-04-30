@@ -77,6 +77,31 @@ Required CLI behavior:
 - deny or block readiness when authority truth is unknown or stale
 - avoid printing raw validation dumps unless explicitly requested
 
+## Worker Diagnostic Entry Point
+
+The implementation also exposes a worker diagnostic entrypoint:
+
+```bash
+wgcf-worker status
+```
+
+This is not a separate governance workflow command and does not expand the
+authority contract. It lets operators and CI prove the worker package is
+packaged, Temporal-shaped, and still intentionally non-running.
+
+Current worker constraints:
+
+- no Temporal SDK dependency
+- no connection to a Temporal service
+- no task-queue polling
+- no long-running workflow execution
+- no upstream authority mutation
+
+The worker status may show Temporal namespace, task queue, and address settings
+from `WGCF_TEMPORAL_NAMESPACE`, `WGCF_TEMPORAL_TASK_QUEUE`, and
+`WGCF_TEMPORAL_ADDRESS`, but it treats them as configuration shape only until a
+future runtime slice activates the worker lane.
+
 ## Required API Shape
 
 The API is a future integration surface. Do not deploy it until platform and
@@ -132,6 +157,16 @@ references, receipts, and decisions derived from those authorities.
 Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
 redacted database URL, but it must not print database passwords or raw
 connection secrets.
+
+## Worker Foundation
+
+The local worker foundation declares future capabilities for source-snapshot
+ingestion, validation-plan execution, and control-receipt ledger appends. Those
+capabilities are advertised as planned, not implemented.
+
+The worker is ready for a later Temporal adapter because it already names the
+namespace, task queue, workflow hints, and process identity. It is not a
+production worker yet and should not be deployed as one.
 
 ## Profiles
 

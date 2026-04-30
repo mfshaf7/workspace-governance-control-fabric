@@ -29,10 +29,12 @@ test = [
 
 [project.scripts]
 wgcf = "wgcf_cli.main:main"
+wgcf-worker = "wgcf_worker.main:main"
 
 [tool.setuptools.packages.find]
 where = [
   "apps/api/src",
   "apps/cli/src",
+  "apps/worker/src",
   "packages/control_fabric_core/src"
 ]

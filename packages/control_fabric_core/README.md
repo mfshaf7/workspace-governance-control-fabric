@@ -11,6 +11,8 @@ Current slice:
 - database settings without leaking secrets
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
+- Temporal-shaped worker settings and planned capability metadata without
+  runtime connections or long-running workflow behavior
 
 This package must not copy or redefine workspace-governance policy. Policy
 meaning stays in the upstream authority contracts.

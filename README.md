@@ -77,8 +77,9 @@ That surface is constrained by the workspace-owned contract in
 - `apps/api/` owns the FastAPI service boundary. The current implementation
   exposes `GET /healthz`, `GET /readyz`, and `GET /v1/status` with version
   metadata.
-- `apps/worker/` reserves the future background execution boundary. Worker
-  behavior lands in a later scoped slice.
+- `apps/worker/` owns the Temporal-ready worker package boundary. The current
+  implementation exposes `wgcf-worker status`, declares future worker
+  capabilities, and intentionally does not run long-lived workflow behavior.
 - `dev-integration/profiles/governance-control-fabric/` records the proposed
   local-k3s runtime lane. It is not self-serve launchable until platform
   acceptance and required security review move the profile to `active`.
@@ -122,6 +123,7 @@ python3 -m pip install -e ".[test]"
 python3 scripts/validate_project.py --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m unittest discover -s tests
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src python3 -m wgcf_cli status --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_worker status --repo-root .
 ```
 
 Database migration dry run after dependencies are installed:
