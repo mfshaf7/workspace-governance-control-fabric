@@ -18,6 +18,14 @@ The API does not run validators yet. Validation execution remains local CLI and
 core-library behavior until platform and security gates approve the runtime
 execution posture.
 
+Future Governance Operations Console readiness criteria are documented at:
+
+- [../../docs/architecture/governance-operations-console-readiness.md](../../docs/architecture/governance-operations-console-readiness.md)
+
+The console must consume stable API semantics and compact refs. It must not
+invent private UI-only authority, expose raw artifacts, or bypass upstream
+platform, security, workspace-governance, or ART ownership boundaries.
+
 Run locally after installing dependencies:
 
 ```bash

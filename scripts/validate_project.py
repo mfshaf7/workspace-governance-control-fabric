@@ -37,6 +37,8 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/validation_planning.py",
     "packages/control_fabric_core/src/control_fabric_core/worker.py",
     "docs/architecture/project-structure.md",
+    "docs/architecture/governance-operations-console-readiness.md",
+    "docs/architecture/context-governance-gateway-integration.md",
     "docs/operations/operator-surface.md",
     "examples/governance-manifest.example.json",
     "migrations/env.py",

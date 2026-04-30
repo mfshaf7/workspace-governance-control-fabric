@@ -119,8 +119,12 @@ That surface is constrained by the workspace-owned contract in
 - `scripts/validate_project.py` validates the scaffold without requiring
   network access or external services.
 
-See [docs/architecture/project-structure.md](docs/architecture/project-structure.md)
-for the scaffold boundary.
+See these architecture surfaces for the scaffold boundary and future
+integration seams:
+
+- [docs/architecture/project-structure.md](docs/architecture/project-structure.md)
+- [docs/architecture/governance-operations-console-readiness.md](docs/architecture/governance-operations-console-readiness.md)
+- [docs/architecture/context-governance-gateway-integration.md](docs/architecture/context-governance-gateway-integration.md)
 
 ## Operating Model
 
