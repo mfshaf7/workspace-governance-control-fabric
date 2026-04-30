@@ -20,6 +20,8 @@ Current slice:
   receipts and ledger events
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
+- runtime governance record helpers for blocker decisions, approvals, waivers,
+  risk posture, and change evidence links
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -84,3 +86,10 @@ policy decisions to produce downstream-safe records for three surfaces:
 Projection helpers do not read raw artifact files, embed stdout/stderr, mutate
 ART, or write change records. They only convert receipt metadata into compact
 operator-facing references.
+
+Runtime governance record helpers create fabric-local records for blocker
+decisions, approval and waiver references, risk posture, and change-record
+evidence links. They can emit ledger events such as
+`governance.blocker.recorded` or `governance.change.recorded`, but they remain
+record-only. They do not approve work, accept risk, mutate ART, or replace the
+upstream authority that made the decision.

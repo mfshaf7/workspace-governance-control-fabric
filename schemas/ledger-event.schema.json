@@ -6,6 +6,11 @@
   "properties": {
     "action": {
       "enum": [
+        "governance.approval.recorded",
+        "governance.blocker.recorded",
+        "governance.change.recorded",
+        "governance.risk.recorded",
+        "governance.waiver.recorded",
         "policy.decision.recorded",
         "validation.run.blocked",
         "validation.run.completed"
@@ -67,14 +72,26 @@
     },
     "outcome": {
       "enum": [
+        "accept-risk",
+        "accepted",
         "allow",
+        "approved",
         "blocked",
+        "defer",
         "deny",
+        "expired",
         "failure",
+        "mitigated",
+        "owned",
         "operator_review_required",
+        "recorded",
+        "rejected",
+        "remove",
+        "resolved",
         "review_required",
         "success",
-        "waived"
+        "waived",
+        "workaround"
       ],
       "type": "string"
     },

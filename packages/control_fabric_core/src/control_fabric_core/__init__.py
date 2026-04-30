@@ -46,6 +46,15 @@ from .policy_admission import (
     build_policy_ledger_event,
     evaluate_admission_policy,
 )
+from .runtime_governance_records import (
+    RuntimeGovernanceRecord,
+    build_governance_record_ledger_event,
+    record_approval_decision,
+    record_blocker_decision,
+    record_change_event,
+    record_risk_posture,
+    record_waiver_decision,
+)
 from .validation_planning import (
     PlannerDecision,
     SuppressedValidator,
@@ -87,6 +96,7 @@ __all__ = [
     "ReceiptEvidenceRef",
     "RUNTIME_REPO",
     "ReviewPacketEvidenceProjection",
+    "RuntimeGovernanceRecord",
     "STATUS_BOOTSTRAP",
     "ManifestGraph",
     "ManifestGraphEdge",
@@ -106,6 +116,7 @@ __all__ = [
     "ValidationTier",
     "append_ledger_event",
     "build_policy_ledger_event",
+    "build_governance_record_ledger_event",
     "build_graph_from_manifest_file",
     "build_manifest_graph",
     "build_validation_plan",
@@ -121,6 +132,11 @@ __all__ = [
     "project_receipt_to_art_completion_evidence",
     "project_receipt_to_change_record_references",
     "project_receipt_to_review_packet_evidence",
+    "record_approval_decision",
+    "record_blocker_decision",
+    "record_change_event",
+    "record_risk_posture",
+    "record_waiver_decision",
     "status_snapshot",
     "execute_validation_plan",
     "validate_governance_manifest",

@@ -20,10 +20,10 @@ different workflow.
 
 Only the bootstrap status, manifest graph ingestion, read-only graph query,
 validation planning, core-library validation execution, core-library policy
-admission, and core-library evidence projection surfaces are implemented now.
-Treat the remaining CLI commands and API routes below as the minimum required
-interface contract for later slices, not as currently available runtime
-commands.
+admission, core-library runtime governance records, and core-library evidence
+projection surfaces are implemented now. Treat the remaining CLI commands and
+API routes below as the minimum required interface contract for later slices,
+not as currently available runtime commands.
 
 ## Authority Boundaries
 
@@ -137,6 +137,7 @@ No required route mutates upstream authority stores.
 - `validation-run`
 - `control-receipt`
 - `evidence-projection`
+- `runtime-governance-record`
 - `readiness-decision`
 - `ledger-event`
 - `authority-reference`
@@ -236,6 +237,22 @@ Current policy behavior:
   refs where available
 - does not define upstream workspace policy truth, security acceptance, or
   platform deployment approval
+
+Runtime governance records use the schema at:
+
+- `schemas/runtime-governance-record.schema.json`
+
+Current runtime governance record behavior:
+
+- records blocker and impediment decisions with owner, impact, decision path,
+  evidence refs, and required next action
+- records approval and waiver references with upstream authority refs
+- records risk posture without accepting risk locally
+- records change evidence links without copying raw runtime evidence into Git
+- emits ledger events for runtime records
+- always marks the authority boundary as `record-only-not-authority`
+- does not mutate ART, OOS approval state, security findings, platform
+  deployment state, or workspace-governance contracts
 
 Evidence projection uses the schema at:
 

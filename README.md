@@ -90,7 +90,8 @@ That surface is constrained by the workspace-owned contract in
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   deterministic validation planning primitives, bounded validation execution,
   compact receipts, local ledger event helpers, bootstrap policy admission
-  decisions, and compact evidence projection adapters.
+  decisions, runtime governance records, and compact evidence projection
+  adapters.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -104,6 +105,10 @@ That surface is constrained by the workspace-owned contract in
 - `schemas/evidence-projection.schema.json` defines compact projection records
   that adapt control receipts into ART closeout evidence, Review Packet
   evidence, and Git/change-record references without embedding raw artifacts.
+- `schemas/runtime-governance-record.schema.json` defines fabric-local
+  governance records for blocker, approval, waiver, risk, and change evidence
+  events. These records are references and audit state only; they do not grant
+  approval authority.
 - `examples/governance-manifest.example.json` provides a valid minimal manifest
   that references upstream authority sources instead of copying their policy
   meaning.
@@ -173,6 +178,13 @@ receipt-linked runtime evidence into compact downstream views for ART
 completion evidence, source-backed Review Packets, and Git/change-record
 references. These projections carry receipt ids, digests, policy decision refs,
 and artifact refs only; raw runtime output stays in receipt-linked artifacts.
+
+Runtime governance records currently live in the core library. They record
+blocker decisions, approval and waiver references, risk posture, and
+change-record evidence links as fabric-local records and ledger events. The
+records preserve the authority boundary explicitly: WGCF records the decision
+or reference, while ART, OOS, security, platform, and workspace-governance
+remain the upstream authorities for their domains.
 
 Database migration dry run after dependencies are installed:
 
