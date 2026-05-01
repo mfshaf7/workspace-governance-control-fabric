@@ -766,6 +766,29 @@ def _recommendations(
                 finding,
                 "Keep the blocker as the controlling path until resolved.",
             )
+        elif finding.code == "quality-pack-unhealthy":
+            emitted.add("record_blocker")
+            yield _recommendation(
+                "record_blocker",
+                "defer",
+                finding,
+                "Record an immediate blocker before any ART mutation that depends on unhealthy quality evidence.",
+            )
+            emitted.add("route_defect")
+            yield _recommendation(
+                "route_defect",
+                "remove",
+                finding,
+                "Open or update a Defect for the failing quality path instead of patching around it.",
+            )
+        elif finding.code in {"milestone-parent-drift", "ready-without-contract"}:
+            emitted.add("route_risk")
+            yield _recommendation(
+                "route_risk",
+                "accept-risk",
+                finding,
+                "Route broad planning drift as risk when it affects more than one mutation boundary.",
+            )
         elif finding.severity in ERROR_SEVERITIES:
             emitted.add("record_blocker")
             yield _recommendation(

@@ -179,7 +179,29 @@ class ArtReadinessTests(TestCase):
         self.assertFalse(readiness.mutation_allowed)
         self.assertIn("quality_pack", readiness.source_surfaces)
         self.assertIn("quality-pack-unhealthy", {finding.code for finding in readiness.findings})
-        self.assertIn("record_blocker", {recommendation.action for recommendation in readiness.recommendations})
+        actions = {recommendation.action for recommendation in readiness.recommendations}
+        self.assertIn("record_blocker", actions)
+        self.assertIn("route_defect", actions)
+
+    def test_readiness_routes_broad_planning_drift_as_risk_review(self) -> None:
+        context = continuation_context()
+        context["planning_summary"] = {
+            "summary": {
+                "ready_without_contract_count": 2,
+            },
+        }
+
+        readiness = evaluate_art_readiness(
+            context,
+            operation="update",
+            target_item_id=517,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertEqual(readiness.outcome, "review_required")
+        self.assertIn("ready-without-contract", {finding.code for finding in readiness.findings})
+        self.assertIn("route_risk", {recommendation.action for recommendation in readiness.recommendations})
 
     def test_stale_open_parent_gets_bounded_closeout_recommendation(self) -> None:
         context = continuation_context()
