@@ -26,6 +26,7 @@ REQUIRED_PATHS = (
     "apps/worker/src/wgcf_worker/__main__.py",
     "apps/worker/src/wgcf_worker/main.py",
     "packages/control_fabric_core/README.md",
+    "packages/control_fabric_core/src/control_fabric_core/art_readiness.py",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
@@ -60,6 +61,8 @@ REQUIRED_PATHS = (
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
+    "schemas/art-evidence-packet.schema.json",
+    "schemas/art-readiness-receipt.schema.json",
     "schemas/evidence-projection.schema.json",
     "schemas/governance-manifest.schema.json",
     "schemas/ledger-event.schema.json",
@@ -133,6 +136,7 @@ def validate_imports(repo_root: Path) -> list[str]:
 
     from control_fabric_core import (
         build_governance_record_ledger_event,
+        build_art_runtime_graph,
         build_manifest_graph,
         build_operator_validation_plan,
         build_source_snapshot,
@@ -140,11 +144,13 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_policy_ledger_event,
         build_validation_plan,
         evaluate_admission_policy,
+        evaluate_art_readiness,
         execute_validation_plan,
         governance_manifest_schema,
         list_control_receipts,
         persist_governance_state,
         project_receipt_to_art_completion_evidence,
+        project_receipts_to_art_evidence_packet,
         project_receipt_to_change_record_references,
         project_receipt_to_review_packet_evidence,
         query_manifest_graph,
@@ -206,6 +212,11 @@ def validate_imports(repo_root: Path) -> list[str]:
     receipts_parsed = parser.parse_args(["receipts", "list", "--repo-root", str(repo_root)])
     if receipts_parsed.command != "receipts" or receipts_parsed.receipts_command != "list":
         errors.append("wgcf parser did not accept receipts list command")
+    art_readiness_parsed = parser.parse_args(
+        ["art", "readiness", "--context", "context.json", "--target-item-id", "517"],
+    )
+    if art_readiness_parsed.command != "art" or art_readiness_parsed.art_command != "readiness":
+        errors.append("wgcf parser did not accept art readiness command")
     worker_parser = build_worker_parser()
     worker_parsed = worker_parser.parse_args(["status", "--repo-root", str(repo_root)])
     if worker_parsed.command != "status":
@@ -464,6 +475,54 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if not any(ref.get("evidence_type") == "control_receipt" for ref in change_projection.evidence_refs):
         errors.append("change-record evidence projection missing receipt ref")
+    art_context = {
+        "continuation_context": {
+            "summary": {"open_child_count": 1},
+            "target_item": {
+                "descriptionHeadings": [
+                    "What This Enables",
+                    "Benefit Hypothesis",
+                    "Scope Boundaries",
+                    "Evidence Expectation",
+                    "Execution Context",
+                    "Operator work notes",
+                ],
+                "descriptionPresent": True,
+                "delivery_team": "Platform Architecture",
+                "id": 517,
+                "iteration": "PI-2026-03 / Iteration 1",
+                "owner_repo": "workspace-governance-control-fabric",
+                "status": "ready",
+                "target_pi": "PI-2026-03",
+                "type": "Feature",
+            },
+        },
+        "projection_state": {"dirty": False},
+    }
+    art_graph = build_art_runtime_graph(art_context, now="2026-04-30T00:00:00Z")
+    if art_graph.summary["node_count"] == 0:
+        errors.append("ART runtime graph did not ingest broker context")
+    art_readiness = evaluate_art_readiness(
+        art_context,
+        operation="complete",
+        target_item_id=517,
+        now="2026-04-30T00:00:00Z",
+    )
+    if not art_readiness.mutation_allowed:
+        errors.append("ART readiness unexpectedly blocked clean synthetic context")
+    art_evidence_packet = project_receipts_to_art_evidence_packet(
+        [receipt_record],
+        changed_surfaces=[
+            "`packages/control_fabric_core/src/control_fabric_core/art_readiness.py`: validates ART evidence packet projection.",
+        ],
+        completion_summary="Synthetic ART evidence packet generated.",
+        item_ids=[517],
+        now="2026-04-30T00:00:00Z",
+    )
+    if art_evidence_packet.raw_artifacts_embedded:
+        errors.append("ART evidence packet must not embed raw artifacts")
+    if "- PASS:" not in art_evidence_packet.completion_payload["validation_evidence"]:
+        errors.append("ART evidence packet validation evidence is not completion-preflight compatible")
     blocker_record = record_blocker_decision(
         blocker_owner="Workspace Governance Control Fabric",
         decision_path="remove",

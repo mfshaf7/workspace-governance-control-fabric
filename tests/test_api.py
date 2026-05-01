@@ -160,3 +160,78 @@ class ApiTests(TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["receipts"], [])
+
+    def test_art_readiness_endpoint_returns_blocking_projection_recommendation(self) -> None:
+        status, payload = asyncio.run(
+            asgi_post_json(
+                "/v1/art/readiness",
+                {
+                    "context": {
+                        "continuation_context": {
+                            "summary": {"open_child_count": 1},
+                            "target_item": {
+                                "id": 517,
+                                "type": "Feature",
+                                "status": "ready",
+                                "owner_repo": "workspace-governance-control-fabric",
+                                "delivery_team": "Platform Architecture",
+                                "iteration": "PI-2026-03 / Iteration 1",
+                                "target_pi": "PI-2026-03",
+                                "descriptionPresent": True,
+                                "descriptionHeadings": [
+                                    "What This Enables",
+                                    "Benefit Hypothesis",
+                                    "Scope Boundaries",
+                                    "Evidence Expectation",
+                                    "Execution Context",
+                                    "Operator work notes",
+                                ],
+                            },
+                        },
+                        "projection_state": {"dirty": True},
+                    },
+                    "operation": "complete",
+                    "target_item_id": 517,
+                },
+            ),
+        )
+
+        self.assertEqual(status, 200)
+        readiness = payload["readiness"]
+        self.assertFalse(readiness["mutation_allowed"])
+        self.assertTrue(readiness["projection_sync_recommended"])
+        self.assertEqual(readiness["recommendations"][0]["action"], "projection_sync")
+
+    def test_art_evidence_packet_endpoint_returns_broker_safe_payload(self) -> None:
+        status, payload = asyncio.run(
+            asgi_post_json(
+                "/v1/art/evidence-packet",
+                {
+                    "changed_surfaces": ["`surface`: changed."],
+                    "completion_summary": "Completed source-backed work.",
+                    "item_ids": [517],
+                    "receipts": [
+                        {
+                            "captured_at": "2026-05-01T00:00:00Z",
+                            "check_results": [
+                                {
+                                    "check_id": "unit",
+                                    "exit_code": 0,
+                                    "status": "success",
+                                    "validator_id": "tests",
+                                },
+                            ],
+                            "digest": "sha256:" + "a" * 64,
+                            "outcome": "success",
+                            "receipt_id": "control-receipt:aaaaaaaaaaaaaaaaaaaaaaaa",
+                            "target_scope": "repo:workspace-governance-control-fabric",
+                        },
+                    ],
+                },
+            ),
+        )
+
+        self.assertEqual(status, 200)
+        packet = payload["evidence_packet"]
+        self.assertFalse(packet["raw_artifacts_embedded"])
+        self.assertIn("- PASS:", packet["completion_payload"]["test_result_evidence"])

@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/art-readiness-receipt.schema.json",
+  "title": "ART Readiness Receipt",
+  "description": "Compact pre-mutation readiness receipt for broker-owned Workspace Delivery ART operations.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "graph_summary": {
+      "type": "object"
+    },
+    "mutation_allowed": {
+      "type": "boolean"
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": {
+      "enum": [
+        "blocked",
+        "ready",
+        "review_required"
+      ]
+    },
+    "projection_sync_recommended": {
+      "type": "boolean"
+    },
+    "raw_context_embedded": {
+      "const": false
+    },
+    "receipt_id": {
+      "pattern": "^art-readiness-receipt:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/recommendation"
+      }
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_surfaces": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "target_item_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "captured_at",
+    "findings",
+    "graph_summary",
+    "mutation_allowed",
+    "operation",
+    "outcome",
+    "projection_sync_recommended",
+    "raw_context_embedded",
+    "receipt_id",
+    "recommendations",
+    "schema_version",
+    "source_surfaces",
+    "target_item_id"
+  ],
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner_repo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "recommended_route": {
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "error",
+            "warning"
+          ]
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "owner_repo",
+        "recommended_route",
+        "severity",
+        "target"
+      ]
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string"
+        },
+        "decision_path": {
+          "enum": [
+            "accept-risk",
+            "defer",
+            "remove",
+            "workaround"
+          ]
+        },
+        "owner_repo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "route": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "decision_path",
+        "owner_repo",
+        "reason",
+        "route",
+        "target"
+      ]
+    }
+  }
+}
