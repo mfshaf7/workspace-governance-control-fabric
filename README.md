@@ -73,8 +73,9 @@ That surface is constrained by the workspace-owned contract in
 ## Project Structure
 
 - `apps/cli/` owns the future `wgcf` operator CLI. The scaffold supports
-  `wgcf status` and read-only `wgcf graph query` manifest graph slices through
-  the Python entrypoint.
+  `wgcf status`, read-only `wgcf graph query` manifest graph slices, and
+  fabric-local lifecycle retention planning and confirmed cleanup through the
+  Python entrypoint.
 - `apps/api/` owns the FastAPI service boundary. The current implementation
   exposes `GET /healthz`, `GET /readyz`, `GET /v1/status`, `GET /v1/graph`,
   `GET /v1/graph/query`, `POST /v1/validation-plans`,
@@ -101,7 +102,8 @@ That surface is constrained by the workspace-owned contract in
   receipt-list, receipt-inspection, and readiness-decision helpers, broker ART
   runtime-context ingestion, ART readiness
   receipts, bootstrap policy admission decisions, runtime governance records,
-  and compact evidence projection adapters.
+  compact evidence projection adapters, and local retention plus ledger
+  compaction controls.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -176,6 +178,7 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli receipts list --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli inspect --repo-root . --receipt <receipt-id-or-path>
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli readiness --repo-root . --target operator-surface:wgcf-cli --profile local-read-only
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli lifecycle plan --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
 ```
 
@@ -205,6 +208,13 @@ through `POST /v1/validation-plans`, `POST /v1/validation-runs`,
 `GET /v1/receipts`, `GET /v1/receipts/{receipt_id}`, and
 `POST /v1/readiness/evaluate`; the worker queue execution path remains a later
 platform-gated slice.
+
+`wgcf lifecycle plan` inspects fabric-local `.wgcf` artifacts, receipts, and
+ledger state without mutating anything. `wgcf lifecycle apply --confirm`
+deletes only planned safe candidates, exports old ledger lines before
+compaction, and appends a lifecycle ledger event. The matching API routes are
+`POST /v1/lifecycle/retention-plan` and
+`POST /v1/lifecycle/retention-apply`.
 
 Catalog-backed validation is now the normal shadow-parity path for workspace
 validator invocation. `wgcf catalog plan` and `wgcf catalog check` load the

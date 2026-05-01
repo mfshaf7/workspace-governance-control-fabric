@@ -4,7 +4,8 @@ The control fabric is split by runtime responsibility:
 
 - `apps/cli`: operator CLI entrypoint for compact local workflow commands.
 - `apps/api`: FastAPI health, readiness, status, graph query, local validation
-  run, receipt inspection, readiness decision, and ART projection surface.
+  run, receipt inspection, readiness decision, lifecycle retention, and ART
+  projection surface.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: Temporal-ready worker diagnostic entrypoint and future
@@ -143,6 +144,25 @@ receipt inspection through `GET /v1/receipts/{receipt_id}`. CLI
 `wgcf run --plan`, worker queue execution, central deployment posture, and
 runtime API database persistence wiring stay in later slices so this layer
 remains testable and bounded.
+
+## Lifecycle Retention Model
+
+The lifecycle primitive keeps local `.wgcf` state from growing without turning
+cleanup into an implicit authority mutation:
+
+- `wgcf lifecycle plan` and `POST /v1/lifecycle/retention-plan` are dry-run
+  only.
+- retention profiles define artifact age, receipt age, file-count, and ledger
+  event-count budgets.
+- every candidate is confined to the repo root before it can be applied.
+- `wgcf lifecycle apply --confirm` and
+  `POST /v1/lifecycle/retention-apply` require explicit confirmation.
+- ledger compaction exports old JSONL lines before rewriting the active ledger.
+- confirmed cleanup appends `lifecycle.retention.applied` to the local ledger.
+
+The lifecycle model removes local files only after explicit operator or API
+confirmation. It does not read raw artifact contents into responses, mutate
+upstream repos, change ART state, or grant approval authority.
 
 ## Policy Admission Model
 

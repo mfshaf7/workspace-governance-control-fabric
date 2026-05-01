@@ -25,6 +25,9 @@ Current slice:
   readiness decisions with a fabric-local ledger event
 - support `wgcf budget show` for operator-visible invocation-class budgets
   such as `inline-fast`, `receipt-check`, `hard-gate`, and `checkpoint-batch`
+- support `wgcf lifecycle plan` and `wgcf lifecycle apply --confirm` for
+  fabric-local artifact cleanup, receipt retention, ledger export, and ledger
+  compaction
 - support `wgcf art graph --context <broker-context.json>` for compact
   broker-owned ART context graph projection
 - support `wgcf art readiness --context <broker-context.json>` for

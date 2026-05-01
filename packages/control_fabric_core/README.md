@@ -29,6 +29,8 @@ Current slice:
 - operator-surface helpers that inspect compact receipt records and evaluate
   known local readiness targets without reading raw artifacts or mutating
   upstream authority
+- lifecycle helpers that plan fabric-local artifact cleanup, receipt
+  retention, ledger export, and ledger compaction without mutating by default
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - runtime governance record helpers for blocker decisions, approvals, waivers,
@@ -94,6 +96,14 @@ readiness is `hard-gate`, projection and full quality work are
 classified. Validation execution applies these budgets as hard caps over
 timeout, retry, and output limits while still writing raw output only to
 receipt-linked artifacts.
+
+Lifecycle helpers keep `.wgcf` state bounded without weakening audit custody.
+`build_retention_plan` is dry-run only and reports old artifact files, compact
+receipt files, and oversized ledgers by profile. `apply_retention_plan` refuses
+to mutate unless explicit confirmation is supplied, exports compacted ledger
+lines before rewriting the local ledger, then appends a
+`lifecycle.retention.applied` event. Cleanup stays confined to the repo root
+and never reads raw artifact content into operator output.
 
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported

@@ -131,6 +131,47 @@ class ApiTests(TestCase):
             "verify_payload_digest_and_fresh_receipt",
         )
 
+    def test_lifecycle_retention_plan_endpoint_is_dry_run(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            artifact = temp_path / "artifacts/stdout.txt"
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_text("raw output", encoding="utf-8")
+            status, payload = asyncio.run(
+                asgi_post_json(
+                    "/v1/lifecycle/retention-plan",
+                    {
+                        "artifact_root": str(temp_path / "artifacts"),
+                        "ledger": str(temp_path / "ledger.jsonl"),
+                        "profile": "ci",
+                        "receipt_dir": str(temp_path / "receipts"),
+                    },
+                ),
+            )
+
+            self.assertEqual(status, 200)
+            plan = payload["retention_plan"]
+            self.assertEqual(plan["profile"], "ci")
+            self.assertTrue(plan["requires_confirmation"])
+            self.assertTrue(artifact.is_file())
+
+    def test_lifecycle_retention_apply_requires_confirm(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            status, payload = asyncio.run(
+                asgi_post_json(
+                    "/v1/lifecycle/retention-apply",
+                    {
+                        "artifact_root": str(temp_path / "artifacts"),
+                        "ledger": str(temp_path / "ledger.jsonl"),
+                        "receipt_dir": str(temp_path / "receipts"),
+                    },
+                ),
+            )
+
+        self.assertEqual(status, 400)
+        self.assertIn("confirmation", payload["detail"])
+
     def test_graph_rejects_manifest_path_escape(self) -> None:
         status, payload = asyncio.run(asgi_get_json("/v1/graph?manifest_path=../outside.json"))
 

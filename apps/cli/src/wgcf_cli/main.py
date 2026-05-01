@@ -10,13 +10,17 @@ from typing import Sequence
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
     DEFAULT_ARTIFACT_ROOT,
+    DEFAULT_LEDGER_EXPORT_DIR,
     DEFAULT_LEDGER_PATH,
     DEFAULT_RECEIPT_DIR,
+    DEFAULT_RETENTION_PROFILE,
     RUNTIME_REPO,
+    apply_retention_plan,
     build_art_runtime_graph,
     build_catalog_operator_validation_plan,
     build_source_snapshot,
     build_operator_validation_plan,
+    build_retention_plan,
     evaluate_art_readiness,
     evaluate_operation_budget,
     inspect_control_receipt,
@@ -302,6 +306,40 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Print machine-readable JSON for this command.",
     )
+    lifecycle_parser = subparsers.add_parser("lifecycle", help="Plan and apply fabric-local retention cleanup.")
+    lifecycle_subparsers = lifecycle_parser.add_subparsers(dest="lifecycle_command", required=True)
+    lifecycle_plan_parser = lifecycle_subparsers.add_parser(
+        "plan",
+        help="Dry-run artifact, receipt, and ledger retention cleanup.",
+    )
+    _add_lifecycle_args(lifecycle_plan_parser)
+    lifecycle_plan_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    lifecycle_apply_parser = lifecycle_subparsers.add_parser(
+        "apply",
+        help="Apply a retention plan after explicit confirmation.",
+    )
+    _add_lifecycle_args(lifecycle_apply_parser)
+    lifecycle_apply_parser.add_argument(
+        "--actor",
+        default="wgcf-local",
+        help="Operator or automation actor recorded in the lifecycle ledger event.",
+    )
+    lifecycle_apply_parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Required for mutation. Without this flag, apply returns blocked and changes nothing.",
+    )
+    lifecycle_apply_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
     art_parser = subparsers.add_parser("art", help="Inspect broker ART context without mutating ART.")
     art_subparsers = art_parser.add_subparsers(dest="art_command", required=True)
     art_graph_parser = art_subparsers.add_parser("graph", help="Project broker ART context into a compact graph.")
@@ -428,6 +466,42 @@ def render_budget_human(record: dict[str, object]) -> str:
             "Workspace Governance Control Fabric Budgets",
             f"profile: {record['profile']}",
             *(budget_lines or ["- none"]),
+        ],
+    )
+
+
+def render_lifecycle_plan_human(record: dict[str, object]) -> str:
+    summary = record["summary"]
+    ledger = record["ledger_compaction"]
+    assert isinstance(summary, dict)
+    assert isinstance(ledger, dict)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Lifecycle Plan",
+            f"plan: {record['plan_id']}",
+            f"profile: {record['profile']}",
+            f"artifact deletes: {summary['artifact_delete_count']}",
+            f"receipt deletes: {summary['receipt_delete_count']}",
+            f"ledger compaction: {str(ledger['action_required']).lower()}",
+            f"ledger compacted lines: {ledger['compacted_line_count']}",
+            "mutation: dry-run only; use lifecycle apply --confirm to apply",
+        ],
+    )
+
+
+def render_lifecycle_apply_human(record: dict[str, object]) -> str:
+    plan = record["plan"]
+    assert isinstance(plan, dict)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Lifecycle Apply",
+            f"outcome: {record['outcome']}",
+            f"plan: {plan['plan_id']}",
+            f"deleted artifacts: {len(record['deleted_artifacts'])}",
+            f"deleted receipts: {len(record['deleted_receipts'])}",
+            f"ledger event: {record['ledger_event_path'] or 'none'}",
+            f"ledger export: {record['ledger_export_ref']['path'] if record['ledger_export_ref'] else 'none'}",
+            "raw artifacts: never embedded in output",
         ],
     )
 
@@ -781,6 +855,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_budget_human(record))
         return 0
 
+    if args.command == "lifecycle" and args.lifecycle_command == "plan":
+        repo_root = Path(args.repo_root).resolve()
+        plan = build_retention_plan(
+            artifact_root=_resolve_repo_local_path(repo_root, args.artifact_root, "artifact-root"),
+            export_dir=_resolve_repo_local_path(repo_root, args.export_dir, "export-dir"),
+            ledger_path=_resolve_repo_local_path(repo_root, args.ledger, "ledger"),
+            profile=args.profile,
+            receipt_dir=_resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir"),
+            repo_root=repo_root,
+        )
+        record = plan.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_lifecycle_plan_human(record))
+        return 0
+
+    if args.command == "lifecycle" and args.lifecycle_command == "apply":
+        repo_root = Path(args.repo_root).resolve()
+        result = apply_retention_plan(
+            actor=args.actor,
+            artifact_root=_resolve_repo_local_path(repo_root, args.artifact_root, "artifact-root"),
+            confirm=args.confirm,
+            export_dir=_resolve_repo_local_path(repo_root, args.export_dir, "export-dir"),
+            ledger_path=_resolve_repo_local_path(repo_root, args.ledger, "ledger"),
+            profile=args.profile,
+            receipt_dir=_resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir"),
+            repo_root=repo_root,
+        )
+        record = result.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_lifecycle_apply_human(record))
+        return 0 if result.outcome == "success" else 1
+
     if args.command == "sources" and args.sources_command == "snapshot":
         repo_root = Path(args.repo_root).resolve()
         workspace_root = _resolve_workspace_root(repo_root, args.workspace_root)
@@ -1013,6 +1123,39 @@ def _add_repo_manifest_scope_args(parser: argparse.ArgumentParser) -> None:
         "--scope",
         required=True,
         help="Validation scope such as repo:<id>, component:<id>, art:<id>, or workspace.",
+    )
+
+
+def _add_lifecycle_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root used to confine lifecycle paths.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=DEFAULT_RETENTION_PROFILE,
+        help="Retention profile: developer, ci, or enterprise.",
+    )
+    parser.add_argument(
+        "--artifact-root",
+        default=DEFAULT_ARTIFACT_ROOT,
+        help="Repo-local directory containing raw validation artifacts.",
+    )
+    parser.add_argument(
+        "--receipt-dir",
+        default=DEFAULT_RECEIPT_DIR,
+        help="Repo-local directory containing compact receipt JSON files.",
+    )
+    parser.add_argument(
+        "--ledger",
+        default=DEFAULT_LEDGER_PATH,
+        help="Repo-local JSONL ledger file.",
+    )
+    parser.add_argument(
+        "--export-dir",
+        default=DEFAULT_LEDGER_EXPORT_DIR,
+        help="Repo-local directory for ledger compaction exports.",
     )
 
 

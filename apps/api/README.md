@@ -14,6 +14,9 @@ Current slice:
   pagination
 - implement `GET /v1/budgets` for operator-visible invocation-class budgets
   and recommended action shape
+- implement `POST /v1/lifecycle/retention-plan` and
+  `POST /v1/lifecycle/retention-apply` for confirmed fabric-local artifact,
+  receipt, and ledger lifecycle controls
 - implement `GET /v1/source-snapshots/status` for compact source snapshot
   status without raw authority content or full digest maps
 - implement `POST /v1/validation-plans` for compact validation-plan records
