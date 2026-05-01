@@ -6,6 +6,7 @@ from .foundation import (
     PACKAGE_VERSION,
     RUNTIME_REPO,
     STATUS_BOOTSTRAP,
+    bootstrap_validation_contract,
     status_snapshot,
 )
 from .graph_ingestion import (
@@ -161,6 +162,7 @@ __all__ = [
     "build_operator_validation_plan",
     "build_validation_plan",
     "build_source_snapshot",
+    "bootstrap_validation_contract",
     "database_settings",
     "evaluate_admission_policy",
     "graph_summary",

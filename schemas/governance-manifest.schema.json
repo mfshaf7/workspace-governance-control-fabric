@@ -286,6 +286,10 @@
                 "minLength": 1,
                 "type": "string"
               },
+              "self_validation_role": {
+                "minLength": 1,
+                "type": "string"
+              },
               "timeout_seconds": {
                 "minimum": 1,
                 "type": "integer"

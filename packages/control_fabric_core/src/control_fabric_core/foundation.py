@@ -23,6 +23,13 @@ AUTHORITY_CONTRACT_REF = (
 )
 OPERATOR_SURFACE_PATH = Path("docs/operations/operator-surface.md")
 WORKER_ENTRYPOINT_PATH = Path("apps/worker/src/wgcf_worker/main.py")
+BOOTSTRAP_VALIDATOR_PATH = Path("scripts/validate_project.py")
+BOOTSTRAP_SELF_VALIDATION_ROLE = "bootstrap-independent"
+FORBIDDEN_BOOTSTRAP_SELF_VALIDATION_TOKENS = (
+    "wgcf check",
+    "wgcf plan",
+    "run_operator_validation_check",
+)
 
 
 @dataclass(frozen=True)
@@ -69,6 +76,7 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "AGENTS.md": repo_root / "AGENTS.md",
         "pyproject.toml": repo_root / "pyproject.toml",
         "alembic.ini": repo_root / "alembic.ini",
+        str(BOOTSTRAP_VALIDATOR_PATH): repo_root / BOOTSTRAP_VALIDATOR_PATH,
         "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py"
         ),
@@ -131,6 +139,20 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
     return {name: path.exists() and path.is_file() for name, path in paths.items()}
 
 
+def bootstrap_validation_contract(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Return the loop-avoidance contract for WGCF bootstrap validation."""
+
+    root = Path(repo_root or ".").resolve()
+    validator_path = root / BOOTSTRAP_VALIDATOR_PATH
+    return {
+        "bootstrap_validator_path": str(BOOTSTRAP_VALIDATOR_PATH),
+        "bootstrap_validator_present": validator_path.is_file(),
+        "forbidden_runtime_entrypoints": list(FORBIDDEN_BOOTSTRAP_SELF_VALIDATION_TOKENS),
+        "runtime_self_validation_role": BOOTSTRAP_SELF_VALIDATION_ROLE,
+        "uses_wgcf_receipt_as_bootstrap_authority": False,
+    }
+
+
 def status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any]:
     """Return a compact bootstrap status snapshot for operators and tests."""
 
@@ -146,4 +168,5 @@ def status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any]:
         "ready": all(required_paths.values()),
         "database": database_settings().to_status(),
         "authority_boundaries": [asdict(boundary) for boundary in AUTHORITY_BOUNDARIES],
+        "bootstrap_validation": bootstrap_validation_contract(root),
     }

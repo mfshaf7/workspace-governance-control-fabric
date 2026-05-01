@@ -13,7 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 sys.path.insert(0, str(REPO_ROOT / "apps/cli/src"))
 
-from control_fabric_core import AUTHORITY_CONTRACT_REF, status_snapshot
+from control_fabric_core import (
+    AUTHORITY_CONTRACT_REF,
+    bootstrap_validation_contract,
+    status_snapshot,
+)
 from wgcf_cli.main import main, render_status_human
 
 
@@ -57,6 +61,16 @@ class FoundationTests(TestCase):
         self.assertIn("platform-engineering", repos)
         self.assertIn("security-architecture", repos)
         self.assertIn("operator-orchestration-service", repos)
+
+    def test_bootstrap_validation_contract_avoids_runtime_dependency_loop(self) -> None:
+        contract = bootstrap_validation_contract(REPO_ROOT)
+        snapshot = status_snapshot(REPO_ROOT)
+
+        self.assertTrue(contract["bootstrap_validator_present"])
+        self.assertFalse(contract["uses_wgcf_receipt_as_bootstrap_authority"])
+        self.assertEqual(contract["runtime_self_validation_role"], "bootstrap-independent")
+        self.assertIn("wgcf check", contract["forbidden_runtime_entrypoints"])
+        self.assertEqual(snapshot["bootstrap_validation"], contract)
 
     def test_human_status_is_compact_and_operator_safe(self) -> None:
         rendered = render_status_human(status_snapshot(REPO_ROOT))

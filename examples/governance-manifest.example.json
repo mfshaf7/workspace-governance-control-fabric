@@ -75,6 +75,7 @@
       "execution_policy": {
         "profile": "developer",
         "safety_class": "local-read-only",
+        "self_validation_role": "runtime-smoke",
         "allowed_executables": [
           "python3"
         ],
@@ -114,6 +115,7 @@
       "execution_policy": {
         "profile": "developer",
         "safety_class": "local-read-only",
+        "self_validation_role": "bootstrap-independent",
         "allowed_executables": [
           "python3"
         ],

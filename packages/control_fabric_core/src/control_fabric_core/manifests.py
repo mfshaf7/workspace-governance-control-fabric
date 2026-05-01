@@ -120,6 +120,7 @@ def governance_manifest_schema() -> dict[str, Any]:
             "profile": non_empty_string,
             "retry_count": {"minimum": 0, "type": "integer"},
             "safety_class": non_empty_string,
+            "self_validation_role": non_empty_string,
             "timeout_seconds": {"minimum": 1, "type": "integer"},
         },
         "type": "object",

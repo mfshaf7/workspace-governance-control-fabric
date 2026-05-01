@@ -85,6 +85,9 @@ implementation boundary. They run only planned command checks, treat unsupported
 check types as blocked, suppress execution when the planner decision is not
 `planned`, and produce:
 
+- a bootstrap self-validation contract that keeps `scripts/validate_project.py`
+  as the direct scaffold authority and prevents WGCF receipts from becoming
+  the proof that WGCF itself is bootstrapped
 - validator safety preflight for safety class, profile, executable allowlist,
   allowed roots, sanitized environment handling, explicit env allow/block
   policy, and output limits

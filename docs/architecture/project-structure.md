@@ -106,6 +106,9 @@ manifest when invalidation is enabled.
 The first validation-execution primitive consumes a `ValidationPlan` and
 produces compact proof records without becoming a policy engine:
 
+- bootstrap validation remains outside the WGCF dependency loop:
+  `scripts/validate_project.py` is the direct scaffold authority, and WGCF
+  runtime receipts are not treated as bootstrap authority
 - only `planned` planner decisions are executable; blocked or review-required
   plans emit a blocked/operator-review receipt without running commands
 - only command checks are executed in this slice

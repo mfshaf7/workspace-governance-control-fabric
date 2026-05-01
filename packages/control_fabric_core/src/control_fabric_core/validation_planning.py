@@ -865,7 +865,7 @@ def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
         policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
     if "operator_approved" in raw_policy:
         policy["operator_approved"] = bool(raw_policy["operator_approved"])
-    for field_name in ("profile", "safety_class"):
+    for field_name in ("profile", "safety_class", "self_validation_role"):
         text_value = _optional_str(raw_policy.get(field_name))
         if text_value:
             policy[field_name] = text_value

@@ -15,6 +15,7 @@ REQUIRED_PATHS = (
     "pyproject.toml",
     "Dockerfile",
     "alembic.ini",
+    "scripts/validate_project.py",
     ".github/workflows/build-image.yaml",
     "apps/api/README.md",
     "apps/api/src/wgcf_api/app.py",
@@ -135,6 +136,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_manifest_graph,
         build_operator_validation_plan,
         build_source_snapshot,
+        bootstrap_validation_contract,
         build_policy_ledger_event,
         build_validation_plan,
         evaluate_admission_policy,
@@ -167,6 +169,11 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("status snapshot is not ready")
     if not worker_snapshot["ready"]:
         errors.append("worker status snapshot is not ready")
+    bootstrap_contract = bootstrap_validation_contract(repo_root)
+    if bootstrap_contract["uses_wgcf_receipt_as_bootstrap_authority"]:
+        errors.append("bootstrap validation must not use WGCF receipts as bootstrap authority")
+    if not bootstrap_contract["bootstrap_validator_present"]:
+        errors.append("bootstrap validator script is missing")
     parser = build_parser()
     parsed = parser.parse_args(["status", "--repo-root", str(repo_root)])
     if parsed.command != "status":
@@ -253,6 +260,28 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("example governance manifest validation plan was not planned")
     if not validation_plan.checks:
         errors.append("example governance manifest validation plan returned no checks")
+    scaffold_validator = next(
+        (
+            validator
+            for validator in example_manifest["validators"]
+            if validator["validator_id"] == "control-fabric-project-scaffold"
+        ),
+        None,
+    )
+    if scaffold_validator is None:
+        errors.append("example manifest missing control-fabric-project-scaffold validator")
+    else:
+        scaffold_command = str(scaffold_validator.get("command") or "")
+        scaffold_policy = scaffold_validator.get("execution_policy") or {}
+        if scaffold_policy.get("self_validation_role") != "bootstrap-independent":
+            errors.append("project scaffold validator must declare bootstrap-independent self-validation")
+        if "scripts/validate_project.py" not in scaffold_command:
+            errors.append("project scaffold validator must call the direct bootstrap validator script")
+        for forbidden_token in bootstrap_contract["forbidden_runtime_entrypoints"]:
+            if forbidden_token in scaffold_command:
+                errors.append(
+                    f"project scaffold validator must not invoke recursive WGCF entrypoint: {forbidden_token}",
+                )
     operator_plan = build_operator_validation_plan(
         example_path,
         "repo:workspace-governance-control-fabric",

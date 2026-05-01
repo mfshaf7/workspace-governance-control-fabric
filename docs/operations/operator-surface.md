@@ -297,6 +297,9 @@ Validation execution uses the schemas at:
 
 Current execution behavior:
 
+- keeps bootstrap validation independent from WGCF receipts: the direct
+  `scripts/validate_project.py` scaffold validator remains the bootstrap
+  authority, while WGCF-produced receipts are runtime smoke evidence only
 - runs only manifest-planned command checks
 - runs with `shell=False` from the supplied repo root
 - supports simple leading environment assignments such as `PYTHONPATH=...`
