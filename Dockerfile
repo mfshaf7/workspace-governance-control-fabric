@@ -11,6 +11,7 @@ COPY packages ./packages
 COPY migrations ./migrations
 COPY policies ./policies
 COPY schemas ./schemas
+COPY scripts ./scripts
 COPY examples ./examples
 COPY docs ./docs
 COPY AGENTS.md ./
