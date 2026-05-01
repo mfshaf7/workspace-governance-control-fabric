@@ -30,13 +30,28 @@ LEDGER_SCHEMA_VERSION = 1
 COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_SAFETY_CLASS = "local-read-only"
 DEFAULT_EXECUTION_PROFILE = "developer"
-OPERATOR_APPROVAL_REQUIRED_SAFETY_CLASSES = {"host-control", "network", "privileged"}
-SUPPORTED_SAFETY_CLASSES = {
+OPERATOR_APPROVAL_REQUIRED_SAFETY_CLASSES = {
+    "authority-mutation",
     "host-control",
-    "local-artifact-write",
-    "local-read-only",
+    "live-runtime-read",
+    "materialized-output-write",
     "network",
     "privileged",
+    "remote-read",
+    "structured-record-write",
+}
+SUPPORTED_SAFETY_CLASSES = {
+    "authority-mutation",
+    "host-control",
+    "live-runtime-read",
+    "local-artifact-write",
+    "local-read-only",
+    "materialized-output-write",
+    "network",
+    "privileged",
+    "remote-read",
+    "structured-record-write",
+    "workspace-cross-repo-read",
 }
 DEFAULT_COMMAND_ENV_NAMES = {
     "HOME",
@@ -382,12 +397,25 @@ def _run_command_check(
             validator_id=check.validator_id,
         )
     execution_policy = _execution_policy(check)
+    try:
+        working_directory = _working_directory(repo_root, execution_policy)
+    except ValueError as exc:
+        return _blocked_check_result(
+            check,
+            command_digest=_digest_text(check.command),
+            duration_ms=0,
+            error=str(exc),
+            output_summary={
+                "suppressed": True,
+            },
+        )
     safety_block = _safety_block_reason(
         args=args,
         env_overrides=env_overrides,
         execution_policy=execution_policy,
         repo_root=repo_root,
         supplied_env=env or {},
+        working_directory=working_directory,
     )
     if safety_block is not None:
         return _blocked_check_result(
@@ -413,7 +441,8 @@ def _run_command_check(
     fail_on_budget = bool(execution_policy.get("fail_on_output_budget_exceeded", False))
 
     command_env = _base_command_env()
-    command_env["PATH"] = _python_first_path(command_env.get("PATH"))
+    if execution_policy.get("prefer_current_python", True) is not False:
+        command_env["PATH"] = _python_first_path(command_env.get("PATH"))
     if env:
         command_env.update(env)
     command_env.update(env_overrides)
@@ -438,7 +467,7 @@ def _run_command_check(
         try:
             completed = subprocess.run(
                 args,
-                cwd=repo_root,
+                cwd=working_directory,
                 env=command_env,
                 capture_output=True,
                 check=False,
@@ -603,6 +632,7 @@ def _safety_block_reason(
     execution_policy: dict[str, Any],
     repo_root: Path,
     supplied_env: dict[str, str],
+    working_directory: Path,
 ) -> dict[str, Any] | None:
     safety_class = _safety_class(execution_policy)
     profile = _execution_profile(execution_policy)
@@ -629,7 +659,7 @@ def _safety_block_reason(
             "decision": "blocked",
             "reason": f"executable {args[0]!r} is not in the command allowlist for profile {profile!r}",
         }
-    root_decision = _allowed_root_decision(repo_root, execution_policy)
+    root_decision = _allowed_root_decision(repo_root, working_directory, execution_policy)
     if root_decision is not None:
         return {
             **summary,
@@ -659,6 +689,7 @@ def _safety_summary(*, args: list[str], execution_policy: dict[str, Any]) -> dic
         "profile": _execution_profile(execution_policy),
         "safety_class": _safety_class(execution_policy),
         "sanitized_base_env": True,
+        "working_directory": str(execution_policy.get("working_directory") or "."),
     }
 
 
@@ -685,14 +716,33 @@ def _executable_allowed(executable: str, allowed_executables: set[str]) -> bool:
     return executable in allowed_executables or executable_name in allowed_executables
 
 
-def _allowed_root_decision(repo_root: Path, execution_policy: dict[str, Any]) -> str | None:
+def _allowed_root_decision(
+    repo_root: Path,
+    working_directory: Path,
+    execution_policy: dict[str, Any],
+) -> str | None:
     allowed_roots = _string_set(execution_policy.get("allowed_roots"))
     if not allowed_roots:
         return None
     resolved_roots = {_resolve_policy_root(repo_root, root) for root in allowed_roots}
-    if any(_is_relative_to(repo_root, allowed_root) for allowed_root in resolved_roots):
+    if any(_is_relative_to(working_directory, allowed_root) for allowed_root in resolved_roots):
         return None
-    return "repo root is outside the validator allowed_roots policy"
+    return "validator working directory is outside the allowed_roots policy"
+
+
+def _working_directory(repo_root: Path, execution_policy: dict[str, Any]) -> Path:
+    raw_value = execution_policy.get("working_directory") or "."
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise ValueError("execution_policy.working_directory must be a non-empty string")
+    candidate = Path(raw_value.strip())
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    resolved = candidate.resolve()
+    if not _is_relative_to(resolved, repo_root):
+        raise ValueError("execution_policy.working_directory must stay inside repo_root")
+    if not resolved.is_dir():
+        raise ValueError(f"execution_policy.working_directory does not exist: {resolved}")
+    return resolved
 
 
 def _resolve_policy_root(repo_root: Path, root: str) -> Path:

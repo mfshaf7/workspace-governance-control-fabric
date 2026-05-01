@@ -293,6 +293,10 @@
               "timeout_seconds": {
                 "minimum": 1,
                 "type": "integer"
+              },
+              "working_directory": {
+                "minLength": 1,
+                "type": "string"
               }
             },
             "type": "object"

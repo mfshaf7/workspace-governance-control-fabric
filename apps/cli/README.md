@@ -15,6 +15,9 @@ Current slice:
 - support `wgcf check --scope <scope> --tier <tier>` for bounded local
   validation execution, compact receipt writing, artifact refs, and ledger
   append
+- support `wgcf catalog plan` and `wgcf catalog check` for catalog-backed
+  validator invocation from the workspace-governance authority catalog,
+  including selected/suppressed entry reporting and compact receipts
 - support `wgcf receipts list` for compact local receipt metadata
 - support `wgcf art graph --context <broker-context.json>` for compact
   broker-owned ART context graph projection

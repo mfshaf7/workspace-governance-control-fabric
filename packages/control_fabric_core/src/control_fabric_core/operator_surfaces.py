@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Any
 
 from .graph_queries import load_governance_manifest_file
+from .catalog_manifest import (
+    CatalogManifestResult,
+    build_catalog_governance_manifest,
+)
 from .validation_execution import (
     ControlReceipt,
     LedgerEvent,
@@ -54,6 +58,39 @@ class OperatorCheckResult:
 
 
 @dataclass(frozen=True)
+class CatalogOperatorPlanResult:
+    """Catalog-backed validation plan result."""
+
+    catalog: CatalogManifestResult
+    plan: ValidationPlan
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "catalog": self.catalog.to_summary_record(),
+            "plan": self.plan.to_record(),
+        }
+
+
+@dataclass(frozen=True)
+class CatalogOperatorCheckResult:
+    """Catalog-backed validation check result."""
+
+    catalog: CatalogManifestResult
+    check_result: OperatorCheckResult
+    manifest_path: str
+
+    @property
+    def receipt(self) -> ControlReceipt:
+        return self.check_result.receipt
+
+    def to_record(self) -> dict[str, Any]:
+        record = self.check_result.to_record()
+        record["catalog"] = self.catalog.to_summary_record()
+        record["catalog_manifest_path"] = self.manifest_path
+        return record
+
+
+@dataclass(frozen=True)
 class ReceiptSummary:
     """Operator-safe receipt metadata for list views."""
 
@@ -81,6 +118,27 @@ def build_operator_validation_plan(
 
     manifest = load_governance_manifest_file(manifest_path)
     return build_validation_plan(manifest, target_scope, tier=tier)
+
+
+def build_catalog_operator_validation_plan(
+    *,
+    workspace_root: str | Path,
+    target_scope: str,
+    catalog_path: str | Path | None = None,
+    operator_approved: bool = False,
+    profile: str = "local-read-only",
+    tier: str = "scoped",
+) -> CatalogOperatorPlanResult:
+    """Build a validation plan from the workspace-owned validator catalog."""
+
+    catalog = build_catalog_governance_manifest(
+        catalog_path=catalog_path,
+        operator_approved=operator_approved,
+        profile=profile,
+        workspace_root=workspace_root,
+    )
+    plan = build_validation_plan(catalog.manifest, target_scope, tier=tier)
+    return CatalogOperatorPlanResult(catalog=catalog, plan=plan)
 
 
 def run_operator_validation_check(
@@ -118,6 +176,62 @@ def run_operator_validation_check(
         plan=plan,
         receipt=execution.receipt,
         receipt_path=str(receipt_path),
+    )
+
+
+def run_catalog_operator_validation_check(
+    *,
+    workspace_root: str | Path,
+    target_scope: str,
+    artifact_root: str | Path,
+    receipt_dir: str | Path,
+    ledger_path: str | Path,
+    manifest_dir: str | Path,
+    actor: str = "wgcf-local",
+    catalog_path: str | Path | None = None,
+    operator_approved: bool = False,
+    profile: str = "local-read-only",
+    tier: str = "scoped",
+) -> CatalogOperatorCheckResult:
+    """Run catalog-authorized checks and emit compact receipt evidence."""
+
+    plan_result = build_catalog_operator_validation_plan(
+        catalog_path=catalog_path,
+        operator_approved=operator_approved,
+        profile=profile,
+        target_scope=target_scope,
+        tier=tier,
+        workspace_root=workspace_root,
+    )
+    manifest_root = Path(manifest_dir)
+    manifest_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_root / f"{_safe_file_stem(plan_result.catalog.manifest['manifest_id'])}.json"
+    manifest_path.write_text(
+        json.dumps(plan_result.catalog.manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    execution = execute_validation_plan(
+        plan_result.plan,
+        repo_root=Path(workspace_root).resolve(),
+        artifact_root=artifact_root,
+        actor=actor,
+    )
+    receipt_output = Path(receipt_dir) / f"{_safe_file_stem(execution.receipt.receipt_id)}.json"
+    receipt_path = write_control_receipt(receipt_output, execution.receipt)
+    event_path = append_ledger_event(ledger_path, execution.ledger_event)
+    check_result = OperatorCheckResult(
+        artifact_root=str(Path(artifact_root)),
+        ledger_event=execution.ledger_event,
+        ledger_path=str(event_path),
+        manifest_path=str(manifest_path),
+        plan=plan_result.plan,
+        receipt=execution.receipt,
+        receipt_path=str(receipt_path),
+    )
+    return CatalogOperatorCheckResult(
+        catalog=plan_result.catalog,
+        check_result=check_result,
+        manifest_path=str(manifest_path),
     )
 
 
