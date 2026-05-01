@@ -99,6 +99,14 @@ class ValidationExecutionTests(TestCase):
             self.assertEqual(result.receipt.outcome, "success")
             self.assertEqual(result.ledger_event.action, "validation.run.completed")
             self.assertEqual(len(result.receipt.artifact_refs), 2)
+            self.assertTrue(receipt_record["correlation_id"].startswith("correlation:validation:"))
+            self.assertEqual(receipt_record["metrics"]["check_count"], 1)
+            self.assertEqual(receipt_record["metrics"]["artifact_count"], 2)
+            self.assertFalse(receipt_record["metrics"]["raw_output_embedded"])
+            self.assertEqual(
+                receipt_record["suppressed_output_summary"]["correlation_id"],
+                receipt_record["correlation_id"],
+            )
             self.assertFalse(receipt_record["suppressed_output_summary"]["raw_output_in_receipt"])
             self.assertNotIn(marker, json.dumps(receipt_record, sort_keys=True))
             self.assertIn(

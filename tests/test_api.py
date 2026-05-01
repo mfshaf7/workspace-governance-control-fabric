@@ -237,6 +237,8 @@ class ApiTests(TestCase):
 
             self.assertEqual(run_status, 200)
             self.assertEqual(run_payload["receipt"]["outcome"], "success")
+            self.assertTrue(run_payload["receipt"]["correlation_id"].startswith("correlation:validation:"))
+            self.assertEqual(run_payload["receipt"]["metrics"]["check_count"], 1)
             self.assertFalse(run_payload["receipt"]["suppressed_output_summary"]["raw_output_in_receipt"])
             self.assertTrue(Path(run_payload["receipt_path"]).is_file())
             self.assertTrue((temp_path / "ledger.jsonl").is_file())
@@ -250,8 +252,35 @@ class ApiTests(TestCase):
         self.assertEqual(detail_status, 200)
         inspection = detail_payload["inspection"]
         self.assertEqual(inspection["receipt"]["receipt_id"], run_payload["receipt"]["receipt_id"])
+        self.assertEqual(inspection["receipt"]["correlation_id"], run_payload["receipt"]["correlation_id"])
         self.assertFalse(inspection["raw_output_embedded"])
         self.assertEqual(inspection["check_status_counts"]["success"], 1)
+
+    def test_metrics_receipts_endpoint_summarizes_compact_receipts(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            run_status, _run_payload = asyncio.run(
+                asgi_post_json(
+                    "/v1/validation-runs",
+                    {
+                        "actor": "test-api",
+                        "artifact_root": str(temp_path / "artifacts"),
+                        "ledger": str(temp_path / "ledger.jsonl"),
+                        "receipt_dir": str(temp_path / "receipts"),
+                        "scope": "repo:workspace-governance-control-fabric",
+                        "tier": "smoke",
+                    },
+                ),
+            )
+            receipt_dir = quote(str(temp_path / "receipts"), safe="")
+            metrics_status, metrics_payload = asyncio.run(
+                asgi_get_json(f"/v1/metrics/receipts?receipt_dir={receipt_dir}"),
+            )
+
+        self.assertEqual(run_status, 200)
+        self.assertEqual(metrics_status, 200)
+        self.assertEqual(metrics_payload["metrics"]["receipt_count"], 1)
+        self.assertEqual(metrics_payload["metrics"]["outcome_counts"]["success"], 1)
 
     def test_readiness_evaluate_endpoint_records_local_ledger_event(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
@@ -274,6 +303,8 @@ class ApiTests(TestCase):
 
         readiness = payload["readiness"]
         self.assertTrue(readiness["ready"])
+        self.assertTrue(readiness["correlation_id"].startswith("correlation:readiness:"))
+        self.assertTrue(readiness["metrics"]["ready"])
         self.assertEqual(readiness["ledger_event"]["action"], "readiness.decision.recorded")
         self.assertEqual(readiness["mutation_boundary"], "fabric-local decision record only")
 
@@ -332,6 +363,8 @@ class ApiTests(TestCase):
         self.assertEqual(status, 200)
         readiness = payload["readiness"]
         self.assertFalse(readiness["mutation_allowed"])
+        self.assertTrue(readiness["correlation_id"].startswith("correlation:art-readiness:"))
+        self.assertFalse(readiness["metrics"]["mutation_allowed"])
         self.assertTrue(readiness["projection_sync_recommended"])
         self.assertEqual(readiness["recommendations"][0]["action"], "projection_sync")
 

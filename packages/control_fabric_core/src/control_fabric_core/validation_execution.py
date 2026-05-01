@@ -19,6 +19,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from .observability import build_correlation_id, validation_execution_metrics
 from .performance_budgets import coerce_execution_limits
 from .validation_planning import (
     ValidationExecutionMode,
@@ -114,8 +115,10 @@ class ControlReceipt:
     artifact_refs: tuple[ValidationArtifactRef, ...]
     captured_at: str
     check_results: tuple[ValidationCheckResult, ...]
+    correlation_id: str
     digest: str
     manifest_id: str
+    metrics: dict[str, Any]
     outcome: str
     plan_id: str
     planner_decision: dict[str, Any]
@@ -130,8 +133,10 @@ class ControlReceipt:
             "artifact_refs": [artifact.to_record() for artifact in self.artifact_refs],
             "captured_at": self.captured_at,
             "check_results": [result.to_record() for result in self.check_results],
+            "correlation_id": self.correlation_id,
             "digest": self.digest,
             "manifest_id": self.manifest_id,
+            "metrics": self.metrics,
             "outcome": self.outcome,
             "plan_id": self.plan_id,
             "planner_decision": self.planner_decision,
@@ -258,10 +263,28 @@ def execute_validation_plan(
 
     outcome = _receipt_outcome(plan, check_results)
     planner_decision = plan.decision.to_record()
+    metrics = validation_execution_metrics(
+        artifact_refs=tuple(artifact_refs),
+        check_results=tuple(check_results),
+        outcome=outcome,
+    )
+    correlation_id = build_correlation_id(
+        "validation",
+        {
+            "captured_at": captured_at_text,
+            "manifest_id": plan.manifest_id,
+            "outcome": outcome,
+            "plan_id": plan.plan_id,
+            "target_scope": plan.target.scope,
+            "tier": plan.tier,
+        },
+    )
     suppressed_output_summary = {
         "artifact_count": len(artifact_refs),
+        "correlation_id": correlation_id,
         "custody": _artifact_custody_summary(tuple(artifact_refs)),
         "execution_suppressed": plan.decision.outcome != "planned",
+        "metrics": metrics,
         "planner_outcome": plan.decision.outcome,
         "performance_budget": getattr(plan, "performance_budget", {}),
         "raw_output_in_receipt": False,
@@ -278,7 +301,9 @@ def execute_validation_plan(
         "artifact_refs": [artifact.to_record() for artifact in artifact_refs],
         "captured_at": captured_at_text,
         "check_results": [result.to_record() for result in check_results],
+        "correlation_id": correlation_id,
         "manifest_id": plan.manifest_id,
+        "metrics": metrics,
         "outcome": outcome,
         "plan_id": plan.plan_id,
         "planner_decision": planner_decision,
@@ -291,8 +316,10 @@ def execute_validation_plan(
         artifact_refs=tuple(artifact_refs),
         captured_at=captured_at_text,
         check_results=tuple(check_results),
+        correlation_id=correlation_id,
         digest=receipt_digest,
         manifest_id=plan.manifest_id,
+        metrics=metrics,
         outcome=outcome,
         plan_id=plan.plan_id,
         planner_decision=planner_decision,

@@ -25,6 +25,8 @@ Current slice:
 - implement `GET /v1/receipts` for compact local receipt metadata
 - implement `GET /v1/receipts/{receipt_id}` for compact receipt inspection
   without reopening raw artifacts
+- implement `GET /v1/metrics/receipts` for compact receipt metrics and
+  correlation visibility
 - implement `POST /v1/readiness/evaluate` for local readiness decisions with a
   fabric-local ledger event
 - implement `POST /v1/art/graph` for compact broker-owned ART context graph

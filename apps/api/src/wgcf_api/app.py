@@ -31,6 +31,7 @@ from control_fabric_core import (
     operation_budget_records,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
+    receipt_metrics_snapshot,
     run_operator_readiness_evaluation,
     run_operator_validation_check,
     source_snapshot_status,
@@ -131,6 +132,20 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
                 else None
             ),
             "profile": profile,
+        }
+
+    @app.get("/v1/metrics/receipts")
+    async def metrics_receipts(
+        receipt_dir: str = Query(DEFAULT_RECEIPT_DIR, description="Repo-local compact receipt directory."),
+    ) -> dict[str, Any]:
+        try:
+            receipt_path = _resolve_local_path(resolved_repo_root, receipt_dir, "receipt_dir")
+            receipts = [receipt.to_record() for receipt in list_control_receipts(receipt_path)]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "metrics": receipt_metrics_snapshot(receipts),
+            "receipt_dir": str(receipt_path.relative_to(resolved_repo_root)),
         }
 
     @app.post("/v1/lifecycle/retention-plan")

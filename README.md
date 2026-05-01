@@ -80,7 +80,8 @@ That surface is constrained by the workspace-owned contract in
   exposes `GET /healthz`, `GET /readyz`, `GET /v1/status`, `GET /v1/graph`,
   `GET /v1/graph/query`, `POST /v1/validation-plans`,
   `POST /v1/validation-runs`, `GET /v1/receipts`,
-  `GET /v1/receipts/{receipt_id}`, `POST /v1/readiness/evaluate`,
+  `GET /v1/receipts/{receipt_id}`, `GET /v1/metrics/receipts`,
+  `POST /v1/readiness/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and
   `POST /v1/art/evidence-packet` with compact runtime metadata.
 - `apps/worker/` owns the Temporal-ready worker package boundary. The current
@@ -177,6 +178,7 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli catalog check --repo-root . --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli receipts list --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli inspect --repo-root . --receipt <receipt-id-or-path>
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli metrics receipts --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli readiness --repo-root . --target operator-surface:wgcf-cli --profile local-read-only
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli lifecycle plan --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
@@ -215,6 +217,10 @@ deletes only planned safe candidates, exports old ledger lines before
 compaction, and appends a lifecycle ledger event. The matching API routes are
 `POST /v1/lifecycle/retention-plan` and
 `POST /v1/lifecycle/retention-apply`.
+
+Receipts and readiness decisions now carry compact correlation ids and metrics.
+`wgcf metrics receipts` and `GET /v1/metrics/receipts` summarize receipt counts,
+check counts, artifact counts, and outcomes without opening raw artifacts.
 
 Catalog-backed validation is now the normal shadow-parity path for workspace
 validator invocation. `wgcf catalog plan` and `wgcf catalog check` load the

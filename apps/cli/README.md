@@ -28,6 +28,8 @@ Current slice:
 - support `wgcf lifecycle plan` and `wgcf lifecycle apply --confirm` for
   fabric-local artifact cleanup, receipt retention, ledger export, and ledger
   compaction
+- support `wgcf metrics receipts` for compact receipt metrics and correlation
+  visibility without opening raw artifacts
 - support `wgcf art graph --context <broker-context.json>` for compact
   broker-owned ART context graph projection
 - support `wgcf art readiness --context <broker-context.json>` for

@@ -102,6 +102,13 @@ from .performance_budgets import (
     paginate_items,
     resolve_performance_budget,
 )
+from .observability import (
+    art_readiness_metrics,
+    build_correlation_id,
+    operator_readiness_metrics,
+    receipt_metrics_snapshot,
+    validation_execution_metrics,
+)
 from .lifecycle import (
     DEFAULT_LEDGER_EXPORT_DIR,
     DEFAULT_RETENTION_PROFILE,
@@ -181,6 +188,7 @@ __all__ = [
     "ArtRuntimeEdge",
     "ArtRuntimeGraph",
     "ArtRuntimeNode",
+    "art_readiness_metrics",
     "CatalogEntrySelection",
     "CatalogEntrySuppression",
     "CatalogManifestResult",
@@ -242,6 +250,7 @@ __all__ = [
     "apply_retention_plan",
     "build_policy_ledger_event",
     "build_art_runtime_graph",
+    "build_correlation_id",
     "build_governance_record_ledger_event",
     "build_graph_from_manifest_file",
     "build_manifest_graph",
@@ -269,6 +278,7 @@ __all__ = [
     "manifest_entity_ids",
     "normalize_validation_target",
     "operation_budget_records",
+    "operator_readiness_metrics",
     "paginate_items",
     "persist_governance_state",
     "persist_manifest_graph",
@@ -285,6 +295,7 @@ __all__ = [
     "record_change_event",
     "record_risk_posture",
     "record_waiver_decision",
+    "receipt_metrics_snapshot",
     "retention_thresholds",
     "run_catalog_operator_validation_check",
     "run_operator_readiness_evaluation",
@@ -293,6 +304,7 @@ __all__ = [
     "source_snapshot_status",
     "execute_validation_plan",
     "validate_governance_manifest",
+    "validation_execution_metrics",
     "validation_target_scope_candidates",
     "worker_status_snapshot",
     "write_control_receipt",
