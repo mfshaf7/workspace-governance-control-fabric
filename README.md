@@ -77,8 +77,11 @@ That surface is constrained by the workspace-owned contract in
   the Python entrypoint.
 - `apps/api/` owns the FastAPI service boundary. The current implementation
   exposes `GET /healthz`, `GET /readyz`, `GET /v1/status`, `GET /v1/graph`,
-  `GET /v1/graph/query`, `POST /v1/validation-plans`, and `GET /v1/receipts`
-  with compact runtime metadata.
+  `GET /v1/graph/query`, `POST /v1/validation-plans`,
+  `POST /v1/validation-runs`, `GET /v1/receipts`,
+  `GET /v1/receipts/{receipt_id}`, `POST /v1/readiness/evaluate`,
+  `POST /v1/art/graph`, `POST /v1/art/readiness`, and
+  `POST /v1/art/evidence-packet` with compact runtime metadata.
 - `apps/worker/` owns the Temporal-ready worker package boundary. The current
   implementation exposes `wgcf-worker status`, declares future worker
   capabilities, and intentionally does not run long-lived workflow behavior.
@@ -197,9 +200,11 @@ writes raw stdout/stderr to local artifact files, writes a compact receipt JSON
 under `.wgcf/receipts` by default, and appends a local ledger JSONL event.
 `wgcf inspect` reads only compact receipt JSON under the configured receipt
 directory. `wgcf readiness` blocks unknown targets or profiles and appends a
-local readiness ledger event. The API exposes planning and receipt list
-surfaces only; API-side validation execution and readiness evaluation remain
-later platform-gated slices.
+local readiness ledger event. The API exposes the same local-first contract
+through `POST /v1/validation-plans`, `POST /v1/validation-runs`,
+`GET /v1/receipts`, `GET /v1/receipts/{receipt_id}`, and
+`POST /v1/readiness/evaluate`; the worker queue execution path remains a later
+platform-gated slice.
 
 Catalog-backed validation is now the normal shadow-parity path for workspace
 validator invocation. `wgcf catalog plan` and `wgcf catalog check` load the

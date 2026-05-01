@@ -19,7 +19,10 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - manifest graph projection
 - scoped graph query
 - validation plan creation
+- bounded local validation run execution
 - receipt metadata listing
+- receipt inspection by id
+- local readiness decision evaluation
 - broker-owned ART graph projection
 - ART readiness receipt evaluation
 - ART evidence packet projection from WGCF receipts
@@ -60,8 +63,9 @@ Console-facing API behavior must:
 - include enough failure context for an operator to route the next action
   without reading implementation internals
 - support pagination or bounded listing before any central deployment
-- keep API-side validation execution disabled until platform and security gates
-  approve that runtime posture
+- keep central/deployed API-side validation execution gated by platform and
+  security approval; local-first dev-integration execution remains bounded by
+  WGCF safety controls
 
 ## Identity And Authorization Expectations
 
@@ -85,17 +89,14 @@ This readiness contract does not:
 - expose a live service
 - create a new approval authority
 - replace OpenProject, Review Packets, or broker-owned ART paths
-- approve API-side validation execution
+- approve central or governed-stage API-side validation execution
 
 ## First Console-Compatible API Expansion
 
 The first future expansion should add read-only route coverage for:
 
-- receipt detail by id
 - ledger event listing
-- readiness decision evaluation with record refs
 - persistence-backed ART readiness history
-- receipt detail by id for ART evidence packet drill-down
 - escalation record listing
 - decision explanation
 

@@ -10,6 +10,8 @@ from fastapi import FastAPI, HTTPException, Query
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
+    DEFAULT_ARTIFACT_ROOT,
+    DEFAULT_LEDGER_PATH,
     DEFAULT_RECEIPT_DIR,
     PACKAGE_VERSION,
     RUNTIME_REPO,
@@ -19,9 +21,12 @@ from control_fabric_core import (
     build_source_snapshot,
     evaluate_art_readiness,
     graph_summary,
+    inspect_control_receipt,
     list_control_receipts,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
+    run_operator_readiness_evaluation,
+    run_operator_validation_check,
     source_snapshot_status,
     status_snapshot,
 )
@@ -131,6 +136,42 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "plan": plan.to_record(),
         }
 
+    @app.post("/v1/validation-runs")
+    async def validation_runs(request: dict[str, Any]) -> dict[str, Any]:
+        scope = str(request.get("scope") or "").strip()
+        if not scope:
+            raise HTTPException(status_code=400, detail="scope is required")
+        tier = str(request.get("tier") or "scoped").strip()
+        manifest_path = str(request.get("manifest_path") or DEFAULT_MANIFEST_PATH).strip()
+        actor = str(request.get("actor") or "wgcf-api").strip()
+        try:
+            manifest_file = _resolve_manifest_path(resolved_repo_root, manifest_path)
+            result = run_operator_validation_check(
+                actor=actor,
+                artifact_root=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("artifact_root") or DEFAULT_ARTIFACT_ROOT),
+                    "artifact_root",
+                ),
+                ledger_path=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("ledger") or DEFAULT_LEDGER_PATH),
+                    "ledger",
+                ),
+                manifest_path=manifest_file,
+                receipt_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("receipt_dir") or DEFAULT_RECEIPT_DIR),
+                    "receipt_dir",
+                ),
+                repo_root=resolved_repo_root,
+                target_scope=scope,
+                tier=tier,
+            )
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return result.to_record()
+
     @app.get("/v1/receipts")
     async def receipts(
         receipt_dir: str = Query(DEFAULT_RECEIPT_DIR, description="Repo-local compact receipt directory."),
@@ -144,6 +185,51 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "count": len(summaries),
             "receipt_dir": str(receipt_path.relative_to(resolved_repo_root)),
             "receipts": summaries,
+        }
+
+    @app.get("/v1/receipts/{receipt_id}")
+    async def receipt_detail(
+        receipt_id: str,
+        receipt_dir: str = Query(DEFAULT_RECEIPT_DIR, description="Repo-local compact receipt directory."),
+    ) -> dict[str, Any]:
+        try:
+            receipt_path = _resolve_local_path(resolved_repo_root, receipt_dir, "receipt_dir")
+            inspection = inspect_control_receipt(receipt_id, receipt_dir=receipt_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "inspection": inspection.to_record(),
+        }
+
+    @app.post("/v1/readiness/evaluate")
+    async def readiness_evaluate(request: dict[str, Any]) -> dict[str, Any]:
+        target = str(request.get("target") or "").strip()
+        profile = str(request.get("profile") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="target is required")
+        if not profile:
+            raise HTTPException(status_code=400, detail="profile is required")
+        try:
+            result = run_operator_readiness_evaluation(
+                actor=str(request.get("actor") or "wgcf-api").strip(),
+                ledger_path=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("ledger") or DEFAULT_LEDGER_PATH),
+                    "ledger",
+                ),
+                profile=profile,
+                receipt_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("receipt_dir") or DEFAULT_RECEIPT_DIR),
+                    "receipt_dir",
+                ),
+                repo_root=resolved_repo_root,
+                target=target,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "readiness": result.to_record(),
         }
 
     @app.post("/v1/art/graph")

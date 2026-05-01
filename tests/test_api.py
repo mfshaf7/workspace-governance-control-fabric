@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from unittest import TestCase
 
 
@@ -160,6 +161,82 @@ class ApiTests(TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["receipts"], [])
+
+    def test_validation_run_and_receipt_detail_endpoints_use_compact_receipts(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            run_status, run_payload = asyncio.run(
+                asgi_post_json(
+                    "/v1/validation-runs",
+                    {
+                        "actor": "test-api",
+                        "artifact_root": str(temp_path / "artifacts"),
+                        "ledger": str(temp_path / "ledger.jsonl"),
+                        "receipt_dir": str(temp_path / "receipts"),
+                        "scope": "repo:workspace-governance-control-fabric",
+                        "tier": "smoke",
+                    },
+                ),
+            )
+
+            self.assertEqual(run_status, 200)
+            self.assertEqual(run_payload["receipt"]["outcome"], "success")
+            self.assertFalse(run_payload["receipt"]["suppressed_output_summary"]["raw_output_in_receipt"])
+            self.assertTrue(Path(run_payload["receipt_path"]).is_file())
+            self.assertTrue((temp_path / "ledger.jsonl").is_file())
+
+            receipt_id = quote(run_payload["receipt"]["receipt_id"], safe=":")
+            receipt_dir = quote(str(temp_path / "receipts"), safe="")
+            detail_status, detail_payload = asyncio.run(
+                asgi_get_json(f"/v1/receipts/{receipt_id}?receipt_dir={receipt_dir}"),
+            )
+
+        self.assertEqual(detail_status, 200)
+        inspection = detail_payload["inspection"]
+        self.assertEqual(inspection["receipt"]["receipt_id"], run_payload["receipt"]["receipt_id"])
+        self.assertFalse(inspection["raw_output_embedded"])
+        self.assertEqual(inspection["check_status_counts"]["success"], 1)
+
+    def test_readiness_evaluate_endpoint_records_local_ledger_event(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            status, payload = asyncio.run(
+                asgi_post_json(
+                    "/v1/readiness/evaluate",
+                    {
+                        "actor": "test-api",
+                        "ledger": str(temp_path / "ledger.jsonl"),
+                        "profile": "local-read-only",
+                        "receipt_dir": str(temp_path / "receipts"),
+                        "target": "operator-surface:wgcf-cli",
+                    },
+                ),
+            )
+
+            self.assertEqual(status, 200)
+            self.assertTrue((temp_path / "ledger.jsonl").is_file())
+
+        readiness = payload["readiness"]
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["ledger_event"]["action"], "readiness.decision.recorded")
+        self.assertEqual(readiness["mutation_boundary"], "fabric-local decision record only")
+
+    def test_readiness_evaluate_endpoint_blocks_unknown_targets(self) -> None:
+        status, payload = asyncio.run(
+            asgi_post_json(
+                "/v1/readiness/evaluate",
+                {
+                    "profile": "local-read-only",
+                    "target": "repo:not-a-governed-repo",
+                },
+            ),
+        )
+
+        self.assertEqual(status, 200)
+        readiness = payload["readiness"]
+        self.assertFalse(readiness["ready"])
+        self.assertEqual(readiness["outcome"], "blocked")
+        self.assertIn("unknown repo target: not-a-governed-repo", readiness["reasons"])
 
     def test_art_readiness_endpoint_returns_blocking_projection_recommendation(self) -> None:
         status, payload = asyncio.run(
