@@ -149,3 +149,41 @@ class CatalogManifestTests(TestCase):
             self.assertEqual(result.receipt.outcome, "success")
             self.assertNotIn("CATALOG-RAW-OUTPUT", json.dumps(receipt_record, sort_keys=True))
             self.assertEqual(artifact_stdout, "CATALOG-RAW-OUTPUT:workspace-governance")
+
+    def test_catalog_operator_record_separates_manifest_and_planned_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            write_authority_files(workspace_root)
+            write_catalog(
+                workspace_root,
+                {
+                    "contract-model": catalog_entry(),
+                    "security-evidence": catalog_entry(
+                        wgcf_invocation={
+                            "enabled": True,
+                            "scopes": ["component:security-review"],
+                            "validation_tier": "smoke",
+                            "working_directory_repo": "workspace-governance",
+                        },
+                    ),
+                },
+            )
+
+            record = build_catalog_operator_validation_plan(
+                target_scope="component:workspace-governance",
+                tier="smoke",
+                workspace_root=workspace_root,
+            ).to_record()
+
+            catalog = record["catalog"]
+            self.assertEqual(
+                [entry["entry_id"] for entry in catalog["selected_entries"]],
+                ["contract-model"],
+            )
+            self.assertEqual(catalog["selected_entry_count"], 1)
+            self.assertEqual(catalog["manifest_selected_entry_count"], 2)
+            self.assertEqual(
+                sorted(entry["entry_id"] for entry in catalog["manifest_selected_entries"]),
+                ["contract-model", "security-evidence"],
+            )
+            self.assertIn("planner-selected", catalog["selection_note"])
