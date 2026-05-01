@@ -94,9 +94,33 @@ def governance_manifest_schema() -> dict[str, Any]:
     execution_policy = {
         "additionalProperties": True,
         "properties": {
+            "allowed_env_vars": {
+                "items": non_empty_string,
+                "type": "array",
+                "uniqueItems": True,
+            },
+            "allowed_executables": {
+                "items": non_empty_string,
+                "type": "array",
+                "uniqueItems": True,
+            },
+            "allowed_roots": {
+                "items": non_empty_string,
+                "type": "array",
+                "uniqueItems": True,
+            },
+            "blocked_env_vars": {
+                "items": non_empty_string,
+                "type": "array",
+                "uniqueItems": True,
+            },
             "fail_on_output_budget_exceeded": {"type": "boolean"},
+            "operator_approved": {"type": "boolean"},
             "output_budget_bytes": {"minimum": 0, "type": "integer"},
+            "profile": non_empty_string,
             "retry_count": {"minimum": 0, "type": "integer"},
+            "safety_class": non_empty_string,
+            "self_validation_role": non_empty_string,
             "timeout_seconds": {"minimum": 1, "type": "integer"},
         },
         "type": "object",

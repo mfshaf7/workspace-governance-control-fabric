@@ -272,6 +272,16 @@ controls only; they do not decide workspace policy. Receipts record timeout,
 retry, and output-budget decisions as compact metadata while raw stdout/stderr
 remain in receipt-linked artifacts.
 
+Execution policy also carries the first validator safety controls:
+`execution_policy.profile`, `execution_policy.safety_class`,
+`execution_policy.allowed_executables`, `execution_policy.allowed_roots`,
+`execution_policy.allowed_env_vars`, and `execution_policy.blocked_env_vars`.
+WGCF runs validators from a sanitized base environment, blocks secret-like
+environment overrides unless explicitly allowlisted, blocks commands outside an
+explicit executable allowlist, blocks repo roots outside `allowed_roots`, and
+requires explicit operator approval for `network`, `privileged`, or
+`host-control` safety classes.
+
 The planner decision can be `planned`, `no_matching_validators`, or `blocked`.
 It must explain selected checks, suppressed validators, and any operator-review
 reason. Plan records also return `check_statuses` so operator and API surfaces
@@ -287,12 +297,22 @@ Validation execution uses the schemas at:
 
 Current execution behavior:
 
+- keeps bootstrap validation independent from WGCF receipts: the direct
+  `scripts/validate_project.py` scaffold validator remains the bootstrap
+  authority, while WGCF-produced receipts are runtime smoke evidence only
 - runs only manifest-planned command checks
 - runs with `shell=False` from the supplied repo root
 - supports simple leading environment assignments such as `PYTHONPATH=...`
+- runs with a sanitized base environment and explicit environment allow/block
+  controls
+- enforces manifest-declared command allowlists, allowed roots, safety classes,
+  profiles, and output budgets before invocation
 - writes full stdout/stderr to local artifact files
 - includes only artifact refs, digests, byte counts, line counts, exit codes,
   duration, planner decision, and outcome in receipts
+- includes a compact artifact custody summary in receipts with artifact ids,
+  purposes, and a digest manifest, while keeping raw artifact bytes out of
+  receipt and ledger records
 - records per-check timeout, retry, and output-budget decisions in compact
   receipt metadata
 - appends ledger events as JSONL through the core helper

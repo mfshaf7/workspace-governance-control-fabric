@@ -73,6 +73,18 @@
         "invalidate_on_authority_change": true
       },
       "execution_policy": {
+        "profile": "developer",
+        "safety_class": "local-read-only",
+        "self_validation_role": "runtime-smoke",
+        "allowed_executables": [
+          "python3"
+        ],
+        "allowed_env_vars": [
+          "PYTHONPATH"
+        ],
+        "allowed_roots": [
+          "."
+        ],
         "timeout_seconds": 30,
         "retry_count": 0,
         "output_budget_bytes": 200000,
@@ -101,6 +113,15 @@
         "invalidate_on_authority_change": true
       },
       "execution_policy": {
+        "profile": "developer",
+        "safety_class": "local-read-only",
+        "self_validation_role": "bootstrap-independent",
+        "allowed_executables": [
+          "python3"
+        ],
+        "allowed_roots": [
+          "."
+        ],
         "timeout_seconds": 120,
         "retry_count": 0,
         "output_budget_bytes": 500000,

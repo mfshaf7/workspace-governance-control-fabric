@@ -106,16 +106,27 @@ manifest when invalidation is enabled.
 The first validation-execution primitive consumes a `ValidationPlan` and
 produces compact proof records without becoming a policy engine:
 
+- bootstrap validation remains outside the WGCF dependency loop:
+  `scripts/validate_project.py` is the direct scaffold authority, and WGCF
+  runtime receipts are not treated as bootstrap authority
 - only `planned` planner decisions are executable; blocked or review-required
   plans emit a blocked/operator-review receipt without running commands
 - only command checks are executed in this slice
 - commands run from the supplied repo root with `shell=False`
 - leading environment assignments such as `PYTHONPATH=...` are parsed
   deterministically
+- command execution uses a sanitized base environment, explicit environment
+  allow and block lists, executable allowlists, allowed-root checks, safety
+  class checks, and profile metadata before invocation
+- `network`, `privileged`, and `host-control` safety classes require explicit
+  operator approval in the execution policy
 - stdout and stderr are written to local artifact files
 - receipts contain artifact ids, digests, byte counts, line counts, exit codes,
   durations, timeout/retry/output-budget decisions, planner decision context,
   and outcome
+- receipts include a compact custody summary with artifact ids, purposes, and a
+  digest manifest; ledger events link the same artifact refs and receipt
+  outcome without embedding raw output
 - receipts do not embed raw stdout/stderr
 - ledger events reference receipts and artifacts for append-only audit
 
