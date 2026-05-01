@@ -12,9 +12,9 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, and ledger records.
-- `schemas`: versioned runtime manifest, receipt, policy-decision, runtime
-  governance record, evidence projection, and ledger event schemas consumed or
-  emitted by the local runtime.
+- `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
+  packet, policy-decision, runtime governance record, evidence projection, and
+  ledger event schemas consumed or emitted by the local runtime.
 - `policies/opa`: OPA/Rego policy surface files for admission, validation
   blocking, and policy-ledger recordability.
 - `examples`: minimal valid runtime manifests used by tests and operator
@@ -191,6 +191,34 @@ downstream workflow surfaces without copying raw artifacts:
 Projection records always set `raw_artifacts_embedded` to `false`. This keeps
 the control fabric as the runtime evidence authority while ART, Review Packets,
 and Git records stay compact, reviewable, and linked back to receipt digests.
+
+## ART Readiness Model
+
+The ART readiness primitive consumes broker-owned context as read-only input.
+It accepts continuation context, execution-summary state, quality packs,
+roadmap state, PM2 projection state, and projection checkpoint state, then
+normalizes the visible work items into compact graph nodes and parent edges.
+
+The readiness evaluator checks for pre-mutation drift before OOS writes:
+
+- missing owner repo, target PI, delivery team, or iteration metadata
+- weak Feature narratives before completion
+- blocked or dependency-blocked target items
+- stale-open parent candidates when completed child scope already satisfies
+  the Feature
+- dirty roadmap or PM2 projection state
+- ready items that require continuation confirmation before execution
+- milestone parent drift
+
+The output is an `art-readiness-receipt` with findings and recommendations such
+as `repair_art_metadata`, `projection_sync`, `stale_open_close`, or
+`proceed_via_oos_broker`. WGCF only recommends and records readiness. OOS
+continues to own the actual ART mutation route.
+
+The ART evidence packet helper converts one or more WGCF receipts into
+completion-preflight-compatible payload fields and Review Packet evidence refs.
+It prefixes generated test and validation evidence with `PASS:`, `FAIL:`,
+`CHECK:`, or `NOT APPLICABLE:` and keeps raw artifacts referenced by digest.
 
 ## Future Operator Console Readiness
 

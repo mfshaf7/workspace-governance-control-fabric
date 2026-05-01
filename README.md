@@ -94,8 +94,9 @@ That surface is constrained by the workspace-owned contract in
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   deterministic validation planning primitives, bounded validation execution,
   compact receipts, local ledger event helpers, operator-safe plan/check and
-  receipt-list helpers, bootstrap policy admission decisions, runtime
-  governance records, and compact evidence projection adapters.
+  receipt-list helpers, broker ART runtime-context ingestion, ART readiness
+  receipts, bootstrap policy admission decisions, runtime governance records,
+  and compact evidence projection adapters.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -109,6 +110,10 @@ That surface is constrained by the workspace-owned contract in
 - `schemas/evidence-projection.schema.json` defines compact projection records
   that adapt control receipts into ART closeout evidence, Review Packet
   evidence, and Git/change-record references without embedding raw artifacts.
+- `schemas/art-readiness-receipt.schema.json` and
+  `schemas/art-evidence-packet.schema.json` define broker-safe ART readiness
+  and evidence packet records. These records help OOS decide when a mutation is
+  safe, but OOS remains the ART mutation authority.
 - `schemas/runtime-governance-record.schema.json` defines fabric-local
   governance records for blocker, approval, waiver, risk, and change evidence
   events. These records are references and audit state only; they do not grant
@@ -197,6 +202,13 @@ receipt-linked runtime evidence into compact downstream views for ART
 completion evidence, source-backed Review Packets, and Git/change-record
 references. These projections carry receipt ids, digests, policy decision refs,
 and artifact refs only; raw runtime output stays in receipt-linked artifacts.
+
+ART readiness projection currently lives in the core library. It consumes
+broker-owned continuation, execution-summary, quality, roadmap, PM2 projection,
+and projection-state context as read-only input, builds a compact graph, detects
+metadata/narrative/projection/stale-parent drift before mutation, and returns
+recommendations such as repair narrative, sync projection, stale-open closeout,
+or proceed through OOS. It never writes ART directly.
 
 Runtime governance records currently live in the core library. They record
 blocker decisions, approval and waiver references, risk posture, and

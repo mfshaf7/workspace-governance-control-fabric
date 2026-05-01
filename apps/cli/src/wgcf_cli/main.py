@@ -13,9 +13,12 @@ from control_fabric_core import (
     DEFAULT_LEDGER_PATH,
     DEFAULT_RECEIPT_DIR,
     RUNTIME_REPO,
+    build_art_runtime_graph,
     build_source_snapshot,
     build_operator_validation_plan,
+    evaluate_art_readiness,
     list_control_receipts,
+    project_receipts_to_art_evidence_packet,
     query_manifest_file,
     run_operator_validation_check,
     source_snapshot_status,
@@ -158,6 +161,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Repo-local directory for compact receipt JSON files.",
     )
     list_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    art_parser = subparsers.add_parser("art", help="Inspect broker ART context without mutating ART.")
+    art_subparsers = art_parser.add_subparsers(dest="art_command", required=True)
+    art_graph_parser = art_subparsers.add_parser("graph", help="Project broker ART context into a compact graph.")
+    art_graph_parser.add_argument("--context", required=True, help="Broker context JSON file.")
+    art_graph_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    art_readiness_parser = art_subparsers.add_parser("readiness", help="Evaluate ART mutation readiness.")
+    art_readiness_parser.add_argument("--context", required=True, help="Broker context JSON file.")
+    art_readiness_parser.add_argument(
+        "--operation",
+        default="complete",
+        help="Planned ART operation, for example complete or update.",
+    )
+    art_readiness_parser.add_argument(
+        "--target-item-id",
+        default=None,
+        help="Optional work item id to evaluate when the context has multiple items.",
+    )
+    art_readiness_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    art_evidence_parser = art_subparsers.add_parser("evidence", help="Generate compact ART evidence from receipts.")
+    art_evidence_parser.add_argument("--receipt", action="append", required=True, help="Receipt JSON file.")
+    art_evidence_parser.add_argument("--item", action="append", required=True, help="Target ART work item id.")
+    art_evidence_parser.add_argument(
+        "--changed-surface",
+        action="append",
+        required=True,
+        help="Changed surface explanation for ART or Review Packet evidence.",
+    )
+    art_evidence_parser.add_argument("--summary", required=True, help="Completion summary.")
+    art_evidence_parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -341,6 +388,63 @@ def render_receipts_list_human(record: dict[str, object]) -> str:
     )
 
 
+def render_art_graph_human(record: dict[str, object]) -> str:
+    summary = record["summary"]
+    assert isinstance(summary, dict)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric ART Graph",
+            f"graph: {record['graph_id']}",
+            f"nodes: {summary['node_count']}",
+            f"projection dirty: {str(summary['projection_dirty']).lower()}",
+            f"sources: {', '.join(record['source_surfaces'])}",
+        ],
+    )
+
+
+def render_art_readiness_human(record: dict[str, object]) -> str:
+    findings = record["findings"]
+    recommendations = record["recommendations"]
+    assert isinstance(findings, list)
+    assert isinstance(recommendations, list)
+    finding_lines = [
+        f"- {finding['severity']} {finding['code']}: {finding['message']}"
+        for finding in findings
+    ]
+    recommendation_lines = [
+        f"- {recommendation['action']} via {recommendation['route']}"
+        for recommendation in recommendations
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric ART Readiness",
+            f"receipt: {record['receipt_id']}",
+            f"target: {record['target_item_id']}",
+            f"operation: {record['operation']}",
+            f"outcome: {record['outcome']}",
+            f"mutation allowed: {str(record['mutation_allowed']).lower()}",
+            "findings:",
+            *(finding_lines or ["- none"]),
+            "recommendations:",
+            *(recommendation_lines or ["- none"]),
+        ],
+    )
+
+
+def render_art_evidence_human(record: dict[str, object]) -> str:
+    receipt_refs = record["receipt_refs"]
+    assert isinstance(receipt_refs, list)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric ART Evidence Packet",
+            f"packet: {record['packet_id']}",
+            f"items: {', '.join(record['target_item_ids'])}",
+            f"receipts: {len(receipt_refs)}",
+            "raw artifacts: not embedded",
+        ],
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -427,6 +531,45 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_receipts_list_human(record))
         return 0
 
+    if args.command == "art" and args.art_command == "graph":
+        context = _load_json_file(args.context)
+        graph = build_art_runtime_graph(context)
+        record = graph.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_art_graph_human(record))
+        return 0
+
+    if args.command == "art" and args.art_command == "readiness":
+        context = _load_json_file(args.context)
+        receipt = evaluate_art_readiness(
+            context,
+            operation=args.operation,
+            target_item_id=args.target_item_id,
+        )
+        record = receipt.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_art_readiness_human(record))
+        return 0 if receipt.mutation_allowed else 1
+
+    if args.command == "art" and args.art_command == "evidence":
+        receipts = [_load_json_file(path) for path in args.receipt]
+        packet = project_receipts_to_art_evidence_packet(
+            receipts,
+            changed_surfaces=args.changed_surface,
+            completion_summary=args.summary,
+            item_ids=args.item,
+        )
+        record = packet.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_art_evidence_human(record))
+        return 0
+
     parser.error(
         f"{args.command} is not implemented in this scaffold; "
         f"runtime behavior must follow {AUTHORITY_CONTRACT_REF} in {RUNTIME_REPO}.",
@@ -466,6 +609,13 @@ def _resolve_workspace_root(repo_root: Path, workspace_root: str | None) -> Path
     if not resolved.is_relative_to(allowed_root):
         raise ValueError("workspace root must stay inside the repository parent workspace")
     return resolved
+
+
+def _load_json_file(path: str) -> dict[str, object]:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"JSON file must contain an object: {path}")
+    return payload
 
 
 def _add_repo_manifest_scope_args(parser: argparse.ArgumentParser) -> None:

@@ -22,7 +22,8 @@ Only the bootstrap status, core-library source snapshot ingestion, manifest
 graph ingestion, fabric-local graph persistence helpers, read-only graph query,
 validation planning, core-library validation execution, core-library policy
 admission, core-library runtime governance records, core-library evidence
-projection surfaces, and local-k3s dev-integration API access are implemented
+projection surfaces, broker-context ART readiness projection, ART evidence
+packet projection, and local-k3s dev-integration API access are implemented
 now. Treat the remaining CLI
 commands and API routes below as the minimum required interface contract for
 later slices, not as currently available runtime commands.
@@ -57,7 +58,11 @@ Use this flow for the currently implemented local CLI surface:
    scope.
 5. Run the bounded local check and emit a receipt.
 6. List receipt metadata instead of rereading raw output.
-7. Use artifact and ledger references for handoff or audit.
+7. Evaluate broker-owned ART context before mutation when the work is
+   delivery-ART closeout or readiness sensitive.
+8. Generate compact ART completion or Review Packet evidence packets from
+   WGCF receipts.
+9. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -73,6 +78,9 @@ wgcf sources snapshot --workspace-root <path>
 wgcf plan --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf receipts list
+wgcf art graph --context <broker-context.json>
+wgcf art readiness --context <broker-context.json> --operation complete --target-item-id <id>
+wgcf art evidence --receipt <receipt.json> --item <id> --changed-surface <summary> --summary <summary>
 ```
 
 Future CLI shape:
@@ -154,6 +162,9 @@ Required route meanings:
 - `GET /v1/source-snapshots/status`
 - `POST /v1/validation-plans`
 - `GET /v1/receipts`
+- `POST /v1/art/graph`
+- `POST /v1/art/readiness`
+- `POST /v1/art/evidence-packet`
 
 Future route meanings:
 
@@ -202,6 +213,8 @@ summaries only.
 - `validation-plan`
 - `validation-run`
 - `control-receipt`
+- `art-readiness-receipt`
+- `art-evidence-packet`
 - `evidence-projection`
 - `runtime-governance-record`
 - `readiness-decision`

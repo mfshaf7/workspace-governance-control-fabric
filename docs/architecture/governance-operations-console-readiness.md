@@ -20,6 +20,9 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - scoped graph query
 - validation plan creation
 - receipt metadata listing
+- broker-owned ART graph projection
+- ART readiness receipt evaluation
+- ART evidence packet projection from WGCF receipts
 
 These surfaces are enough for local operator workflow and source validation.
 They are not enough for a deployed console yet.
@@ -35,6 +38,8 @@ semantics for these console views:
 | Governance graph | API returns compact nodes, edges, scopes, authority refs, and projection refs without dumping source contracts. | Contract truth remains owned by `workspace-governance`. |
 | Validation plans | API explains selected, suppressed, blocked, and reusable checks for a target and tier. | Required validation policy remains authority-backed, not hardcoded in UI. |
 | Receipts | API lists receipt ids, artifact refs, digests, byte and line counts, outcomes, and timestamps without raw stdout or stderr. | Full artifacts remain in the configured artifact store or local artifact path. |
+| ART readiness | API returns compact broker-context graph summaries, pre-mutation findings, and OOS routes such as narrative repair, projection sync, stale-open closeout, or proceed via broker. | OOS remains the ART mutation authority. WGCF recommendations are not writes. |
+| ART evidence packets | API returns completion-preflight-compatible ART evidence fields and Review Packet refs from WGCF receipt metadata. | Raw artifacts remain receipt-linked; Review Packets and ART stay downstream references. |
 | Readiness decisions | API returns allow, deny, blocked, review-required, or waived decisions with machine-readable reasons and required actions. | Security and platform approval remain upstream authority decisions. |
 | Ledger events | API returns append-only event metadata and linked refs for audit navigation. | Ledger events are runtime audit records, not source-of-truth approval records. |
 | Escalations | API returns blocker or escalation records with owner, impact, route, and required next action. | ART blockers route through `operator-orchestration-service`; security deltas route through `security-architecture`. |
@@ -89,6 +94,8 @@ The first future expansion should add read-only route coverage for:
 - receipt detail by id
 - ledger event listing
 - readiness decision evaluation with record refs
+- persistence-backed ART readiness history
+- receipt detail by id for ART evidence packet drill-down
 - escalation record listing
 - decision explanation
 

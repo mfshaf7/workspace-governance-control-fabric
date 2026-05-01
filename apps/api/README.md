@@ -15,10 +15,19 @@ Current slice:
   status without raw authority content or full digest maps
 - implement `POST /v1/validation-plans` for compact validation-plan records
 - implement `GET /v1/receipts` for compact local receipt metadata
+- implement `POST /v1/art/graph` for compact broker-owned ART context graph
+  projection
+- implement `POST /v1/art/readiness` for pre-mutation ART readiness receipts
+  and OOS route recommendations
+- implement `POST /v1/art/evidence-packet` for completion-preflight-safe ART
+  and Review Packet evidence projected from WGCF receipts
 
 The API does not run validators yet. Validation execution remains local CLI and
 core-library behavior until platform and security gates approve the runtime
 execution posture.
+
+The ART routes are read/projection routes. They do not mutate OpenProject and
+do not replace `operator-orchestration-service` as the ART write authority.
 
 Future Governance Operations Console readiness criteria are documented at:
 

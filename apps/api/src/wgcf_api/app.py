@@ -13,11 +13,14 @@ from control_fabric_core import (
     DEFAULT_RECEIPT_DIR,
     PACKAGE_VERSION,
     RUNTIME_REPO,
+    build_art_runtime_graph,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
+    evaluate_art_readiness,
     graph_summary,
     list_control_receipts,
+    project_receipts_to_art_evidence_packet,
     query_manifest_file,
     source_snapshot_status,
     status_snapshot,
@@ -141,6 +144,56 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "count": len(summaries),
             "receipt_dir": str(receipt_path.relative_to(resolved_repo_root)),
             "receipts": summaries,
+        }
+
+    @app.post("/v1/art/graph")
+    async def art_graph(request: dict[str, Any]) -> dict[str, Any]:
+        try:
+            graph_projection = build_art_runtime_graph(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "graph": graph_projection.to_record(),
+        }
+
+    @app.post("/v1/art/readiness")
+    async def art_readiness(request: dict[str, Any]) -> dict[str, Any]:
+        context = request.get("context") if isinstance(request.get("context"), dict) else request
+        try:
+            readiness = evaluate_art_readiness(
+                context,
+                operation=str(request.get("operation") or "complete"),
+                target_item_id=request.get("target_item_id"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "readiness": readiness.to_record(),
+        }
+
+    @app.post("/v1/art/evidence-packet")
+    async def art_evidence_packet(request: dict[str, Any]) -> dict[str, Any]:
+        receipts = request.get("receipts")
+        item_ids = request.get("item_ids")
+        changed_surfaces = request.get("changed_surfaces")
+        if not isinstance(receipts, list):
+            raise HTTPException(status_code=400, detail="receipts must be an array")
+        if not isinstance(item_ids, list):
+            raise HTTPException(status_code=400, detail="item_ids must be an array")
+        if not isinstance(changed_surfaces, list):
+            raise HTTPException(status_code=400, detail="changed_surfaces must be an array")
+        try:
+            packet = project_receipts_to_art_evidence_packet(
+                receipts,
+                changed_surfaces=changed_surfaces,
+                completion_summary=str(request.get("completion_summary") or "").strip(),
+                item_ids=item_ids,
+                residual_follow_up=request.get("residual_follow_up") or (),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "evidence_packet": packet.to_record(),
         }
 
     return app

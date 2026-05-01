@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/art-evidence-packet.schema.json",
+  "title": "ART Evidence Packet",
+  "description": "Broker-safe ART completion and Review Packet evidence projection from WGCF receipts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "completion_payload": {
+      "type": "object",
+      "required": [
+        "changed_surfaces",
+        "completion_note",
+        "completion_summary",
+        "test_result_evidence",
+        "validation_evidence"
+      ]
+    },
+    "denied_or_suppressed": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "included_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "item_evidence_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item_evidence_ref"
+      }
+    },
+    "packet_id": {
+      "pattern": "^art-evidence-packet:[0-9a-f]{24}$",
+      "type": "string"
+    },
+    "packet_time": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "raw_artifacts_embedded": {
+      "const": false
+    },
+    "receipt_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/receipt_ref"
+      }
+    },
+    "review_packet": {
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "target_item_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "completion_payload",
+    "denied_or_suppressed",
+    "included_evidence",
+    "item_evidence_refs",
+    "packet_id",
+    "packet_time",
+    "raw_artifacts_embedded",
+    "receipt_refs",
+    "review_packet",
+    "schema_version",
+    "target_item_ids"
+  ],
+  "$defs": {
+    "item_evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_type": {
+          "const": "control_receipt"
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "receipt_digest": {
+          "type": "string"
+        },
+        "receipt_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evidence_type",
+        "item_id",
+        "receipt_digest",
+        "receipt_id"
+      ]
+    },
+    "receipt_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "target_scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "captured_at",
+        "digest",
+        "outcome",
+        "receipt_id",
+        "target_scope"
+      ]
+    }
+  }
+}

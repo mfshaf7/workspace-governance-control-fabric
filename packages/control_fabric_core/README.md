@@ -33,6 +33,9 @@ Current slice:
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
+- ART runtime-context helpers that ingest broker continuation context, quality
+  and projection state, detect pre-mutation drift, and produce readiness
+  receipts and OOS-safe recommendations without mutating ART
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   and ledger records
 - Temporal-shaped worker settings and planned capability metadata without
@@ -126,6 +129,16 @@ policy decisions to produce downstream-safe records for three surfaces:
 Projection helpers do not read raw artifact files, embed stdout/stderr, mutate
 ART, or write change records. They only convert receipt metadata into compact
 operator-facing references.
+
+ART readiness helpers consume broker-owned context as read-only input. They
+build compact ART graph records from continuation, planning, execution-summary,
+quality, roadmap, PM2 projection, and projection-state payloads; detect missing
+metadata, weak Feature narratives, stale-open parent candidates, dirty
+projection state, and milestone parent drift; then return readiness receipts
+with deterministic routes such as `work-item.update`, `projection.sync`, or
+`work-item.stale-open-close`. They can also generate completion-preflight-safe
+ART evidence packets from WGCF receipts. OOS remains the only ART mutation
+authority.
 
 Runtime governance record helpers create fabric-local records for blocker
 decisions, approval and waiver references, risk posture, and change-record
