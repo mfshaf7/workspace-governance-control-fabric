@@ -72,6 +72,11 @@ class FoundationTests(TestCase):
         self.assertIn("wgcf check", contract["forbidden_runtime_entrypoints"])
         self.assertEqual(snapshot["bootstrap_validation"], contract)
 
+    def test_dockerfile_copies_bootstrap_validator_required_by_readyz(self) -> None:
+        dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("COPY scripts ./scripts", dockerfile)
+
     def test_human_status_is_compact_and_operator_safe(self) -> None:
         rendered = render_status_human(status_snapshot(REPO_ROOT))
 
