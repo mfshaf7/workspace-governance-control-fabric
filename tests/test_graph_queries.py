@@ -60,3 +60,17 @@ class ManifestGraphQueryTests(TestCase):
     def test_empty_query_scope_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "scope must not be empty"):
             query_manifest_graph(load_example_manifest(), " ")
+
+    def test_graph_query_applies_budgeted_pagination(self) -> None:
+        result = query_manifest_graph(
+            load_example_manifest(),
+            "repo:workspace-governance-control-fabric",
+            limit=1,
+        )
+        record = result.to_record()
+
+        self.assertEqual(record["summary"]["node_count"], 1)
+        self.assertGreater(record["summary"]["node_total_count"], 1)
+        self.assertEqual(record["node_pagination"]["effective_limit"], 1)
+        self.assertTrue(record["node_pagination"]["has_next_page"])
+        self.assertEqual(record["budget_decision"]["invocation_class"], "inline-fast")

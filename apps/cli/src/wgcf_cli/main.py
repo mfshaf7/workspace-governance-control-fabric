@@ -18,8 +18,10 @@ from control_fabric_core import (
     build_source_snapshot,
     build_operator_validation_plan,
     evaluate_art_readiness,
+    evaluate_operation_budget,
     inspect_control_receipt,
     list_control_receipts,
+    operation_budget_records,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
     run_catalog_operator_validation_check,
@@ -74,6 +76,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--scope",
         required=True,
         help="Graph query scope such as repo:<id>, component:<id>, or art:<id>.",
+    )
+    query_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Maximum nodes and edges to return after applying the graph query budget.",
+    )
+    query_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Result offset for budgeted graph query pagination.",
+    )
+    query_parser.add_argument(
+        "--budget-profile",
+        default="developer",
+        help="Performance budget profile to apply to the graph query.",
     )
     query_parser.add_argument(
         "--json",
@@ -264,6 +283,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Print machine-readable JSON for this command.",
     )
+    budget_parser = subparsers.add_parser("budget", help="Inspect WGCF invocation-class budgets.")
+    budget_subparsers = budget_parser.add_subparsers(dest="budget_command", required=True)
+    budget_show_parser = budget_subparsers.add_parser("show", help="Show one or all operation budgets.")
+    budget_show_parser.add_argument(
+        "--operation",
+        default=None,
+        help="Operation id such as art.continuation, draft.submit, validation.run, or graph.query.",
+    )
+    budget_show_parser.add_argument(
+        "--profile",
+        default="developer",
+        help="Budget profile to inspect.",
+    )
+    budget_show_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
     art_parser = subparsers.add_parser("art", help="Inspect broker ART context without mutating ART.")
     art_subparsers = art_parser.add_subparsers(dest="art_command", required=True)
     art_graph_parser = art_subparsers.add_parser("graph", help="Project broker ART context into a compact graph.")
@@ -339,7 +377,11 @@ def render_graph_query_human(record: dict[str, object]) -> str:
     query = record["query"]
     assert isinstance(query, dict)
     summary = query["summary"]
+    budget = query["budget_decision"]
+    node_page = query["node_pagination"]
     assert isinstance(summary, dict)
+    assert isinstance(budget, dict)
+    assert isinstance(node_page, dict)
     nodes = query["nodes"]
     edges = query["edges"]
     assert isinstance(nodes, list)
@@ -359,11 +401,33 @@ def render_graph_query_human(record: dict[str, object]) -> str:
             f"manifest: {record['manifest_path']}",
             f"scope: {query['scope']}",
             f"nodes: {summary['node_count']}",
+            f"node total: {summary['node_total_count']}",
             f"edges: {summary['edge_count']}",
+            f"budget: {budget['invocation_class']} {budget['recommended_action']}",
+            f"page: offset {node_page['offset']} limit {node_page['effective_limit']}",
             "matched nodes:",
             *(node_lines or ["- none"]),
             "matched edges:",
             *(edge_lines or ["- none"]),
+        ],
+    )
+
+
+def render_budget_human(record: dict[str, object]) -> str:
+    budgets = record["budgets"]
+    assert isinstance(budgets, list)
+    budget_lines = [
+        (
+            f"- {budget['operation']}: {budget['invocation_class']} "
+            f"({budget['recommended_action']}, {budget['max_duration_ms']}ms)"
+        )
+        for budget in budgets
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Budgets",
+            f"profile: {record['profile']}",
+            *(budget_lines or ["- none"]),
         ],
     )
 
@@ -414,9 +478,11 @@ def render_validation_plan_human(record: dict[str, object]) -> str:
     plan = record["plan"]
     assert isinstance(plan, dict)
     decision = plan["decision"]
+    budget = plan["performance_budget"]
     target = plan["target"]
     checks = plan["checks"]
     assert isinstance(decision, dict)
+    assert isinstance(budget, dict)
     assert isinstance(target, dict)
     assert isinstance(checks, list)
 
@@ -432,6 +498,7 @@ def render_validation_plan_human(record: dict[str, object]) -> str:
             f"tier: {plan['tier']}",
             f"decision: {decision['outcome']}",
             f"operator review: {str(decision['requires_operator_review']).lower()}",
+            f"budget: {budget['invocation_class']} {budget['recommended_action']}",
             f"checks: {len(checks)}",
             *(check_lines or ["- none"]),
         ],
@@ -445,6 +512,8 @@ def render_check_human(record: dict[str, object]) -> str:
     assert isinstance(plan, dict)
     check_results = receipt["check_results"]
     assert isinstance(check_results, list)
+    budget = receipt["suppressed_output_summary"].get("performance_budget", {})
+    assert isinstance(budget, dict)
     result_lines = [
         f"- {result['validator_id']}: {result['status']}"
         for result in check_results
@@ -456,6 +525,7 @@ def render_check_human(record: dict[str, object]) -> str:
             f"target: {receipt['target_scope']}",
             f"outcome: {receipt['outcome']}",
             f"receipt: {receipt['receipt_id']}",
+            f"budget: {budget.get('invocation_class', 'unknown')} {budget.get('recommended_action', 'unknown')}",
             f"receipt path: {record['receipt_path']}",
             f"ledger path: {record['ledger_path']}",
             f"artifact root: {record['artifact_root']}",
@@ -676,7 +746,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "graph" and args.graph_command == "query":
         manifest_path = _resolve_manifest_path(args.repo_root, args.manifest)
-        query = query_manifest_file(manifest_path, args.scope)
+        query = query_manifest_file(
+            manifest_path,
+            args.scope,
+            budget_profile=args.budget_profile,
+            limit=args.limit,
+            offset=args.offset,
+        )
         record = {
             "manifest_path": str(manifest_path.relative_to(Path(args.repo_root).resolve())),
             "query": query.to_record(),
@@ -685,6 +761,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(record, indent=2, sort_keys=True))
         else:
             print(render_graph_query_human(record))
+        return 0
+
+    if args.command == "budget" and args.budget_command == "show":
+        operations = [args.operation] if args.operation else None
+        budgets = operation_budget_records(operations, profile=args.profile)
+        record = {
+            "budgets": list(budgets),
+            "evaluation": (
+                evaluate_operation_budget(args.operation, profile=args.profile).to_record()
+                if args.operation
+                else None
+            ),
+            "profile": args.profile,
+        }
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_budget_human(record))
         return 0
 
     if args.command == "sources" and args.sources_command == "snapshot":

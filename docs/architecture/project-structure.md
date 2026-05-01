@@ -86,14 +86,16 @@ record with:
   check type, required posture, receipt-reuse decision, and tier metadata
 - explicit cache decisions for each selected check, including freshness and
   authority-digest invalidation reasons
-- per-validator execution policy metadata for timeout, retry, and output-budget
-  controls
+- per-validator execution policy metadata for invocation class, timeout, retry,
+  max duration, and output-budget controls
 - changed-file expansion into repo, component, dev-integration profile,
   manifest-declared ART, and release impact scopes
 - suppressed validators with explicit reasons
 - `check_statuses` that distinguish `selected`, `suppressed`, `blocked`,
   `waived`, `stale`, `failed`, and `external-owner-required` checks
 - a planner decision: `planned`, `no_matching_validators`, or `blocked`
+- a performance-budget decision that says whether the selected plan still fits
+  an inline WGCF path or should move to checkpoint/batch execution
 
 The planner does not execute validators and does not decide policy from local
 code. It only selects validators that were already declared in the manifest,
@@ -119,12 +121,14 @@ produces compact proof records without becoming a policy engine:
 - command execution uses a sanitized base environment, explicit environment
   allow and block lists, executable allowlists, allowed-root checks, safety
   class checks, and profile metadata before invocation
+- execution applies the central `validation.run` budget as a cap over
+  manifest-declared timeout, retry, and output budgets
 - `network`, `privileged`, and `host-control` safety classes require explicit
   operator approval in the execution policy
 - stdout and stderr are written to local artifact files
 - receipts contain artifact ids, digests, byte counts, line counts, exit codes,
-  durations, timeout/retry/output-budget decisions, planner decision context,
-  and outcome
+  durations, timeout/retry/output-budget decisions, performance-budget
+  decisions, planner decision context, and outcome
 - receipts include a compact custody summary with artifact ids, purposes, and a
   digest manifest; ledger events link the same artifact refs and receipt
   outcome without embedding raw output

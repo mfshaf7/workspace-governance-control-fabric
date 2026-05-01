@@ -80,11 +80,20 @@ suppressed validators with reasons, and stop at the decision layer. They may
 mark a check as `skip_fresh_receipt` when an input receipt is successful,
 fresh, still matches authority-ref digests when invalidation is enabled, and
 the validator declares safe reuse. Plans also carry explicit cache, timeout,
-retry, and output-budget decisions. They do not run commands, create receipts,
-append ledger events, or approve readiness.
+retry, output-budget, and WGCF invocation-class decisions. They do not run
+commands, create receipts, append ledger events, or approve readiness.
 Every plan also returns explicit `check_statuses` so downstream operators can
 separate selected, suppressed, blocked, waived, stale, failed, and
 external-owner-required checks without scraping reason text.
+
+Performance-budget helpers classify WGCF runtime paths before they become
+synchronous operator gates. Routine continuation and graph reads are
+`inline-fast`, draft submit is `receipt-check`, completion/blocker/risk
+readiness is `hard-gate`, projection and full quality work are
+`checkpoint-batch`, and unknown future operations are `offline-advisory` until
+classified. Validation execution applies these budgets as hard caps over
+timeout, retry, and output limits while still writing raw output only to
+receipt-linked artifacts.
 
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported
@@ -102,6 +111,8 @@ check types as blocked, suppress execution when the planner decision is not
 - compact custody summaries that bind receipt and ledger records back to the
   same artifact ids and digest manifest without embedding raw output
 - compact timeout, retry, and output-budget metadata
+- compact performance-budget metadata, including effective timeout, retry, and
+  output caps
 - a `ControlReceipt` that omits raw command output
 - a `LedgerEvent` suitable for append-only JSONL storage
 

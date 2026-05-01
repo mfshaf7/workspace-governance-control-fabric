@@ -16,6 +16,7 @@ from typing import Any
 
 from .graph_ingestion import build_manifest_graph
 from .manifests import validate_governance_manifest
+from .performance_budgets import evaluate_validation_plan_budget
 
 
 class ValidationTier(StrEnum):
@@ -159,6 +160,7 @@ class ValidationPlan:
     checks: tuple[ValidationCheck, ...]
     decision: PlannerDecision
     manifest_id: str
+    performance_budget: dict[str, Any]
     plan_id: str
     target: ValidationTarget
     tier: str
@@ -169,6 +171,7 @@ class ValidationPlan:
             "checks": [check.to_record() for check in self.checks],
             "decision": self.decision.to_record(),
             "manifest_id": self.manifest_id,
+            "performance_budget": self.performance_budget,
             "plan_id": self.plan_id,
             "target": self.target.to_record(),
             "tier": self.tier,
@@ -273,6 +276,10 @@ def build_validation_plan(
         requires_operator_review=requires_operator_review,
         suppressed_validators=tuple(suppressed),
     )
+    performance_budget = evaluate_validation_plan_budget(
+        selected_check_count=len(selected),
+        tier=requested_tier.value,
+    ).to_record()
     plan_id = _plan_id(
         manifest["manifest_id"],
         target.scope,
@@ -280,12 +287,14 @@ def build_validation_plan(
         selected,
         decision,
         check_statuses,
+        performance_budget,
     )
     return ValidationPlan(
         check_statuses=tuple(check_statuses),
         checks=tuple(selected),
         decision=decision,
         manifest_id=manifest["manifest_id"],
+        performance_budget=performance_budget,
         plan_id=plan_id,
         target=target,
         tier=requested_tier.value,
@@ -861,11 +870,20 @@ def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
     output_budget_bytes = _bounded_int(raw_policy.get("output_budget_bytes"), minimum=0)
     if output_budget_bytes is not None:
         policy["output_budget_bytes"] = output_budget_bytes
+    max_duration_ms = _bounded_int(raw_policy.get("max_duration_ms"), minimum=1)
+    if max_duration_ms is not None:
+        policy["max_duration_ms"] = max_duration_ms
     if "fail_on_output_budget_exceeded" in raw_policy:
         policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
     if "operator_approved" in raw_policy:
         policy["operator_approved"] = bool(raw_policy["operator_approved"])
-    for field_name in ("profile", "safety_class", "self_validation_role", "working_directory"):
+    for field_name in (
+        "invocation_class",
+        "profile",
+        "safety_class",
+        "self_validation_role",
+        "working_directory",
+    ):
         text_value = _optional_str(raw_policy.get(field_name))
         if text_value:
             policy[field_name] = text_value
@@ -968,6 +986,7 @@ def _plan_id(
     checks: list[ValidationCheck],
     decision: PlannerDecision,
     check_statuses: list[ValidationCheckStatus],
+    performance_budget: dict[str, Any],
 ) -> str:
     payload = {
         "blocked_reasons": list(decision.blocked_reasons),
@@ -989,6 +1008,7 @@ def _plan_id(
             for check in checks
         ],
         "manifest_id": manifest_id,
+        "performance_budget": performance_budget,
         "target_scope": target_scope,
         "tier": tier.value,
     }

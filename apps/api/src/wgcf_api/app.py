@@ -19,10 +19,12 @@ from control_fabric_core import (
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
+    evaluate_operation_budget,
     evaluate_art_readiness,
     graph_summary,
     inspect_control_receipt,
     list_control_receipts,
+    operation_budget_records,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
     run_operator_readiness_evaluation,
@@ -89,17 +91,42 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
 
     @app.get("/v1/graph/query")
     async def graph_query(
+        budget_profile: str = Query("developer", description="Performance budget profile to apply."),
+        limit: int | None = Query(None, description="Maximum nodes and edges to return."),
+        offset: int = Query(0, description="Result offset for budgeted pagination."),
         scope: str = Query(..., description="Graph query scope such as repo:<id>, component:<id>, or art:<id>."),
         manifest_path: str = Query(DEFAULT_MANIFEST_PATH, description="Repo-local governance manifest path."),
     ) -> dict[str, Any]:
         try:
             manifest_file = _resolve_manifest_path(resolved_repo_root, manifest_path)
-            result = query_manifest_file(manifest_file, scope)
+            result = query_manifest_file(
+                manifest_file,
+                scope,
+                budget_profile=budget_profile,
+                limit=limit,
+                offset=offset,
+            )
         except (FileNotFoundError, json.JSONDecodeError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
             "manifest_path": str(manifest_file.relative_to(resolved_repo_root)),
             "query": result.to_record(),
+        }
+
+    @app.get("/v1/budgets")
+    async def budgets(
+        operation: str | None = Query(None, description="Optional operation id to inspect."),
+        profile: str = Query("developer", description="Performance budget profile to apply."),
+    ) -> dict[str, Any]:
+        operations = [operation] if operation else None
+        return {
+            "budgets": list(operation_budget_records(operations, profile=profile)),
+            "evaluation": (
+                evaluate_operation_budget(operation, profile=profile).to_record()
+                if operation
+                else None
+            ),
+            "profile": profile,
         }
 
     @app.get("/v1/source-snapshots/status")
