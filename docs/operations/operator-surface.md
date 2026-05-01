@@ -77,6 +77,8 @@ wgcf graph query --scope art:<delivery-id> --manifest <path>
 wgcf sources snapshot --workspace-root <path>
 wgcf plan --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
 wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<path>|workspace --tier smoke|scoped|full|release
+wgcf catalog plan --workspace-root <path> --scope <scope> --profile <profile> --tier smoke|scoped|full|release
+wgcf catalog check --workspace-root <path> --scope <scope> --profile <profile> --tier smoke|scoped|full|release [--operator-approved]
 wgcf receipts list
 wgcf art graph --context <broker-context.json>
 wgcf art readiness --context <broker-context.json> --operation complete --target-item-id <id>
@@ -255,6 +257,30 @@ plan through `wgcf plan` or `POST /v1/validation-plans`, run bounded local
 checks through `wgcf check`, and list compact receipts through
 `wgcf receipts list` or `GET /v1/receipts`. The graph, plan, receipt, and ledger
 records are fabric-local projections only; they do not mutate authority stores.
+
+Catalog-backed validation is the cutover path for workspace validator
+invocation. `wgcf catalog plan` and `wgcf catalog check` consume the
+workspace-owned governance validator catalog instead of requiring an operator
+to hand-author a repo-local manifest. The catalog remains the authority for
+command identity, concrete `wgcf_invocation` commands, representative scopes,
+safety class, allowed profiles, and retirement posture. WGCF translates that
+catalog into a runtime manifest, emits selected and suppressed catalog entries,
+and blocks unresolved placeholders rather than guessing a command family.
+
+Use these representative scopes for #536 shadow parity:
+
+```bash
+wgcf catalog check --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
+wgcf catalog check --workspace-root /home/mfshaf7/projects --scope component:delivery-art --profile dev-integration --tier scoped --operator-approved
+wgcf catalog check --workspace-root /home/mfshaf7/projects --scope component:platform-runtime --profile dev-integration --tier smoke --operator-approved
+wgcf catalog check --workspace-root /home/mfshaf7/projects --scope component:security-review --profile local-read-only --tier smoke
+```
+
+Direct validators stay available as rollback and source-authority entrypoints
+until workspace-governance marks the relevant catalog register
+retirement-eligible. Catalog-backed WGCF receipts can become normal operator
+evidence only for scopes that pass the platform gate, current security review,
+receipt parity, raw-output suppression, and direct-rollback requirements.
 
 Validation planning uses four tiers:
 

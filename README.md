@@ -92,7 +92,8 @@ That surface is constrained by the workspace-owned contract in
   bootstrap status, authority-boundary references, database settings,
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
-  deterministic validation planning primitives, bounded validation execution,
+  workspace validator catalog ingestion, deterministic validation planning
+  primitives, bounded validation execution,
   compact receipts, local ledger event helpers, operator-safe plan/check and
   receipt-list helpers, broker ART runtime-context ingestion, ART readiness
   receipts, bootstrap policy admission decisions, runtime governance records,
@@ -166,6 +167,8 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli graph query --repo-root . --scope repo:workspace-governance-control-fabric
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli plan --repo-root . --scope repo:workspace-governance-control-fabric --tier smoke
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli check --repo-root . --scope repo:workspace-governance-control-fabric --tier smoke
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli catalog plan --repo-root . --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli catalog check --repo-root . --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli receipts list --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
 ```
@@ -191,6 +194,16 @@ files, writes a compact receipt JSON under `.wgcf/receipts` by default, and
 appends a local ledger JSONL event. The API exposes planning and receipt list
 surfaces only; API-side validation execution remains a later platform-gated
 slice.
+
+Catalog-backed validation is now the normal shadow-parity path for workspace
+validator invocation. `wgcf catalog plan` and `wgcf catalog check` load the
+workspace-owned `workspace-governance/contracts/governance-validator-catalog.yaml`,
+apply the catalog profile, safety class, representative scope, and
+`wgcf_invocation` metadata, then generate a runtime manifest and compact
+receipt. Broad catalog command families with unresolved placeholders are
+suppressed rather than guessed. Profile-gated live/runtime reads require
+`--operator-approved` and still cannot mutate ART, platform state, security
+posture, or workspace contracts.
 
 Policy admission currently lives in the core library. It evaluates bootstrap
 repo/component admission inputs, validation blocking posture, waiver posture,

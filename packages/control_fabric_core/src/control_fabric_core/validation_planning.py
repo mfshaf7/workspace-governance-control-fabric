@@ -865,10 +865,12 @@ def _validator_execution_policy(validator: dict[str, Any]) -> dict[str, Any]:
         policy["fail_on_output_budget_exceeded"] = bool(raw_policy["fail_on_output_budget_exceeded"])
     if "operator_approved" in raw_policy:
         policy["operator_approved"] = bool(raw_policy["operator_approved"])
-    for field_name in ("profile", "safety_class", "self_validation_role"):
+    for field_name in ("profile", "safety_class", "self_validation_role", "working_directory"):
         text_value = _optional_str(raw_policy.get(field_name))
         if text_value:
             policy[field_name] = text_value
+    if "prefer_current_python" in raw_policy:
+        policy["prefer_current_python"] = bool(raw_policy["prefer_current_python"])
     for field_name in ("allowed_env_vars", "allowed_executables", "allowed_roots", "blocked_env_vars"):
         list_value = _string_list(raw_policy.get(field_name))
         if list_value:

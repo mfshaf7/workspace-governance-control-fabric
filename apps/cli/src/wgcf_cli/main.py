@@ -14,12 +14,14 @@ from control_fabric_core import (
     DEFAULT_RECEIPT_DIR,
     RUNTIME_REPO,
     build_art_runtime_graph,
+    build_catalog_operator_validation_plan,
     build_source_snapshot,
     build_operator_validation_plan,
     evaluate_art_readiness,
     list_control_receipts,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
+    run_catalog_operator_validation_check,
     run_operator_validation_check,
     source_snapshot_status,
     status_snapshot,
@@ -142,6 +144,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator or automation actor recorded in the ledger event.",
     )
     check_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    catalog_parser = subparsers.add_parser("catalog", help="Plan and run checks from the workspace validator catalog.")
+    catalog_subparsers = catalog_parser.add_subparsers(dest="catalog_command", required=True)
+    catalog_plan_parser = catalog_subparsers.add_parser("plan", help="Build a catalog-backed validation plan.")
+    _add_catalog_args(catalog_plan_parser)
+    catalog_plan_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    catalog_check_parser = catalog_subparsers.add_parser("check", help="Run catalog-backed validation checks.")
+    _add_catalog_args(catalog_check_parser)
+    catalog_check_parser.add_argument(
+        "--artifact-root",
+        default=DEFAULT_ARTIFACT_ROOT,
+        help="Repo-local directory for raw validation artifacts.",
+    )
+    catalog_check_parser.add_argument(
+        "--receipt-dir",
+        default=DEFAULT_RECEIPT_DIR,
+        help="Repo-local directory for compact receipt JSON files.",
+    )
+    catalog_check_parser.add_argument(
+        "--ledger",
+        default=DEFAULT_LEDGER_PATH,
+        help="Repo-local JSONL ledger file.",
+    )
+    catalog_check_parser.add_argument(
+        "--manifest-dir",
+        default=".wgcf/manifests",
+        help="Repo-local directory for generated catalog manifest snapshots.",
+    )
+    catalog_check_parser.add_argument(
+        "--actor",
+        default="wgcf-local",
+        help="Operator or automation actor recorded in the ledger event.",
+    )
+    catalog_check_parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -368,6 +413,73 @@ def render_check_human(record: dict[str, object]) -> str:
     )
 
 
+def render_catalog_plan_human(record: dict[str, object]) -> str:
+    catalog = record["catalog"]
+    plan = record["plan"]
+    assert isinstance(catalog, dict)
+    assert isinstance(plan, dict)
+    decision = plan["decision"]
+    assert isinstance(decision, dict)
+    selected = catalog["selected_entries"]
+    suppressed = catalog["suppressed_entries"]
+    assert isinstance(selected, list)
+    assert isinstance(suppressed, list)
+    selected_lines = [
+        f"- {entry['entry_id']} ({entry['safety_class']}, {entry['validation_tier']})"
+        for entry in selected
+    ]
+    suppressed_lines = [
+        f"- {entry['entry_id']}: {entry['reason']}"
+        for entry in suppressed[:8]
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Catalog Plan",
+            f"catalog: {catalog['catalog_path']}",
+            f"manifest: {catalog['manifest_id']}",
+            f"profile: {catalog['profile']}",
+            f"operator approved: {str(catalog['operator_approved']).lower()}",
+            f"target: {plan['target']['scope']}",
+            f"tier: {plan['tier']}",
+            f"decision: {decision['outcome']}",
+            f"checks: {len(plan['checks'])}",
+            "selected catalog entries:",
+            *(selected_lines or ["- none"]),
+            "suppressed catalog entries:",
+            *(suppressed_lines or ["- none"]),
+        ],
+    )
+
+
+def render_catalog_check_human(record: dict[str, object]) -> str:
+    catalog = record["catalog"]
+    receipt = record["receipt"]
+    assert isinstance(catalog, dict)
+    assert isinstance(receipt, dict)
+    result_lines = [
+        f"- {result['validator_id']}: {result['status']}"
+        for result in receipt["check_results"]
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Catalog Check",
+            f"catalog: {catalog['catalog_path']}",
+            f"manifest: {record['catalog_manifest_path']}",
+            f"profile: {catalog['profile']}",
+            f"operator approved: {str(catalog['operator_approved']).lower()}",
+            f"target: {receipt['target_scope']}",
+            f"outcome: {receipt['outcome']}",
+            f"receipt: {receipt['receipt_id']}",
+            f"receipt path: {record['receipt_path']}",
+            f"ledger path: {record['ledger_path']}",
+            f"artifact root: {record['artifact_root']}",
+            "check results:",
+            *(result_lines or ["- none"]),
+            "raw output: suppressed into receipt-linked artifacts",
+        ],
+    )
+
+
 def render_receipts_list_human(record: dict[str, object]) -> str:
     receipts = record["receipts"]
     assert isinstance(receipts, list)
@@ -516,6 +628,47 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_check_human(record))
         return 0 if result.receipt.outcome == "success" else 1
 
+    if args.command == "catalog" and args.catalog_command == "plan":
+        repo_root = Path(args.repo_root).resolve()
+        workspace_root = _resolve_workspace_root(repo_root, args.workspace_root)
+        result = build_catalog_operator_validation_plan(
+            catalog_path=args.catalog,
+            operator_approved=args.operator_approved,
+            profile=args.profile,
+            target_scope=args.scope,
+            tier=args.tier,
+            workspace_root=workspace_root,
+        )
+        record = result.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_catalog_plan_human(record))
+        return 0 if result.plan.decision.outcome == "planned" else 1
+
+    if args.command == "catalog" and args.catalog_command == "check":
+        repo_root = Path(args.repo_root).resolve()
+        workspace_root = _resolve_workspace_root(repo_root, args.workspace_root)
+        result = run_catalog_operator_validation_check(
+            actor=args.actor,
+            artifact_root=_resolve_repo_local_path(repo_root, args.artifact_root, "artifact-root"),
+            catalog_path=args.catalog,
+            ledger_path=_resolve_repo_local_path(repo_root, args.ledger, "ledger"),
+            manifest_dir=_resolve_repo_local_path(repo_root, args.manifest_dir, "manifest-dir"),
+            operator_approved=args.operator_approved,
+            profile=args.profile,
+            receipt_dir=_resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir"),
+            target_scope=args.scope,
+            tier=args.tier,
+            workspace_root=workspace_root,
+        )
+        record = result.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_catalog_check_human(record))
+        return 0 if result.receipt.outcome == "success" else 1
+
     if args.command == "receipts" and args.receipts_command == "list":
         repo_root = Path(args.repo_root).resolve()
         receipt_dir = _resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir")
@@ -633,4 +786,42 @@ def _add_repo_manifest_scope_args(parser: argparse.ArgumentParser) -> None:
         "--scope",
         required=True,
         help="Validation scope such as repo:<id>, component:<id>, art:<id>, or workspace.",
+    )
+
+
+def _add_catalog_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Control-fabric repository root used to resolve output paths.",
+    )
+    parser.add_argument(
+        "--workspace-root",
+        default=None,
+        help="Workspace root containing workspace-governance and owner repos. Defaults to --repo-root parent.",
+    )
+    parser.add_argument(
+        "--catalog",
+        default=None,
+        help="Optional path to workspace-governance validator catalog.",
+    )
+    parser.add_argument(
+        "--scope",
+        required=True,
+        help="Validation scope such as workspace, component:delivery-art, art:delivery-498, or profile:<id>.",
+    )
+    parser.add_argument(
+        "--profile",
+        default="local-read-only",
+        help="Catalog profile to apply, for example local-read-only or dev-integration.",
+    )
+    parser.add_argument(
+        "--tier",
+        default="scoped",
+        help="Validation tier: smoke, scoped, full, or release.",
+    )
+    parser.add_argument(
+        "--operator-approved",
+        action="store_true",
+        help="Record explicit operator approval for profile-gated read checks.",
     )

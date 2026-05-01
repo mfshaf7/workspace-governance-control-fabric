@@ -122,6 +122,7 @@ def governance_manifest_schema() -> dict[str, Any]:
             "safety_class": non_empty_string,
             "self_validation_role": non_empty_string,
             "timeout_seconds": {"minimum": 1, "type": "integer"},
+            "working_directory": non_empty_string,
         },
         "type": "object",
     }
