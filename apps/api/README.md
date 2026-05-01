@@ -14,7 +14,13 @@ Current slice:
 - implement `GET /v1/source-snapshots/status` for compact source snapshot
   status without raw authority content or full digest maps
 - implement `POST /v1/validation-plans` for compact validation-plan records
+- implement `POST /v1/validation-runs` for bounded local validation execution
+  with compact receipt and ledger output
 - implement `GET /v1/receipts` for compact local receipt metadata
+- implement `GET /v1/receipts/{receipt_id}` for compact receipt inspection
+  without reopening raw artifacts
+- implement `POST /v1/readiness/evaluate` for local readiness decisions with a
+  fabric-local ledger event
 - implement `POST /v1/art/graph` for compact broker-owned ART context graph
   projection
 - implement `POST /v1/art/readiness` for pre-mutation ART readiness receipts
@@ -22,9 +28,10 @@ Current slice:
 - implement `POST /v1/art/evidence-packet` for completion-preflight-safe ART
   and Review Packet evidence projected from WGCF receipts
 
-The API does not run validators yet. Validation execution remains local CLI and
-core-library behavior until platform and security gates approve the runtime
-execution posture.
+The API can run bounded local validation checks through the same core-library
+safety controls used by the CLI. It writes raw stdout/stderr only to
+receipt-linked local artifacts, emits compact receipts and ledger events, and
+does not mutate upstream authority stores.
 
 The ART routes are read/projection routes. They do not mutate OpenProject and
 do not replace `operator-orchestration-service` as the ART write authority.

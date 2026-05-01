@@ -241,6 +241,14 @@ def validate_imports(repo_root: Path) -> list[str]:
     app = create_app(repo_root)
     if app.title != "Workspace Governance Control Fabric":
         errors.append("FastAPI app title is not the control-fabric title")
+    route_paths = {route.path for route in app.routes}
+    for required_route in (
+        "/v1/validation-runs",
+        "/v1/receipts/{receipt_id}",
+        "/v1/readiness/evaluate",
+    ):
+        if required_route not in route_paths:
+            errors.append(f"FastAPI route missing: {required_route}")
     missing_tables = REQUIRED_DB_TABLES.difference(metadata.tables)
     if missing_tables:
         errors.append(f"database metadata missing required tables: {sorted(missing_tables)}")

@@ -3,9 +3,10 @@
 The control fabric is split by runtime responsibility:
 
 - `apps/cli`: operator CLI entrypoint for compact local workflow commands.
-- `apps/api`: FastAPI health, readiness, status, and read-only graph query
-  surface. Deployment remains blocked until platform and security gates approve
-  runtime adoption.
+- `apps/api`: FastAPI health, readiness, status, graph query, local validation
+  run, receipt inspection, readiness decision, and ART projection surface.
+  Deployment remains blocked until platform and security gates approve runtime
+  adoption.
 - `apps/worker`: Temporal-ready worker diagnostic entrypoint and future
   background validation execution surface.
 - `packages/control_fabric_core`: shared runtime primitives and record helpers.
@@ -132,10 +133,12 @@ produces compact proof records without becoming a policy engine:
 
 The execution model is intentionally local-first. The CLI now composes this
 through `wgcf check`, writes compact receipt JSON, appends a local ledger event,
-and lists receipt metadata through `wgcf receipts list`. API-side validation
-execution, CLI `wgcf run --plan`, worker queue execution, and runtime API
-persistence wiring stay in later slices so this layer remains testable and
-bounded.
+and lists receipt metadata through `wgcf receipts list`. The API exposes the
+same bounded local execution contract through `POST /v1/validation-runs` and
+receipt inspection through `GET /v1/receipts/{receipt_id}`. CLI
+`wgcf run --plan`, worker queue execution, central deployment posture, and
+runtime API database persistence wiring stay in later slices so this layer
+remains testable and bounded.
 
 ## Policy Admission Model
 
