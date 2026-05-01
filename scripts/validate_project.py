@@ -37,6 +37,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/lifecycle.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
+    "packages/control_fabric_core/src/control_fabric_core/observability.py",
     "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
     "packages/control_fabric_core/src/control_fabric_core/performance_budgets.py",
     "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
@@ -162,6 +163,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         project_receipt_to_change_record_references,
         project_receipt_to_review_packet_evidence,
         query_manifest_graph,
+        receipt_metrics_snapshot,
         record_blocker_decision,
         record_change_event,
         apply_retention_plan,
@@ -228,6 +230,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     lifecycle_parsed = parser.parse_args(["lifecycle", "plan", "--repo-root", str(repo_root)])
     if lifecycle_parsed.command != "lifecycle" or lifecycle_parsed.lifecycle_command != "plan":
         errors.append("wgcf parser did not accept lifecycle plan command")
+    metrics_parsed = parser.parse_args(["metrics", "receipts", "--repo-root", str(repo_root)])
+    if metrics_parsed.command != "metrics" or metrics_parsed.metrics_command != "receipts":
+        errors.append("wgcf parser did not accept metrics receipts command")
     inspect_parsed = parser.parse_args(["inspect", "--receipt", "control-receipt:example"])
     if inspect_parsed.command != "inspect":
         errors.append("wgcf parser did not accept inspect command")
@@ -260,6 +265,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         "/v1/receipts/{receipt_id}",
         "/v1/readiness/evaluate",
         "/v1/budgets",
+        "/v1/metrics/receipts",
         "/v1/lifecycle/retention-plan",
         "/v1/lifecycle/retention-apply",
     ):
@@ -457,8 +463,15 @@ def validate_imports(repo_root: Path) -> list[str]:
         receipt_summaries = list_control_receipts(temp_path / "receipts")
         if operator_result.receipt.outcome != "success":
             errors.append("operator check did not produce a successful receipt")
+        if not operator_result.receipt.correlation_id.startswith("correlation:validation:"):
+            errors.append("operator receipt missing validation correlation id")
+        if operator_result.receipt.metrics.get("check_count") != 1:
+            errors.append("operator receipt metrics missing check count")
         if len(receipt_summaries) != 1:
             errors.append("operator receipt listing did not find the written receipt")
+        metrics_snapshot = receipt_metrics_snapshot(receipt.to_record() for receipt in receipt_summaries)
+        if metrics_snapshot["receipt_count"] != 1:
+            errors.append("receipt metrics snapshot did not count the written receipt")
         inspection = inspect_control_receipt(
             operator_result.receipt.receipt_id,
             receipt_dir=temp_path / "receipts",
@@ -475,6 +488,10 @@ def validate_imports(repo_root: Path) -> list[str]:
         )
         if not readiness_decision.ready:
             errors.append("operator readiness unexpectedly blocked the CLI surface")
+        if not readiness_decision.correlation_id.startswith("correlation:readiness:"):
+            errors.append("operator readiness missing correlation id")
+        if readiness_decision.metrics.get("ready") is not True:
+            errors.append("operator readiness metrics did not record ready=true")
         readiness_result = run_operator_readiness_evaluation(
             actor="wgcf-project-validator",
             ledger_path=temp_path / "readiness-ledger.jsonl",
@@ -530,6 +547,10 @@ def validate_imports(repo_root: Path) -> list[str]:
     receipt_record = execution_result.receipt.to_record()
     if receipt_record["suppressed_output_summary"]["raw_output_in_receipt"]:
         errors.append("validation receipt must not embed raw validator output")
+    if not receipt_record["correlation_id"].startswith("correlation:validation:"):
+        errors.append("validation receipt missing correlation id")
+    if receipt_record["metrics"]["artifact_count"] != len(receipt_record["artifact_refs"]):
+        errors.append("validation receipt metrics artifact count mismatch")
     if execution_result.ledger_event.target != "repo:workspace-governance-control-fabric":
         errors.append("validation ledger event target did not match plan target")
     policy_decision = evaluate_admission_policy(
@@ -628,6 +649,10 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if not art_readiness.mutation_allowed:
         errors.append("ART readiness unexpectedly blocked clean synthetic context")
+    if not art_readiness.correlation_id.startswith("correlation:art-readiness:"):
+        errors.append("ART readiness missing correlation id")
+    if art_readiness.metrics.get("mutation_allowed") is not True:
+        errors.append("ART readiness metrics did not record mutation_allowed=true")
     art_evidence_packet = project_receipts_to_art_evidence_packet(
         [receipt_record],
         changed_surfaces=[

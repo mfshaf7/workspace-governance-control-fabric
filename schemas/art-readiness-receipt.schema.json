@@ -10,6 +10,10 @@
       "type": "string",
       "format": "date-time"
     },
+    "correlation_id": {
+      "pattern": "^correlation:[a-z0-9_.-]+:[0-9a-f]{24}$",
+      "type": "string"
+    },
     "findings": {
       "type": "array",
       "items": {
@@ -17,6 +21,9 @@
       }
     },
     "graph_summary": {
+      "type": "object"
+    },
+    "metrics": {
       "type": "object"
     },
     "mutation_allowed": {
@@ -67,8 +74,10 @@
   },
   "required": [
     "captured_at",
+    "correlation_id",
     "findings",
     "graph_summary",
+    "metrics",
     "mutation_allowed",
     "operation",
     "outcome",

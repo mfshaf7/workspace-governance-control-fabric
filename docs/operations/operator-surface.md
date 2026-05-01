@@ -22,12 +22,13 @@ Only the bootstrap status, core-library source snapshot ingestion, manifest
 graph ingestion, fabric-local graph persistence helpers, read-only graph query,
 validation planning, core-library validation execution, receipt inspection,
 operator-readiness decisions with local ledger events, lifecycle retention
-planning and confirmed cleanup, core-library policy admission, core-library
-runtime governance records, core-library evidence projection surfaces,
-broker-context ART readiness projection, ART evidence packet projection, and
-local-k3s dev-integration API access are implemented now. Treat the remaining
-CLI commands and API routes below as the minimum required interface contract
-for later slices, not as currently available runtime commands.
+planning and confirmed cleanup, compact metrics and correlation ids,
+core-library policy admission, core-library runtime governance records,
+core-library evidence projection surfaces, broker-context ART readiness
+projection, ART evidence packet projection, and local-k3s dev-integration API
+access are implemented now. Treat the remaining CLI commands and API routes
+below as the minimum required interface contract for later slices, not as
+currently available runtime commands.
 
 ## Authority Boundaries
 
@@ -70,7 +71,9 @@ Use this flow for the currently implemented local CLI surface:
    files grow too large.
 12. Apply retention only with explicit confirmation, preserving ledger exports
    before compaction.
-13. Use artifact and ledger references for handoff or audit.
+13. Inspect receipt metrics and correlation ids when tracing validation or
+   readiness decisions.
+14. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -89,6 +92,7 @@ wgcf catalog plan --workspace-root <path> --scope <scope> --profile <profile> --
 wgcf catalog check --workspace-root <path> --scope <scope> --profile <profile> --tier smoke|scoped|full|release [--operator-approved]
 wgcf receipts list
 wgcf inspect --receipt <receipt-id-or-path>
+wgcf metrics receipts
 wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
 wgcf lifecycle plan --profile developer|ci|enterprise
 wgcf lifecycle apply --profile developer|ci|enterprise --confirm
@@ -179,6 +183,7 @@ Required route meanings:
 - `POST /v1/validation-runs`
 - `GET /v1/receipts`
 - `GET /v1/receipts/{receipt_id}`
+- `GET /v1/metrics/receipts`
 - `POST /v1/readiness/evaluate`
 - `POST /v1/art/graph`
 - `POST /v1/art/readiness`
@@ -234,6 +239,8 @@ summaries only.
 - `runtime-governance-record`
 - `readiness-decision`
 - `retention-plan`
+- `correlation-id`
+- `receipt-metrics`
 - `ledger-event`
 - `authority-reference`
 - `escalation-record`

@@ -154,6 +154,9 @@ class ArtReadinessTests(TestCase):
 
         self.assertTrue(readiness.mutation_allowed)
         self.assertEqual(readiness.outcome, "ready")
+        self.assertTrue(readiness.correlation_id.startswith("correlation:art-readiness:"))
+        self.assertTrue(readiness.metrics["mutation_allowed"])
+        self.assertEqual(readiness.metrics["finding_count"], 0)
         self.assertEqual(readiness.findings, ())
         self.assertEqual(readiness.recommendations[0].action, "proceed_via_oos_broker")
         self.assertFalse(readiness.raw_context_embedded)

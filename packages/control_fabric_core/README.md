@@ -31,6 +31,9 @@ Current slice:
   upstream authority
 - lifecycle helpers that plan fabric-local artifact cleanup, receipt
   retention, ledger export, and ledger compaction without mutating by default
+- observability helpers that add correlation ids and compact metrics to
+  validation receipts, receipt summaries, readiness decisions, and ART
+  readiness receipts
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - runtime governance record helpers for blocker decisions, approvals, waivers,
@@ -105,6 +108,14 @@ lines before rewriting the local ledger, then appends a
 `lifecycle.retention.applied` event. Cleanup stays confined to the repo root
 and never reads raw artifact content into operator output.
 
+Observability helpers keep metrics close to the records operators already use.
+Validation receipts include `correlation_id` plus compact metrics for checks,
+artifacts, duration, status counts, and output-budget decisions. Readiness
+decisions and ART readiness receipts include their own correlation ids and
+decision metrics. Receipt metrics snapshots aggregate compact receipt metadata
+without reopening raw artifact files or introducing a separate telemetry
+backend.
+
 Validation execution helpers consume a `ValidationPlan` and stay inside the
 implementation boundary. They run only planned command checks, treat unsupported
 check types as blocked, suppress execution when the planner decision is not
@@ -123,6 +134,7 @@ check types as blocked, suppress execution when the planner decision is not
 - compact timeout, retry, and output-budget metadata
 - compact performance-budget metadata, including effective timeout, retry, and
   output caps
+- compact correlation id and execution metrics for downstream tracing
 - a `ControlReceipt` that omits raw command output
 - a `LedgerEvent` suitable for append-only JSONL storage
 

@@ -135,6 +135,8 @@ class OperatorSurfaceTests(TestCase):
 
         self.assertTrue(record["ready"])
         self.assertEqual(record["outcome"], "ready")
+        self.assertTrue(record["correlation_id"].startswith("correlation:readiness:"))
+        self.assertTrue(record["metrics"]["ready"])
         self.assertEqual(record["mutation_boundary"], "fabric-local decision record only")
         self.assertIn(
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",
@@ -155,6 +157,8 @@ class OperatorSurfaceTests(TestCase):
 
         self.assertFalse(unknown_target["ready"])
         self.assertEqual(unknown_target["outcome"], "blocked")
+        self.assertFalse(unknown_target["metrics"]["ready"])
+        self.assertGreater(unknown_target["metrics"]["blocked_reason_count"], 0)
         self.assertIn("unknown repo target: not-a-governed-repo", unknown_target["reasons"])
         self.assertFalse(unknown_profile["ready"])
         self.assertIn(

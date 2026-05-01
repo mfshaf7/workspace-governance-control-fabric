@@ -22,6 +22,7 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - bounded local validation run execution
 - receipt metadata listing
 - receipt inspection by id
+- receipt metrics and correlation ids
 - lifecycle retention planning and confirmed cleanup
 - local readiness decision evaluation
 - broker-owned ART graph projection
@@ -42,6 +43,7 @@ semantics for these console views:
 | Governance graph | API returns compact nodes, edges, scopes, authority refs, and projection refs without dumping source contracts. | Contract truth remains owned by `workspace-governance`. |
 | Validation plans | API explains selected, suppressed, blocked, and reusable checks for a target and tier. | Required validation policy remains authority-backed, not hardcoded in UI. |
 | Receipts | API lists receipt ids, artifact refs, digests, byte and line counts, outcomes, and timestamps without raw stdout or stderr. | Full artifacts remain in the configured artifact store or local artifact path. |
+| Receipt metrics | API returns compact receipt counts, check counts, artifact counts, outcome counts, and correlation ids without opening artifacts. | Platform observability can consume these fields later; WGCF is not the metrics backend. |
 | Lifecycle retention | API returns dry-run cleanup plans, requires explicit confirmation for local cleanup, and exports ledger lines before compaction. | Retention mutates only fabric-local files; upstream authority records remain owned by their source systems. |
 | ART readiness | API returns compact broker-context graph summaries, pre-mutation findings, and OOS routes such as narrative repair, projection sync, stale-open closeout, or proceed via broker. | OOS remains the ART mutation authority. WGCF recommendations are not writes. |
 | ART evidence packets | API returns completion-preflight-compatible ART evidence fields and Review Packet refs from WGCF receipt metadata. | Raw artifacts remain receipt-linked; Review Packets and ART stay downstream references. |

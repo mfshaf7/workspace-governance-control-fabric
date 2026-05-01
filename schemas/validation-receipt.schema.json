@@ -97,6 +97,10 @@
       },
       "type": "array"
     },
+    "correlation_id": {
+      "pattern": "^correlation:[a-z0-9_.-]+:[0-9a-f]{24}$",
+      "type": "string"
+    },
     "digest": {
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
@@ -104,6 +108,10 @@
     "manifest_id": {
       "minLength": 1,
       "type": "string"
+    },
+    "metrics": {
+      "additionalProperties": true,
+      "type": "object"
     },
     "outcome": {
       "enum": [
@@ -159,8 +167,10 @@
     "artifact_refs",
     "captured_at",
     "check_results",
+    "correlation_id",
     "digest",
     "manifest_id",
+    "metrics",
     "outcome",
     "plan_id",
     "planner_decision",

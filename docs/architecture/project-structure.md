@@ -4,8 +4,8 @@ The control fabric is split by runtime responsibility:
 
 - `apps/cli`: operator CLI entrypoint for compact local workflow commands.
 - `apps/api`: FastAPI health, readiness, status, graph query, local validation
-  run, receipt inspection, readiness decision, lifecycle retention, and ART
-  projection surface.
+  run, receipt inspection, metrics, readiness decision, lifecycle retention,
+  and ART projection surface.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: Temporal-ready worker diagnostic entrypoint and future
@@ -163,6 +163,23 @@ cleanup into an implicit authority mutation:
 The lifecycle model removes local files only after explicit operator or API
 confirmation. It does not read raw artifact contents into responses, mutate
 upstream repos, change ART state, or grant approval authority.
+
+## Observability Model
+
+The first observability slice keeps tracing data inside compact records:
+
+- validation receipts include `correlation_id` and metrics for checks,
+  artifacts, duration, status counts, and output-budget decisions
+- receipt listing preserves correlation ids for quick operator tracing
+- `wgcf metrics receipts` and `GET /v1/metrics/receipts` aggregate compact
+  receipt metadata without reading raw artifacts
+- operator readiness decisions include correlation ids and decision metrics
+- ART readiness receipts include correlation ids plus finding, recommendation,
+  graph, and projection-dirty metrics
+
+This is not a custom observability backend. It gives operators and future
+console surfaces stable ids and compact metrics now, while later OpenTelemetry
+or platform metrics integration can consume the same record fields.
 
 ## Policy Admission Model
 

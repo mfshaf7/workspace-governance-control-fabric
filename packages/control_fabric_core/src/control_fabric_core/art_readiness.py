@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Iterable
 
+from .observability import art_readiness_metrics, build_correlation_id
+
 
 ART_READINESS_SCHEMA_VERSION = 1
 DEFAULT_COMPLETION_HEADINGS = (
@@ -118,8 +120,10 @@ class ArtReadinessReceipt:
     """Compact readiness receipt for one planned ART operation."""
 
     captured_at: str
+    correlation_id: str
     findings: tuple[ArtReadinessFinding, ...]
     graph_summary: dict[str, Any]
+    metrics: dict[str, Any]
     mutation_allowed: bool
     operation: str
     outcome: str
@@ -134,8 +138,10 @@ class ArtReadinessReceipt:
     def to_record(self) -> dict[str, Any]:
         return {
             "captured_at": self.captured_at,
+            "correlation_id": self.correlation_id,
             "findings": [finding.to_record() for finding in self.findings],
             "graph_summary": self.graph_summary,
+            "metrics": self.metrics,
             "mutation_allowed": self.mutation_allowed,
             "operation": self.operation,
             "outcome": self.outcome,
@@ -296,19 +302,37 @@ def evaluate_art_readiness(
         recommendation.action == "projection_sync"
         for recommendation in recommendations
     )
+    metrics = art_readiness_metrics(
+        findings=findings,
+        graph_summary=graph.summary,
+        mutation_allowed=mutation_allowed,
+        recommendations=recommendations,
+    )
     digest_payload = {
         "captured_at": captured_at,
         "findings": [finding.to_record() for finding in findings],
         "graph_id": graph.graph_id,
+        "metrics": metrics,
         "mutation_allowed": mutation_allowed,
         "operation": operation_name,
         "target_item_id": target_id,
     }
     receipt_digest = _digest_json(digest_payload).removeprefix("sha256:")
+    correlation_id = build_correlation_id(
+        "art-readiness",
+        {
+            "graph_id": graph.graph_id,
+            "operation": operation_name,
+            "receipt_digest": receipt_digest,
+            "target_item_id": target_id,
+        },
+    )
     return ArtReadinessReceipt(
         captured_at=captured_at,
+        correlation_id=correlation_id,
         findings=tuple(findings),
         graph_summary=graph.summary,
+        metrics=metrics,
         mutation_allowed=mutation_allowed,
         operation=operation_name,
         outcome=outcome,

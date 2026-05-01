@@ -21,6 +21,11 @@ from .catalog_manifest import (
     CatalogManifestResult,
     build_catalog_governance_manifest,
 )
+from .observability import (
+    build_correlation_id,
+    operator_readiness_metrics,
+    receipt_metrics_snapshot,
+)
 from .validation_execution import (
     LEDGER_SCHEMA_VERSION,
     ControlReceipt,
@@ -106,7 +111,9 @@ class ReceiptSummary:
     artifact_count: int
     captured_at: str
     check_count: int
+    correlation_id: str | None
     digest: str
+    metrics: dict[str, Any]
     outcome: str
     path: str
     receipt_id: str
@@ -137,9 +144,11 @@ class OperatorReadinessDecision:
     """Compact readiness decision for one operator target and profile."""
 
     authority_refs: tuple[str, ...]
+    correlation_id: str
     decision_id: str
     escalation_target: str | None
     mutation_boundary: str
+    metrics: dict[str, Any]
     outcome: str
     profile: str
     ready: bool
@@ -410,6 +419,7 @@ def evaluate_operator_readiness(
             "outcome": receipt.outcome,
             "receipt_id": receipt.receipt_id,
             "target_scope": receipt.target_scope,
+            "correlation_id": receipt.correlation_id,
         }
         for receipt in list_control_receipts(receipt_dir)[:5]
     )
@@ -427,11 +437,27 @@ def evaluate_operator_readiness(
     decision_digest = sha256(
         json.dumps(digest_payload, sort_keys=True).encode("utf-8"),
     ).hexdigest()
+    correlation_id = build_correlation_id(
+        "readiness",
+        {
+            "decision_digest": decision_digest,
+            "profile": decision_profile,
+            "ready": ready,
+            "target": decision_target,
+        },
+    )
+    metrics = operator_readiness_metrics(
+        ready=ready,
+        reasons=reasons,
+        receipt_refs=receipt_refs,
+    )
     return OperatorReadinessDecision(
         authority_refs=(AUTHORITY_CONTRACT_REF,),
+        correlation_id=correlation_id,
         decision_id=f"readiness-decision:{decision_digest[:24]}",
         escalation_target=None if ready else "workspace-governance",
         mutation_boundary="fabric-local decision record only",
+        metrics=metrics,
         outcome="ready" if ready else "blocked",
         profile=decision_profile,
         ready=ready,
@@ -526,7 +552,9 @@ def _receipt_summary(path: Path) -> ReceiptSummary:
         artifact_count=len(artifact_refs),
         captured_at=str(record["captured_at"]),
         check_count=len(check_results),
+        correlation_id=record.get("correlation_id"),
         digest=str(record["digest"]),
+        metrics=record.get("metrics") if isinstance(record.get("metrics"), dict) else {},
         outcome=str(record["outcome"]),
         path=str(path),
         receipt_id=str(record["receipt_id"]),

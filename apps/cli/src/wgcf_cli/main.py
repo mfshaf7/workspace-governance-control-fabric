@@ -28,6 +28,7 @@ from control_fabric_core import (
     operation_budget_records,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
+    receipt_metrics_snapshot,
     run_catalog_operator_validation_check,
     run_operator_readiness_evaluation,
     run_operator_validation_check,
@@ -340,6 +341,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Print machine-readable JSON for this command.",
     )
+    metrics_parser = subparsers.add_parser("metrics", help="Inspect compact WGCF metrics.")
+    metrics_subparsers = metrics_parser.add_subparsers(dest="metrics_command", required=True)
+    metrics_receipts_parser = metrics_subparsers.add_parser(
+        "receipts",
+        help="Summarize compact receipt metrics without reading raw artifacts.",
+    )
+    metrics_receipts_parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root used to resolve repo-local receipt paths.",
+    )
+    metrics_receipts_parser.add_argument(
+        "--receipt-dir",
+        default=DEFAULT_RECEIPT_DIR,
+        help="Repo-local directory for compact receipt JSON files.",
+    )
+    metrics_receipts_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
     art_parser = subparsers.add_parser("art", help="Inspect broker ART context without mutating ART.")
     art_subparsers = art_parser.add_subparsers(dest="art_command", required=True)
     art_graph_parser = art_subparsers.add_parser("graph", help="Project broker ART context into a compact graph.")
@@ -506,6 +529,21 @@ def render_lifecycle_apply_human(record: dict[str, object]) -> str:
     )
 
 
+def render_receipt_metrics_human(record: dict[str, object]) -> str:
+    metrics = record["metrics"]
+    assert isinstance(metrics, dict)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Receipt Metrics",
+            f"receipt dir: {record['receipt_dir']}",
+            f"receipts: {metrics['receipt_count']}",
+            f"checks: {metrics['check_count']}",
+            f"artifacts: {metrics['artifact_count']}",
+            f"outcomes: {metrics['outcome_counts']}",
+        ],
+    )
+
+
 def render_source_snapshot_human(record: dict[str, object]) -> str:
     snapshot = record["source_snapshot"]
     assert isinstance(snapshot, dict)
@@ -598,6 +636,8 @@ def render_check_human(record: dict[str, object]) -> str:
             f"plan: {plan['plan_id']}",
             f"target: {receipt['target_scope']}",
             f"outcome: {receipt['outcome']}",
+            f"correlation: {receipt.get('correlation_id') or 'unavailable'}",
+            f"metrics: {receipt.get('metrics') or dict()}",
             f"receipt: {receipt['receipt_id']}",
             f"budget: {budget.get('invocation_class', 'unknown')} {budget.get('recommended_action', 'unknown')}",
             f"receipt path: {record['receipt_path']}",
@@ -666,6 +706,8 @@ def render_catalog_check_human(record: dict[str, object]) -> str:
             f"operator approved: {str(catalog['operator_approved']).lower()}",
             f"target: {receipt['target_scope']}",
             f"outcome: {receipt['outcome']}",
+            f"correlation: {receipt.get('correlation_id') or 'unavailable'}",
+            f"metrics: {receipt.get('metrics') or dict()}",
             f"receipt: {receipt['receipt_id']}",
             f"receipt path: {record['receipt_path']}",
             f"ledger path: {record['ledger_path']}",
@@ -683,7 +725,8 @@ def render_receipts_list_human(record: dict[str, object]) -> str:
     receipt_lines = [
         (
             f"- {receipt['receipt_id']} {receipt['outcome']} "
-            f"{receipt['target_scope']} {receipt['captured_at']}"
+            f"{receipt['target_scope']} {receipt['captured_at']} "
+            f"{receipt.get('correlation_id') or 'correlation:unavailable'}"
         )
         for receipt in receipts
     ]
@@ -712,6 +755,8 @@ def render_receipt_inspection_human(record: dict[str, object]) -> str:
             f"receipt: {receipt['receipt_id']}",
             f"target: {receipt['target_scope']}",
             f"outcome: {receipt['outcome']}",
+            f"correlation: {receipt.get('correlation_id') or 'unavailable'}",
+            f"metrics: {receipt.get('metrics') or dict()}",
             f"receipt path: {record['receipt_path']}",
             f"artifacts: {record['artifact_count']}",
             f"raw output embedded: {str(record['raw_output_embedded']).lower()}",
@@ -736,10 +781,12 @@ def render_operator_readiness_human(record: dict[str, object]) -> str:
         [
             "Workspace Governance Control Fabric Readiness",
             f"decision: {record['decision_id']}",
+            f"correlation: {record['correlation_id']}",
             f"target: {record['target']}",
             f"profile: {record['profile']}",
             f"outcome: {record['outcome']}",
             f"ready: {str(record['ready']).lower()}",
+            f"metrics: {record['metrics']}",
             f"mutation boundary: {record['mutation_boundary']}",
             "reasons:",
             *(reason_lines or ["- none"]),
@@ -780,9 +827,11 @@ def render_art_readiness_human(record: dict[str, object]) -> str:
         [
             "Workspace Governance Control Fabric ART Readiness",
             f"receipt: {record['receipt_id']}",
+            f"correlation: {record['correlation_id']}",
             f"target: {record['target_item_id']}",
             f"operation: {record['operation']}",
             f"outcome: {record['outcome']}",
+            f"metrics: {record['metrics']}",
             f"mutation allowed: {str(record['mutation_allowed']).lower()}",
             "findings:",
             *(finding_lines or ["- none"]),
@@ -890,6 +939,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(render_lifecycle_apply_human(record))
         return 0 if result.outcome == "success" else 1
+
+    if args.command == "metrics" and args.metrics_command == "receipts":
+        repo_root = Path(args.repo_root).resolve()
+        receipt_dir = _resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir")
+        receipts = [receipt.to_record() for receipt in list_control_receipts(receipt_dir)]
+        record = {
+            "metrics": receipt_metrics_snapshot(receipts),
+            "receipt_dir": str(receipt_dir.relative_to(repo_root)),
+        }
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_receipt_metrics_human(record))
+        return 0
 
     if args.command == "sources" and args.sources_command == "snapshot":
         repo_root = Path(args.repo_root).resolve()
