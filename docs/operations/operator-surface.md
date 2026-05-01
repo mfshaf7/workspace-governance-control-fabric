@@ -20,13 +20,14 @@ different workflow.
 
 Only the bootstrap status, core-library source snapshot ingestion, manifest
 graph ingestion, fabric-local graph persistence helpers, read-only graph query,
-validation planning, core-library validation execution, core-library policy
+validation planning, core-library validation execution, receipt inspection,
+operator-readiness decisions with local ledger events, core-library policy
 admission, core-library runtime governance records, core-library evidence
 projection surfaces, broker-context ART readiness projection, ART evidence
 packet projection, and local-k3s dev-integration API access are implemented
-now. Treat the remaining CLI
-commands and API routes below as the minimum required interface contract for
-later slices, not as currently available runtime commands.
+now. Treat the remaining CLI commands and API routes below as the minimum
+required interface contract for later slices, not as currently available
+runtime commands.
 
 ## Authority Boundaries
 
@@ -58,11 +59,14 @@ Use this flow for the currently implemented local CLI surface:
    scope.
 5. Run the bounded local check and emit a receipt.
 6. List receipt metadata instead of rereading raw output.
-7. Evaluate broker-owned ART context before mutation when the work is
+7. Inspect a specific compact receipt without reopening raw artifacts.
+8. Evaluate local readiness for known workspace, repo, component, and operator
+   surface targets under a named profile, recording a fabric-local ledger event.
+9. Evaluate broker-owned ART context before mutation when the work is
    delivery-ART closeout or readiness sensitive.
-8. Generate compact ART completion or Review Packet evidence packets from
+10. Generate compact ART completion or Review Packet evidence packets from
    WGCF receipts.
-9. Use artifact and ledger references for handoff or audit.
+11. Use artifact and ledger references for handoff or audit.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
@@ -80,6 +84,8 @@ wgcf check --scope repo:<name>|component:<id>|art:<delivery-id>|changed-file:<pa
 wgcf catalog plan --workspace-root <path> --scope <scope> --profile <profile> --tier smoke|scoped|full|release
 wgcf catalog check --workspace-root <path> --scope <scope> --profile <profile> --tier smoke|scoped|full|release [--operator-approved]
 wgcf receipts list
+wgcf inspect --receipt <receipt-id-or-path>
+wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
 wgcf art graph --context <broker-context.json>
 wgcf art readiness --context <broker-context.json> --operation complete --target-item-id <id>
 wgcf art evidence --receipt <receipt.json> --item <id> --changed-surface <summary> --summary <summary>
@@ -89,8 +95,6 @@ Future CLI shape:
 
 ```bash
 wgcf run --plan <plan-id-or-file> --emit-receipt
-wgcf inspect --receipt <receipt-id-or-path>
-wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
 wgcf ledger tail --limit <n>
 wgcf explain --decision <decision-id>
 ```
@@ -254,9 +258,11 @@ approval and not a replacement for workspace-governance contracts.
 Current implementation can build an in-memory graph from a valid manifest,
 query it through `wgcf graph query` or `GET /v1/graph/query`, build a validation
 plan through `wgcf plan` or `POST /v1/validation-plans`, run bounded local
-checks through `wgcf check`, and list compact receipts through
-`wgcf receipts list` or `GET /v1/receipts`. The graph, plan, receipt, and ledger
-records are fabric-local projections only; they do not mutate authority stores.
+checks through `wgcf check`, list compact receipts through `wgcf receipts list`
+or `GET /v1/receipts`, inspect one compact receipt through `wgcf inspect`, and
+evaluate known local readiness targets through `wgcf readiness`. The graph,
+plan, receipt, readiness decision, and ledger records are fabric-local
+projections only; they do not mutate authority stores.
 
 Catalog-backed validation is the cutover path for workspace validator
 invocation. `wgcf catalog plan` and `wgcf catalog check` consume the
@@ -358,8 +364,12 @@ Current execution behavior:
 - never embeds raw stdout/stderr in receipts or ART notes
 
 CLI `wgcf check` now composes planning plus execution into a local receipt and
-ledger event. CLI `wgcf run --plan`, API `POST /v1/validation-runs`, API-side
-persistence wiring, and worker queue execution remain later slices.
+ledger event. CLI `wgcf inspect` reads compact receipt JSON only and refuses
+paths outside the configured receipt directory. CLI `wgcf readiness` evaluates
+only known targets and supported profiles, then appends a fabric-local ledger
+event for the readiness decision. CLI `wgcf run --plan`, API
+`POST /v1/validation-runs`, API-side persistence wiring, and worker queue
+execution remain later slices.
 
 Policy admission uses the schemas and policies at:
 

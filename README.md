@@ -94,8 +94,9 @@ That surface is constrained by the workspace-owned contract in
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   workspace validator catalog ingestion, deterministic validation planning
   primitives, bounded validation execution,
-  compact receipts, local ledger event helpers, operator-safe plan/check and
-  receipt-list helpers, broker ART runtime-context ingestion, ART readiness
+  compact receipts, local ledger event helpers, operator-safe plan/check,
+  receipt-list, receipt-inspection, and readiness-decision helpers, broker ART
+  runtime-context ingestion, ART readiness
   receipts, bootstrap policy admission decisions, runtime governance records,
   and compact evidence projection adapters.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
@@ -170,6 +171,8 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli catalog plan --repo-root . --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli catalog check --repo-root . --workspace-root /home/mfshaf7/projects --scope component:workspace-governance --profile local-read-only --tier smoke
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli receipts list --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli inspect --repo-root . --receipt <receipt-id-or-path>
+PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli readiness --repo-root . --target operator-surface:wgcf-cli --profile local-read-only
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
 ```
 
@@ -188,12 +191,15 @@ counts, and returns an operator-safe receipt plus ledger event. If the input
 plan is blocked or requires operator review, execution is suppressed and the
 receipt outcome records that state instead of claiming success.
 
-The CLI now exposes that flow through `wgcf plan`, `wgcf check`, and
-`wgcf receipts list`. `wgcf check` writes raw stdout/stderr to local artifact
-files, writes a compact receipt JSON under `.wgcf/receipts` by default, and
-appends a local ledger JSONL event. The API exposes planning and receipt list
-surfaces only; API-side validation execution remains a later platform-gated
-slice.
+The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
+`wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`
+writes raw stdout/stderr to local artifact files, writes a compact receipt JSON
+under `.wgcf/receipts` by default, and appends a local ledger JSONL event.
+`wgcf inspect` reads only compact receipt JSON under the configured receipt
+directory. `wgcf readiness` blocks unknown targets or profiles and appends a
+local readiness ledger event. The API exposes planning and receipt list
+surfaces only; API-side validation execution and readiness evaluation remain
+later platform-gated slices.
 
 Catalog-backed validation is now the normal shadow-parity path for workspace
 validator invocation. `wgcf catalog plan` and `wgcf catalog check` load the

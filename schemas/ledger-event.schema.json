@@ -12,6 +12,7 @@
         "governance.risk.recorded",
         "governance.waiver.recorded",
         "policy.decision.recorded",
+        "readiness.decision.recorded",
         "validation.run.blocked",
         "validation.run.completed"
       ],

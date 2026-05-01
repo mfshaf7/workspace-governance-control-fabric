@@ -12,7 +12,10 @@ sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
 from control_fabric_core import (
     build_operator_validation_plan,
+    evaluate_operator_readiness,
+    inspect_control_receipt,
     list_control_receipts,
+    run_operator_readiness_evaluation,
     run_operator_validation_check,
 )
 
@@ -107,3 +110,73 @@ class OperatorSurfaceTests(TestCase):
             self.assertEqual(len(summaries), 1)
             self.assertEqual(summaries[0].receipt_id, result.receipt.receipt_id)
             self.assertEqual(summaries[0].artifact_count, 2)
+
+            inspection = inspect_control_receipt(
+                result.receipt.receipt_id,
+                receipt_dir=temp_path / "receipts",
+            )
+            inspection_record = inspection.to_record()
+            self.assertEqual(inspection_record["receipt"]["receipt_id"], result.receipt.receipt_id)
+            self.assertFalse(inspection_record["raw_output_embedded"])
+            self.assertNotIn(marker, json.dumps(inspection_record, sort_keys=True))
+
+            outside_receipt = temp_path / "outside-receipt.json"
+            outside_receipt.write_text(json.dumps(result.receipt.to_record()), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                inspect_control_receipt(outside_receipt, receipt_dir=temp_path / "receipts")
+
+    def test_operator_readiness_decision_is_compact_and_read_only(self) -> None:
+        decision = evaluate_operator_readiness(
+            profile="local-read-only",
+            repo_root=REPO_ROOT,
+            target="repo:workspace-governance-control-fabric",
+        )
+        record = decision.to_record()
+
+        self.assertTrue(record["ready"])
+        self.assertEqual(record["outcome"], "ready")
+        self.assertEqual(record["mutation_boundary"], "fabric-local decision record only")
+        self.assertIn(
+            "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",
+            record["authority_refs"],
+        )
+
+    def test_operator_readiness_blocks_unknown_authority_or_profile(self) -> None:
+        unknown_target = evaluate_operator_readiness(
+            profile="local-read-only",
+            repo_root=REPO_ROOT,
+            target="repo:not-a-governed-repo",
+        ).to_record()
+        unknown_profile = evaluate_operator_readiness(
+            profile="ad-hoc",
+            repo_root=REPO_ROOT,
+            target="repo:workspace-governance-control-fabric",
+        ).to_record()
+
+        self.assertFalse(unknown_target["ready"])
+        self.assertEqual(unknown_target["outcome"], "blocked")
+        self.assertIn("unknown repo target: not-a-governed-repo", unknown_target["reasons"])
+        self.assertFalse(unknown_profile["ready"])
+        self.assertIn(
+            "unknown profile: ad-hoc; expected one of local-read-only, dev-integration, governed-stage",
+            unknown_profile["reasons"],
+        )
+
+    def test_operator_readiness_appends_local_ledger_event(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            result = run_operator_readiness_evaluation(
+                actor="test-operator",
+                ledger_path=temp_path / "ledger.jsonl",
+                now="2026-05-01T00:00:00Z",
+                profile="local-read-only",
+                receipt_dir=temp_path / "receipts",
+                repo_root=REPO_ROOT,
+                target="operator-surface:wgcf-cli",
+            )
+            ledger_record = json.loads((temp_path / "ledger.jsonl").read_text(encoding="utf-8"))
+
+        self.assertTrue(result.decision.ready)
+        self.assertEqual(result.ledger_event.action, "readiness.decision.recorded")
+        self.assertEqual(result.ledger_event.outcome, "success")
+        self.assertEqual(ledger_record["action"], "readiness.decision.recorded")

@@ -19,6 +19,10 @@ Current slice:
   validator invocation from the workspace-governance authority catalog,
   including selected/suppressed entry reporting and compact receipts
 - support `wgcf receipts list` for compact local receipt metadata
+- support `wgcf inspect --receipt <receipt-id-or-path>` for compact receipt
+  inspection without reading raw artifacts or leaving the receipt directory
+- support `wgcf readiness --target <target> --profile <profile>` for local
+  readiness decisions with a fabric-local ledger event
 - support `wgcf art graph --context <broker-context.json>` for compact
   broker-owned ART context graph projection
 - support `wgcf art readiness --context <broker-context.json>` for
@@ -27,5 +31,4 @@ Current slice:
   completion and Review Packet evidence projected from WGCF receipts
 - keep all policy meaning pointed at the workspace-governance authority contract
 
-Future slices add readiness decisions, ledger tail/read surfaces, and decision
-explanations.
+Future slices add ledger tail/read surfaces and decision explanations.

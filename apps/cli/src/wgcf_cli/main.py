@@ -18,10 +18,12 @@ from control_fabric_core import (
     build_source_snapshot,
     build_operator_validation_plan,
     evaluate_art_readiness,
+    inspect_control_receipt,
     list_control_receipts,
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
     run_catalog_operator_validation_check,
+    run_operator_readiness_evaluation,
     run_operator_validation_check,
     source_snapshot_status,
     status_snapshot,
@@ -144,6 +146,57 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator or automation actor recorded in the ledger event.",
     )
     check_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect one compact receipt without reading raw artifacts.")
+    inspect_parser.add_argument("--receipt", required=True, help="Receipt id or receipt JSON path.")
+    inspect_parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root used to resolve repo-local receipt paths.",
+    )
+    inspect_parser.add_argument(
+        "--receipt-dir",
+        default=DEFAULT_RECEIPT_DIR,
+        help="Repo-local directory for compact receipt JSON files when --receipt is an id.",
+    )
+    inspect_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    readiness_parser = subparsers.add_parser("readiness", help="Evaluate operator readiness for one target and profile.")
+    readiness_parser.add_argument(
+        "--target",
+        required=True,
+        help="Readiness target: workspace, repo:<name>, component:<name>, or operator-surface:<id>.",
+    )
+    readiness_parser.add_argument("--profile", required=True, help="Readiness profile to evaluate.")
+    readiness_parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root to inspect. Defaults to the current directory.",
+    )
+    readiness_parser.add_argument(
+        "--receipt-dir",
+        default=DEFAULT_RECEIPT_DIR,
+        help="Repo-local directory for compact receipt JSON files.",
+    )
+    readiness_parser.add_argument(
+        "--ledger",
+        default=DEFAULT_LEDGER_PATH,
+        help="Repo-local JSONL ledger file for the readiness decision event.",
+    )
+    readiness_parser.add_argument(
+        "--actor",
+        default="wgcf-local",
+        help="Operator or automation actor recorded in the ledger event.",
+    )
+    readiness_parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -500,6 +553,58 @@ def render_receipts_list_human(record: dict[str, object]) -> str:
     )
 
 
+def render_receipt_inspection_human(record: dict[str, object]) -> str:
+    receipt = record["receipt"]
+    assert isinstance(receipt, dict)
+    status_counts = record["check_status_counts"]
+    assert isinstance(status_counts, dict)
+    status_lines = [
+        f"- {status}: {count}"
+        for status, count in status_counts.items()
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Receipt Inspection",
+            f"receipt: {receipt['receipt_id']}",
+            f"target: {receipt['target_scope']}",
+            f"outcome: {receipt['outcome']}",
+            f"receipt path: {record['receipt_path']}",
+            f"artifacts: {record['artifact_count']}",
+            f"raw output embedded: {str(record['raw_output_embedded']).lower()}",
+            "check statuses:",
+            *(status_lines or ["- none"]),
+            f"next action: {record['next_action']}",
+        ],
+    )
+
+
+def render_operator_readiness_human(record: dict[str, object]) -> str:
+    reasons = record["reasons"]
+    receipt_refs = record["receipt_refs"]
+    assert isinstance(reasons, list)
+    assert isinstance(receipt_refs, list)
+    reason_lines = [f"- {reason}" for reason in reasons]
+    receipt_lines = [
+        f"- {receipt['receipt_id']} {receipt['outcome']} {receipt['target_scope']}"
+        for receipt in receipt_refs
+    ]
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Readiness",
+            f"decision: {record['decision_id']}",
+            f"target: {record['target']}",
+            f"profile: {record['profile']}",
+            f"outcome: {record['outcome']}",
+            f"ready: {str(record['ready']).lower()}",
+            f"mutation boundary: {record['mutation_boundary']}",
+            "reasons:",
+            *(reason_lines or ["- none"]),
+            "receipt refs:",
+            *(receipt_lines or ["- none"]),
+        ],
+    )
+
+
 def render_art_graph_human(record: dict[str, object]) -> str:
     summary = record["summary"]
     assert isinstance(summary, dict)
@@ -627,6 +732,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(render_check_human(record))
         return 0 if result.receipt.outcome == "success" else 1
+
+    if args.command == "inspect":
+        repo_root = Path(args.repo_root).resolve()
+        receipt_dir = _resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir")
+        record = inspect_control_receipt(args.receipt, receipt_dir=receipt_dir).to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_receipt_inspection_human(record))
+        return 0
+
+    if args.command == "readiness":
+        repo_root = Path(args.repo_root).resolve()
+        receipt_dir = _resolve_repo_local_path(repo_root, args.receipt_dir, "receipt-dir")
+        result = run_operator_readiness_evaluation(
+            actor=args.actor,
+            ledger_path=_resolve_repo_local_path(repo_root, args.ledger, "ledger"),
+            profile=args.profile,
+            receipt_dir=receipt_dir,
+            repo_root=repo_root,
+            target=args.target,
+        )
+        record = result.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_operator_readiness_human(record))
+        return 0 if record["ready"] else 1
 
     if args.command == "catalog" and args.catalog_command == "plan":
         repo_root = Path(args.repo_root).resolve()

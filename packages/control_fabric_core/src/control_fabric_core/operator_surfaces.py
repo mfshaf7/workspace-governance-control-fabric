@@ -9,16 +9,20 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
+from hashlib import sha256
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .foundation import AUTHORITY_CONTRACT_REF, RUNTIME_REPO, status_snapshot
 from .graph_queries import load_governance_manifest_file
 from .catalog_manifest import (
     CatalogManifestResult,
     build_catalog_governance_manifest,
 )
 from .validation_execution import (
+    LEDGER_SCHEMA_VERSION,
     ControlReceipt,
     LedgerEvent,
     append_ledger_event,
@@ -31,6 +35,8 @@ from .validation_planning import ValidationPlan, build_validation_plan
 DEFAULT_ARTIFACT_ROOT = ".wgcf/artifacts"
 DEFAULT_LEDGER_PATH = ".wgcf/ledger.jsonl"
 DEFAULT_RECEIPT_DIR = ".wgcf/receipts"
+SUPPORTED_OPERATOR_PROFILES = ("local-read-only", "dev-integration", "governed-stage")
+KNOWN_OPERATOR_SURFACE_IDS = ("wgcf-cli",)
 
 
 @dataclass(frozen=True)
@@ -109,6 +115,59 @@ class ReceiptSummary:
 
     def to_record(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ReceiptInspection:
+    """Operator-safe detailed view of one receipt."""
+
+    artifact_count: int
+    check_status_counts: dict[str, int]
+    next_action: str
+    raw_output_embedded: bool
+    receipt: dict[str, Any]
+    receipt_path: str
+
+    def to_record(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class OperatorReadinessDecision:
+    """Compact readiness decision for one operator target and profile."""
+
+    authority_refs: tuple[str, ...]
+    decision_id: str
+    escalation_target: str | None
+    mutation_boundary: str
+    outcome: str
+    profile: str
+    ready: bool
+    reasons: tuple[str, ...]
+    receipt_refs: tuple[dict[str, str], ...]
+    target: str
+
+    def to_record(self) -> dict[str, Any]:
+        record = asdict(self)
+        record["authority_refs"] = list(self.authority_refs)
+        record["reasons"] = list(self.reasons)
+        record["receipt_refs"] = list(self.receipt_refs)
+        return record
+
+
+@dataclass(frozen=True)
+class OperatorReadinessResult:
+    """Readiness decision plus the local ledger append result."""
+
+    decision: OperatorReadinessDecision
+    ledger_event: LedgerEvent
+    ledger_path: str
+
+    def to_record(self) -> dict[str, Any]:
+        record = self.decision.to_record()
+        record["ledger_event"] = self.ledger_event.to_record()
+        record["ledger_path"] = self.ledger_path
+        return record
 
 
 def build_operator_validation_plan(
@@ -261,6 +320,158 @@ def list_control_receipts(receipt_dir: str | Path) -> tuple[ReceiptSummary, ...]
     )
 
 
+def inspect_control_receipt(
+    receipt_ref: str | Path,
+    *,
+    receipt_dir: str | Path = DEFAULT_RECEIPT_DIR,
+) -> ReceiptInspection:
+    """Inspect one compact receipt without reading raw artifact output."""
+
+    path = _resolve_receipt_ref(receipt_ref, receipt_dir)
+    record = _load_receipt_record(path)
+    required = ("captured_at", "digest", "outcome", "receipt_id", "target_scope", "tier")
+    missing = [field for field in required if not str(record.get(field) or "").strip()]
+    if missing:
+        raise ValueError(f"receipt {path} missing required fields: {', '.join(missing)}")
+    artifact_refs = record.get("artifact_refs") or []
+    check_results = record.get("check_results") or []
+    if not isinstance(artifact_refs, list):
+        raise ValueError(f"receipt {path} artifact_refs must be an array")
+    if not isinstance(check_results, list):
+        raise ValueError(f"receipt {path} check_results must be an array")
+
+    status_counts: dict[str, int] = {}
+    for result in check_results:
+        if not isinstance(result, dict):
+            continue
+        status = str(result.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    outcome = str(record.get("outcome") or "unknown")
+    return ReceiptInspection(
+        artifact_count=len(artifact_refs),
+        check_status_counts=dict(sorted(status_counts.items())),
+        next_action=(
+            "Use receipt and artifact references as compact evidence."
+            if outcome == "success"
+            else "Inspect referenced artifacts locally and route the failing control through its owner."
+        ),
+        raw_output_embedded=False,
+        receipt=record,
+        receipt_path=str(path),
+    )
+
+
+def evaluate_operator_readiness(
+    *,
+    profile: str,
+    receipt_dir: str | Path = DEFAULT_RECEIPT_DIR,
+    repo_root: str | Path,
+    target: str,
+) -> OperatorReadinessDecision:
+    """Evaluate local operator-readiness posture without mutating authority stores."""
+
+    root = Path(repo_root).resolve()
+    target_value = str(target or "").strip()
+    profile_value = str(profile or "").strip()
+    reasons: list[str] = []
+    if not target_value:
+        reasons.append("target is required")
+    if not profile_value:
+        reasons.append("profile is required")
+    elif profile_value not in SUPPORTED_OPERATOR_PROFILES:
+        reasons.append(
+            f"unknown profile: {profile_value}; expected one of {', '.join(SUPPORTED_OPERATOR_PROFILES)}",
+        )
+    if target_value and not _target_supported(target_value):
+        reasons.append(
+            "target must be workspace, repo:<name>, component:<name>, or operator-surface:<id>",
+        )
+
+    snapshot = status_snapshot(root)
+    target_authority_reasons = _target_authority_reasons(root, target_value)
+    reasons.extend(target_authority_reasons)
+    missing_paths = [
+        path
+        for path, present in sorted(snapshot["required_paths"].items())
+        if not present
+    ]
+    for missing in missing_paths:
+        reasons.append(f"required path missing: {missing}")
+
+    if target_value.startswith("operator-surface:") and not (
+        root / "docs/operations/operator-surface.md"
+    ).is_file():
+        reasons.append("operator surface document is missing")
+
+    receipt_refs = tuple(
+        {
+            "digest": receipt.digest,
+            "outcome": receipt.outcome,
+            "receipt_id": receipt.receipt_id,
+            "target_scope": receipt.target_scope,
+        }
+        for receipt in list_control_receipts(receipt_dir)[:5]
+    )
+    ready = not reasons
+    decision_profile = profile_value or "unknown"
+    decision_target = target_value or "unknown"
+    digest_payload = {
+        "authority_ref": AUTHORITY_CONTRACT_REF,
+        "profile": decision_profile,
+        "ready": ready,
+        "reasons": reasons,
+        "receipt_refs": receipt_refs,
+        "target": decision_target,
+    }
+    decision_digest = sha256(
+        json.dumps(digest_payload, sort_keys=True).encode("utf-8"),
+    ).hexdigest()
+    return OperatorReadinessDecision(
+        authority_refs=(AUTHORITY_CONTRACT_REF,),
+        decision_id=f"readiness-decision:{decision_digest[:24]}",
+        escalation_target=None if ready else "workspace-governance",
+        mutation_boundary="fabric-local decision record only",
+        outcome="ready" if ready else "blocked",
+        profile=decision_profile,
+        ready=ready,
+        reasons=tuple(reasons),
+        receipt_refs=receipt_refs,
+        target=decision_target,
+    )
+
+
+def run_operator_readiness_evaluation(
+    *,
+    actor: str = "wgcf-local",
+    ledger_path: str | Path = DEFAULT_LEDGER_PATH,
+    profile: str,
+    receipt_dir: str | Path = DEFAULT_RECEIPT_DIR,
+    repo_root: str | Path,
+    target: str,
+    now: datetime | str | None = None,
+) -> OperatorReadinessResult:
+    """Evaluate readiness and append a fabric-local ledger event."""
+
+    decision = evaluate_operator_readiness(
+        profile=profile,
+        receipt_dir=receipt_dir,
+        repo_root=repo_root,
+        target=target,
+    )
+    event = _operator_readiness_ledger_event(
+        actor=actor,
+        decision=decision,
+        event_time=_coerce_timestamp(now),
+    )
+    event_path = append_ledger_event(ledger_path, event)
+    return OperatorReadinessResult(
+        decision=decision,
+        ledger_event=event,
+        ledger_path=str(event_path),
+    )
+
+
 def _catalog_summary_for_plan(
     catalog: CatalogManifestResult,
     plan: ValidationPlan,
@@ -298,10 +509,7 @@ def _catalog_summary_for_plan(
 
 
 def _receipt_summary(path: Path) -> ReceiptSummary:
-    try:
-        record = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid receipt JSON: {path}") from exc
+    record = _load_receipt_record(path)
 
     required = ("captured_at", "digest", "outcome", "receipt_id", "target_scope", "tier")
     missing = [field for field in required if not str(record.get(field) or "").strip()]
@@ -325,6 +533,142 @@ def _receipt_summary(path: Path) -> ReceiptSummary:
         target_scope=str(record["target_scope"]),
         tier=str(record["tier"]),
     )
+
+
+def _load_receipt_record(path: Path) -> dict[str, Any]:
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid receipt JSON: {path}") from exc
+    if not isinstance(record, dict):
+        raise ValueError(f"receipt {path} must be a JSON object")
+    return record
+
+
+def _resolve_receipt_ref(receipt_ref: str | Path, receipt_dir: str | Path) -> Path:
+    ref = Path(receipt_ref)
+    root = Path(receipt_dir).resolve()
+    candidates = []
+    if ref.is_absolute():
+        resolved = ref.resolve()
+        if resolved.is_relative_to(root):
+            candidates.append(resolved)
+    if not ref.is_absolute():
+        candidates.extend(
+            [
+                root / ref,
+                root / f"{_safe_file_stem(str(receipt_ref))}.json",
+            ],
+        )
+
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved.is_relative_to(root) and resolved.is_file():
+            return resolved
+    raise ValueError(f"receipt not found: {receipt_ref}")
+
+
+def _target_supported(target: str) -> bool:
+    return (
+        target == "workspace"
+        or target.startswith("repo:")
+        or target.startswith("component:")
+        or target.startswith("operator-surface:")
+    )
+
+
+def _target_authority_reasons(root: Path, target: str) -> list[str]:
+    if not target or not _target_supported(target):
+        return []
+
+    known = _known_authority_targets(root)
+    if target == "workspace":
+        if not (root.parent / "workspace-governance").is_dir():
+            return ["workspace authority repo missing: workspace-governance"]
+        return []
+
+    target_kind, target_id = target.split(":", 1)
+    if target_kind == "repo" and target_id not in known["repos"]:
+        return [f"unknown repo target: {target_id}"]
+    if target_kind == "component" and target_id not in known["components"]:
+        return [f"unknown component target: {target_id}"]
+    if target_kind == "operator-surface" and target_id not in known["operator_surfaces"]:
+        return [f"unknown operator surface target: {target_id}"]
+    return []
+
+
+def _known_authority_targets(root: Path) -> dict[str, set[str]]:
+    targets = {
+        "components": set(),
+        "operator_surfaces": set(KNOWN_OPERATOR_SURFACE_IDS),
+        "repos": {RUNTIME_REPO},
+    }
+    manifest_path = root / "examples/governance-manifest.example.json"
+    if not manifest_path.is_file():
+        return targets
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return targets
+    if not isinstance(manifest, dict):
+        return targets
+    for repo in manifest.get("repos") or []:
+        if isinstance(repo, dict) and str(repo.get("repo_id") or "").strip():
+            targets["repos"].add(str(repo["repo_id"]))
+    for component in manifest.get("components") or []:
+        if isinstance(component, dict) and str(component.get("component_id") or "").strip():
+            targets["components"].add(str(component["component_id"]))
+    return targets
+
+
+def _operator_readiness_ledger_event(
+    *,
+    actor: str,
+    decision: OperatorReadinessDecision,
+    event_time: datetime,
+) -> LedgerEvent:
+    event_time_text = event_time.isoformat().replace("+00:00", "Z")
+    outcome = "success" if decision.ready else "blocked"
+    receipt_refs = tuple(
+        {
+            key: value
+            for key, value in receipt_ref.items()
+            if key in {"digest", "outcome", "receipt_id"}
+        }
+        for receipt_ref in decision.receipt_refs
+    )
+    digest_payload = {
+        "action": "readiness.decision.recorded",
+        "actor": actor,
+        "decision_id": decision.decision_id,
+        "event_time": event_time_text,
+        "outcome": outcome,
+        "receipt_refs": receipt_refs,
+        "target": decision.target,
+    }
+    event_digest = sha256(
+        json.dumps(digest_payload, sort_keys=True).encode("utf-8"),
+    ).hexdigest()
+    return LedgerEvent(
+        action="readiness.decision.recorded",
+        actor=str(actor or "wgcf-local"),
+        artifact_refs=(),
+        event_id=f"ledger-event:{event_digest[:24]}",
+        event_time=event_time_text,
+        outcome=outcome,
+        receipt_refs=receipt_refs,
+        schema_version=LEDGER_SCHEMA_VERSION,
+        target=decision.target,
+    )
+
+
+def _coerce_timestamp(value: datetime | str | None) -> datetime:
+    if value is None:
+        return datetime.now(UTC)
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized)
 
 
 def _safe_file_stem(value: str) -> str:
