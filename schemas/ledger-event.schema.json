@@ -11,6 +11,7 @@
         "governance.change.recorded",
         "governance.risk.recorded",
         "governance.waiver.recorded",
+        "lifecycle.retention.applied",
         "policy.decision.recorded",
         "readiness.decision.recorded",
         "validation.run.blocked",
@@ -115,6 +116,35 @@
         "required": [
           "digest",
           "receipt_id"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "record_refs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "record_id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "record_type": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "digest",
+          "record_id",
+          "record_type"
         ],
         "type": "object"
       },

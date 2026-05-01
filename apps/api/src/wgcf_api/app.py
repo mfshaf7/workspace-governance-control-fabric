@@ -11,14 +11,18 @@ from fastapi import FastAPI, HTTPException, Query
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
     DEFAULT_ARTIFACT_ROOT,
+    DEFAULT_LEDGER_EXPORT_DIR,
     DEFAULT_LEDGER_PATH,
     DEFAULT_RECEIPT_DIR,
+    DEFAULT_RETENTION_PROFILE,
     PACKAGE_VERSION,
     RUNTIME_REPO,
+    apply_retention_plan,
     build_art_runtime_graph,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
+    build_retention_plan,
     evaluate_operation_budget,
     evaluate_art_readiness,
     graph_summary,
@@ -127,6 +131,76 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
                 else None
             ),
             "profile": profile,
+        }
+
+    @app.post("/v1/lifecycle/retention-plan")
+    async def lifecycle_retention_plan(request: dict[str, Any]) -> dict[str, Any]:
+        try:
+            plan = build_retention_plan(
+                artifact_root=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("artifact_root") or DEFAULT_ARTIFACT_ROOT),
+                    "artifact_root",
+                ),
+                export_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("export_dir") or DEFAULT_LEDGER_EXPORT_DIR),
+                    "export_dir",
+                ),
+                ledger_path=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("ledger") or DEFAULT_LEDGER_PATH),
+                    "ledger",
+                ),
+                profile=str(request.get("profile") or DEFAULT_RETENTION_PROFILE),
+                receipt_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("receipt_dir") or DEFAULT_RECEIPT_DIR),
+                    "receipt_dir",
+                ),
+                repo_root=resolved_repo_root,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "retention_plan": plan.to_record(),
+        }
+
+    @app.post("/v1/lifecycle/retention-apply")
+    async def lifecycle_retention_apply(request: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result = apply_retention_plan(
+                actor=str(request.get("actor") or "wgcf-api").strip(),
+                artifact_root=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("artifact_root") or DEFAULT_ARTIFACT_ROOT),
+                    "artifact_root",
+                ),
+                confirm=bool(request.get("confirm", False)),
+                export_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("export_dir") or DEFAULT_LEDGER_EXPORT_DIR),
+                    "export_dir",
+                ),
+                ledger_path=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("ledger") or DEFAULT_LEDGER_PATH),
+                    "ledger",
+                ),
+                profile=str(request.get("profile") or DEFAULT_RETENTION_PROFILE),
+                receipt_dir=_resolve_local_path(
+                    resolved_repo_root,
+                    str(request.get("receipt_dir") or DEFAULT_RECEIPT_DIR),
+                    "receipt_dir",
+                ),
+                repo_root=resolved_repo_root,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if result.outcome == "blocked":
+            raise HTTPException(status_code=400, detail=result.errors[0])
+        return {
+            "retention_apply": result.to_record(),
         }
 
     @app.get("/v1/source-snapshots/status")

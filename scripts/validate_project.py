@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import tempfile
 import tomllib
@@ -34,6 +35,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_ingestion.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_persistence.py",
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
+    "packages/control_fabric_core/src/control_fabric_core/lifecycle.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
     "packages/control_fabric_core/src/control_fabric_core/performance_budgets.py",
@@ -140,6 +142,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_art_runtime_graph,
         build_manifest_graph,
         build_operator_validation_plan,
+        build_retention_plan,
         build_source_snapshot,
         bootstrap_validation_contract,
         build_policy_ledger_event,
@@ -161,6 +164,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         query_manifest_graph,
         record_blocker_decision,
         record_change_event,
+        apply_retention_plan,
         run_operator_readiness_evaluation,
         run_operator_validation_check,
         status_snapshot,
@@ -221,6 +225,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     budget_parsed = parser.parse_args(["budget", "show", "--operation", "art.continuation"])
     if budget_parsed.command != "budget" or budget_parsed.budget_command != "show":
         errors.append("wgcf parser did not accept budget show command")
+    lifecycle_parsed = parser.parse_args(["lifecycle", "plan", "--repo-root", str(repo_root)])
+    if lifecycle_parsed.command != "lifecycle" or lifecycle_parsed.lifecycle_command != "plan":
+        errors.append("wgcf parser did not accept lifecycle plan command")
     inspect_parsed = parser.parse_args(["inspect", "--receipt", "control-receipt:example"])
     if inspect_parsed.command != "inspect":
         errors.append("wgcf parser did not accept inspect command")
@@ -253,6 +260,8 @@ def validate_imports(repo_root: Path) -> list[str]:
         "/v1/receipts/{receipt_id}",
         "/v1/readiness/evaluate",
         "/v1/budgets",
+        "/v1/lifecycle/retention-plan",
+        "/v1/lifecycle/retention-apply",
     ):
         if required_route not in route_paths:
             errors.append(f"FastAPI route missing: {required_route}")
@@ -479,6 +488,45 @@ def validate_imports(repo_root: Path) -> list[str]:
             errors.append("operator readiness did not emit the readiness ledger action")
         if not Path(readiness_result.ledger_path).is_file():
             errors.append("operator readiness did not append a ledger event")
+        old_artifact = temp_path / "lifecycle/artifacts/old.txt"
+        old_artifact.parent.mkdir(parents=True, exist_ok=True)
+        old_artifact.write_text("old artifact", encoding="utf-8")
+        os.utime(old_artifact, (0, 0))
+        lifecycle_plan = build_retention_plan(
+            artifact_root=temp_path / "lifecycle/artifacts",
+            ledger_path=temp_path / "lifecycle-ledger.jsonl",
+            now="2026-04-30T00:00:00Z",
+            profile="developer",
+            receipt_dir=temp_path / "lifecycle/receipts",
+            repo_root=repo_root,
+        )
+        if lifecycle_plan.summary["artifact_delete_count"] != 1:
+            errors.append("lifecycle retention plan did not identify the old artifact")
+        blocked_lifecycle = apply_retention_plan(
+            artifact_root=temp_path / "lifecycle/artifacts",
+            confirm=False,
+            ledger_path=temp_path / "lifecycle-ledger.jsonl",
+            now="2026-04-30T00:00:00Z",
+            receipt_dir=temp_path / "lifecycle/receipts",
+            repo_root=repo_root,
+        )
+        if blocked_lifecycle.outcome != "blocked":
+            errors.append("lifecycle retention apply must block without confirmation")
+        lifecycle_result = apply_retention_plan(
+            actor="wgcf-project-validator",
+            artifact_root=temp_path / "lifecycle/artifacts",
+            confirm=True,
+            ledger_path=temp_path / "lifecycle-ledger.jsonl",
+            now="2026-04-30T00:00:00Z",
+            receipt_dir=temp_path / "lifecycle/receipts",
+            repo_root=repo_root,
+        )
+        if lifecycle_result.outcome != "success":
+            errors.append("lifecycle retention apply did not succeed with confirmation")
+        if old_artifact.exists():
+            errors.append("lifecycle retention apply did not remove the old artifact")
+        if lifecycle_result.ledger_event is None or lifecycle_result.ledger_event["action"] != "lifecycle.retention.applied":
+            errors.append("lifecycle retention apply did not append the lifecycle ledger action")
     receipt_record = execution_result.receipt.to_record()
     if receipt_record["suppressed_output_summary"]["raw_output_in_receipt"]:
         errors.append("validation receipt must not embed raw validator output")
