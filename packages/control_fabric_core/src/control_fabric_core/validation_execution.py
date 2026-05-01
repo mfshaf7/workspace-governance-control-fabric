@@ -19,6 +19,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from .performance_budgets import coerce_execution_limits
 from .validation_planning import (
     ValidationExecutionMode,
     ValidationPlan,
@@ -262,6 +263,7 @@ def execute_validation_plan(
         "custody": _artifact_custody_summary(tuple(artifact_refs)),
         "execution_suppressed": plan.decision.outcome != "planned",
         "planner_outcome": plan.decision.outcome,
+        "performance_budget": getattr(plan, "performance_budget", {}),
         "raw_output_in_receipt": False,
         "suppressed_streams": sorted(
             {
@@ -428,16 +430,14 @@ def _run_command_check(
                 "suppressed": True,
             },
         )
-    effective_timeout_seconds = _policy_int(
-        execution_policy.get("timeout_seconds"),
-        default=timeout_seconds,
-        minimum=1,
+    execution_limits = coerce_execution_limits(
+        execution_policy,
+        default_timeout_seconds=timeout_seconds,
+        profile=str(execution_policy.get("profile") or DEFAULT_EXECUTION_PROFILE),
     )
-    retry_count = _policy_int(execution_policy.get("retry_count"), default=0, minimum=0)
-    output_budget_bytes = _optional_policy_int(
-        execution_policy.get("output_budget_bytes"),
-        minimum=0,
-    )
+    effective_timeout_seconds = execution_limits.timeout_seconds
+    retry_count = execution_limits.retry_count
+    output_budget_bytes = execution_limits.output_budget_bytes
     fail_on_budget = bool(execution_policy.get("fail_on_output_budget_exceeded", False))
 
     command_env = _base_command_env()
@@ -535,6 +535,7 @@ def _run_command_check(
         "attempt_count": len(attempt_summaries),
         "attempts": attempt_summaries,
         "output_budget": budget_decision,
+        "performance_budget": execution_limits.to_record(),
         "retry_count": retry_count,
         "safety": _safety_summary(args=args, execution_policy=execution_policy),
         "stderr": _stream_summary(final_stderr, final_stderr_ref),
@@ -583,21 +584,6 @@ def _blocked_check_result(
 def _execution_policy(check) -> dict[str, Any]:
     policy = getattr(check, "execution_policy", {})
     return policy if isinstance(policy, dict) else {}
-
-
-def _policy_int(value: Any, *, default: int, minimum: int) -> int:
-    parsed = _optional_policy_int(value, minimum=minimum)
-    return default if parsed is None else parsed
-
-
-def _optional_policy_int(value: Any, *, minimum: int) -> int | None:
-    if value is None:
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed >= minimum else None
 
 
 def _output_budget_decision(
@@ -686,6 +672,8 @@ def _safety_summary(*, args: list[str], execution_policy: dict[str, Any]) -> dic
         "blocked_env_vars": blocked_env_vars,
         "decision": "allowed",
         "executable": args[0] if args else None,
+        "invocation_class": str(execution_policy.get("invocation_class") or "hard-gate"),
+        "max_duration_ms": execution_policy.get("max_duration_ms"),
         "profile": _execution_profile(execution_policy),
         "safety_class": _safety_class(execution_policy),
         "sanitized_base_env": True,

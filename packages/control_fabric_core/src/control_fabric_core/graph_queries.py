@@ -8,26 +8,35 @@ from pathlib import Path
 from typing import Any
 
 from .graph_ingestion import ManifestGraph, ManifestGraphEdge, ManifestGraphNode, build_manifest_graph
+from .performance_budgets import evaluate_operation_budget, paginate_items
 
 
 @dataclass(frozen=True)
 class ManifestGraphQueryResult:
     """Compact graph slice returned for one operator query scope."""
 
-    scope: str
+    budget_decision: dict[str, Any]
+    edge_pagination: dict[str, Any]
     manifest_id: str
     nodes: tuple[ManifestGraphNode, ...]
     edges: tuple[ManifestGraphEdge, ...]
+    node_pagination: dict[str, Any]
+    scope: str
 
     def to_record(self) -> dict[str, Any]:
         return {
+            "budget_decision": self.budget_decision,
             "edges": [edge.to_record() for edge in self.edges],
+            "edge_pagination": self.edge_pagination,
             "manifest_id": self.manifest_id,
             "nodes": [node.to_record() for node in self.nodes],
+            "node_pagination": self.node_pagination,
             "scope": self.scope,
             "summary": {
                 "edge_count": len(self.edges),
+                "edge_total_count": self.edge_pagination["total_count"],
                 "node_count": len(self.nodes),
+                "node_total_count": self.node_pagination["total_count"],
             },
         }
 
@@ -45,7 +54,14 @@ def build_graph_from_manifest_file(manifest_path: str | Path) -> ManifestGraph:
     return build_manifest_graph(load_governance_manifest_file(manifest_path))
 
 
-def query_manifest_graph(manifest: dict[str, Any], scope: str) -> ManifestGraphQueryResult:
+def query_manifest_graph(
+    manifest: dict[str, Any],
+    scope: str,
+    *,
+    budget_profile: str = "developer",
+    limit: int | None = None,
+    offset: int = 0,
+) -> ManifestGraphQueryResult:
     """Return a deterministic graph slice for a repo, component, validator, projection, or ART scope."""
 
     graph = build_manifest_graph(manifest)
@@ -75,18 +91,57 @@ def query_manifest_graph(manifest: dict[str, Any], scope: str) -> ManifestGraphQ
         for node_id in sorted(selected_node_ids)
         if node_id in node_by_id or node_id.startswith("scope:")
     )
+    node_page, node_pagination = paginate_items(
+        selected_nodes,
+        limit=limit,
+        offset=offset,
+        operation="graph.query",
+        profile=budget_profile,
+    )
+    edge_page, edge_pagination = paginate_items(
+        tuple(sorted(selected_edges, key=lambda edge: edge.edge_id)),
+        limit=limit,
+        offset=offset,
+        operation="graph.query",
+        profile=budget_profile,
+    )
+    budget_decision = evaluate_operation_budget(
+        "graph.query",
+        observed={
+            "graph_edges": len(selected_edges),
+            "graph_nodes": len(selected_nodes),
+            "page_limit": node_pagination.effective_limit,
+        },
+        profile=budget_profile,
+    ).to_record()
     return ManifestGraphQueryResult(
-        edges=tuple(sorted(selected_edges, key=lambda edge: edge.edge_id)),
+        budget_decision=budget_decision,
+        edges=edge_page,
+        edge_pagination=edge_pagination.to_record(),
         manifest_id=graph.manifest_id,
-        nodes=selected_nodes,
+        nodes=node_page,
+        node_pagination=node_pagination.to_record(),
         scope=normalized_scope,
     )
 
 
-def query_manifest_file(manifest_path: str | Path, scope: str) -> ManifestGraphQueryResult:
+def query_manifest_file(
+    manifest_path: str | Path,
+    scope: str,
+    *,
+    budget_profile: str = "developer",
+    limit: int | None = None,
+    offset: int = 0,
+) -> ManifestGraphQueryResult:
     """Load a manifest file and query its graph projection."""
 
-    return query_manifest_graph(load_governance_manifest_file(manifest_path), scope)
+    return query_manifest_graph(
+        load_governance_manifest_file(manifest_path),
+        scope,
+        budget_profile=budget_profile,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def graph_summary(graph: ManifestGraph) -> dict[str, Any]:

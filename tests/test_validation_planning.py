@@ -43,6 +43,8 @@ class ValidationPlanningTests(TestCase):
 
         self.assertEqual(plan.decision.outcome, "planned")
         self.assertFalse(plan.decision.requires_operator_review)
+        self.assertEqual(plan.performance_budget["invocation_class"], "inline-fast")
+        self.assertTrue(plan.performance_budget["within_budget"])
         self.assertEqual(plan.target.target_type, "repo")
         self.assertEqual(
             [check.validator_id for check in plan.checks],

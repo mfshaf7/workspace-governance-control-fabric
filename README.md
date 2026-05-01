@@ -96,7 +96,7 @@ That surface is constrained by the workspace-owned contract in
   SQLAlchemy models, runtime governance manifest schema helpers,
   manifest-to-graph ingestion primitives, read-only graph query helpers,
   workspace validator catalog ingestion, deterministic validation planning
-  primitives, bounded validation execution,
+  primitives, invocation-class performance budgets, bounded validation execution,
   compact receipts, local ledger event helpers, operator-safe plan/check,
   receipt-list, receipt-inspection, and readiness-decision helpers, broker ART
   runtime-context ingestion, ART readiness

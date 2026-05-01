@@ -110,12 +110,26 @@ class ApiTests(TestCase):
 
     def test_graph_query_returns_scope_slice(self) -> None:
         status, payload = asyncio.run(
-            asgi_get_json("/v1/graph/query?scope=repo:workspace-governance-control-fabric"),
+            asgi_get_json("/v1/graph/query?scope=repo:workspace-governance-control-fabric&limit=1"),
         )
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["query"]["scope"], "repo:workspace-governance-control-fabric")
-        self.assertGreater(payload["query"]["summary"]["node_count"], 0)
+        self.assertEqual(payload["query"]["summary"]["node_count"], 1)
+        self.assertGreater(payload["query"]["summary"]["node_total_count"], 1)
+        self.assertEqual(payload["query"]["budget_decision"]["invocation_class"], "inline-fast")
+
+    def test_budgets_endpoint_exposes_invocation_class_contract(self) -> None:
+        status, payload = asyncio.run(asgi_get_json("/v1/budgets?operation=draft.submit"))
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["profile"], "developer")
+        self.assertEqual(payload["budgets"][0]["operation"], "draft.submit")
+        self.assertEqual(payload["budgets"][0]["invocation_class"], "receipt-check")
+        self.assertEqual(
+            payload["evaluation"]["recommended_action"],
+            "verify_payload_digest_and_fresh_receipt",
+        )
 
     def test_graph_rejects_manifest_path_escape(self) -> None:
         status, payload = asyncio.run(asgi_get_json("/v1/graph?manifest_path=../outside.json"))
@@ -153,6 +167,7 @@ class ApiTests(TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload["plan"]["decision"]["outcome"], "planned")
+        self.assertEqual(payload["plan"]["performance_budget"]["invocation_class"], "inline-fast")
         self.assertEqual(payload["plan"]["checks"][0]["validator_id"], "control-fabric-status-smoke")
 
     def test_receipts_endpoint_lists_empty_receipt_directory(self) -> None:

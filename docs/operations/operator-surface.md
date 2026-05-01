@@ -314,10 +314,31 @@ again and records the cache decision reason in the plan.
 
 Manifest validators may also declare `execution_policy.timeout_seconds`,
 `execution_policy.retry_count`, `execution_policy.output_budget_bytes`, and
-`execution_policy.fail_on_output_budget_exceeded`. These are runtime execution
-controls only; they do not decide workspace policy. Receipts record timeout,
-retry, and output-budget decisions as compact metadata while raw stdout/stderr
-remain in receipt-linked artifacts.
+`execution_policy.fail_on_output_budget_exceeded`. They may also declare
+`execution_policy.invocation_class` and `execution_policy.max_duration_ms` so
+the operator can see whether a check is intended for inline use, receipt
+verification, a hard gate, checkpoint batching, or offline advisory analysis.
+These are runtime execution controls only; they do not decide workspace policy.
+Receipts record timeout, retry, output-budget, and invocation-budget decisions
+as compact metadata while raw stdout/stderr remain in receipt-linked artifacts.
+
+WGCF operation classes are deliberately tiered so the fabric does not become a
+synchronous tax on every operator action:
+
+- `inline-fast`: compact context/graph/planning reads such as ART continuation
+  and graph query; these must stay bounded and paginated
+- `receipt-check`: submit paths verify payload digests and fresh receipts
+  instead of recomputing full validation
+- `hard-gate`: completion, blocker, risk, and other irreversible mutations can
+  fail closed before the owning adapter writes
+- `checkpoint-batch`: projection sync, full quality, and broad graph work run
+  at evidence checkpoints rather than on every draft mutation
+- `offline-advisory`: new or unclassified future operations must be classified
+  before becoming synchronous gates
+
+CLI `wgcf budget show` and API `GET /v1/budgets` expose this budget contract.
+Graph queries apply the `graph.query` page-size budget and return pagination
+metadata with the compact result.
 
 Execution policy also carries the first validator safety controls:
 `execution_policy.profile`, `execution_policy.safety_class`,
@@ -353,15 +374,15 @@ Current execution behavior:
 - runs with a sanitized base environment and explicit environment allow/block
   controls
 - enforces manifest-declared command allowlists, allowed roots, safety classes,
-  profiles, and output budgets before invocation
+  profiles, invocation classes, and output budgets before invocation
 - writes full stdout/stderr to local artifact files
 - includes only artifact refs, digests, byte counts, line counts, exit codes,
   duration, planner decision, and outcome in receipts
 - includes a compact artifact custody summary in receipts with artifact ids,
   purposes, and a digest manifest, while keeping raw artifact bytes out of
   receipt and ledger records
-- records per-check timeout, retry, and output-budget decisions in compact
-  receipt metadata
+- records per-check timeout, retry, output-budget, and performance-budget
+  decisions in compact receipt metadata
 - appends ledger events as JSONL through the core helper
 - never embeds raw stdout/stderr in receipts or ART notes
 

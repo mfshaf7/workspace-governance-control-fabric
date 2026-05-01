@@ -74,6 +74,7 @@
       },
       "execution_policy": {
         "profile": "developer",
+        "invocation_class": "inline-fast",
         "safety_class": "local-read-only",
         "self_validation_role": "runtime-smoke",
         "allowed_executables": [
@@ -86,6 +87,7 @@
           "."
         ],
         "timeout_seconds": 30,
+        "max_duration_ms": 30000,
         "retry_count": 0,
         "output_budget_bytes": 200000,
         "fail_on_output_budget_exceeded": false
@@ -114,6 +116,7 @@
       },
       "execution_policy": {
         "profile": "developer",
+        "invocation_class": "hard-gate",
         "safety_class": "local-read-only",
         "self_validation_role": "bootstrap-independent",
         "allowed_executables": [
@@ -123,6 +126,7 @@
           "."
         ],
         "timeout_seconds": 120,
+        "max_duration_ms": 120000,
         "retry_count": 0,
         "output_budget_bytes": 500000,
         "fail_on_output_budget_exceeded": false

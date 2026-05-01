@@ -7,7 +7,7 @@ Current slice:
 - provide the Python CLI entry shell
 - support `wgcf status`
 - support `wgcf graph query --scope <scope>` for read-only manifest graph
-  slices
+  slices with budgeted pagination
 - support `wgcf sources snapshot` for compact source snapshot status without
   raw authority content or full digest maps
 - support `wgcf plan --scope <scope> --tier <tier>` for deterministic
@@ -23,6 +23,8 @@ Current slice:
   inspection without reading raw artifacts or leaving the receipt directory
 - support `wgcf readiness --target <target> --profile <profile>` for local
   readiness decisions with a fabric-local ledger event
+- support `wgcf budget show` for operator-visible invocation-class budgets
+  such as `inline-fast`, `receipt-check`, `hard-gate`, and `checkpoint-batch`
 - support `wgcf art graph --context <broker-context.json>` for compact
   broker-owned ART context graph projection
 - support `wgcf art readiness --context <broker-context.json>` for

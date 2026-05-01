@@ -115,6 +115,17 @@ def governance_manifest_schema() -> dict[str, Any]:
                 "uniqueItems": True,
             },
             "fail_on_output_budget_exceeded": {"type": "boolean"},
+            "invocation_class": {
+                "enum": [
+                    "inline-fast",
+                    "receipt-check",
+                    "hard-gate",
+                    "checkpoint-batch",
+                    "offline-advisory",
+                ],
+                "type": "string",
+            },
+            "max_duration_ms": {"minimum": 1, "type": "integer"},
             "operator_approved": {"type": "boolean"},
             "output_budget_bytes": {"minimum": 0, "type": "integer"},
             "profile": non_empty_string,

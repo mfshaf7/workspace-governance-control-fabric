@@ -318,7 +318,42 @@ class ValidationExecutionTests(TestCase):
         self.assertEqual(result.receipt.outcome, "failure")
         self.assertTrue(check_result.output_summary["output_budget"]["exceeded"])
         self.assertEqual(check_result.output_summary["output_budget"]["action"], "fail")
+        self.assertEqual(
+            check_result.output_summary["performance_budget"]["invocation_class"],
+            "hard-gate",
+        )
         self.assertNotIn(marker, json.dumps(result.receipt.to_record(), sort_keys=True))
+
+    def test_execution_budget_caps_unbounded_retry_and_output_policy(self) -> None:
+        plan = build_validation_plan(
+            minimal_manifest(
+                "python3 -c \"print('capped-policy'); raise SystemExit(7)\"",
+                execution_policy={
+                    "output_budget_bytes": 999_999_999,
+                    "retry_count": 20,
+                    "timeout_seconds": 999,
+                },
+            ),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+
+        check_result = result.receipt.check_results[0]
+        budget = check_result.output_summary["performance_budget"]
+        self.assertEqual(check_result.output_summary["attempt_count"], 4)
+        self.assertEqual(check_result.output_summary["retry_count"], 3)
+        self.assertEqual(check_result.output_summary["timeout_seconds"], 120)
+        self.assertEqual(check_result.output_summary["output_budget"]["budget_bytes"], 500000)
+        self.assertFalse(budget["within_budget"])
+        self.assertIn("retry_count capped from 20 to 3", budget["reasons"])
 
     def test_command_allowlist_blocks_unapproved_executable(self) -> None:
         plan = build_validation_plan(

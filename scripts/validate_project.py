@@ -36,6 +36,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/graph_queries.py",
     "packages/control_fabric_core/src/control_fabric_core/manifests.py",
     "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py",
+    "packages/control_fabric_core/src/control_fabric_core/performance_budgets.py",
     "packages/control_fabric_core/src/control_fabric_core/policy_admission.py",
     "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py",
     "packages/control_fabric_core/src/control_fabric_core/source_snapshots.py",
@@ -143,6 +144,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         bootstrap_validation_contract,
         build_policy_ledger_event,
         build_validation_plan,
+        evaluate_operation_budget,
         evaluate_admission_policy,
         evaluate_art_readiness,
         evaluate_operator_readiness,
@@ -151,6 +153,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         inspect_control_receipt,
         list_control_receipts,
         persist_governance_state,
+        resolve_performance_budget,
         project_receipt_to_art_completion_evidence,
         project_receipts_to_art_evidence_packet,
         project_receipt_to_change_record_references,
@@ -215,6 +218,9 @@ def validate_imports(repo_root: Path) -> list[str]:
     receipts_parsed = parser.parse_args(["receipts", "list", "--repo-root", str(repo_root)])
     if receipts_parsed.command != "receipts" or receipts_parsed.receipts_command != "list":
         errors.append("wgcf parser did not accept receipts list command")
+    budget_parsed = parser.parse_args(["budget", "show", "--operation", "art.continuation"])
+    if budget_parsed.command != "budget" or budget_parsed.budget_command != "show":
+        errors.append("wgcf parser did not accept budget show command")
     inspect_parsed = parser.parse_args(["inspect", "--receipt", "control-receipt:example"])
     if inspect_parsed.command != "inspect":
         errors.append("wgcf parser did not accept inspect command")
@@ -246,6 +252,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         "/v1/validation-runs",
         "/v1/receipts/{receipt_id}",
         "/v1/readiness/evaluate",
+        "/v1/budgets",
     ):
         if required_route not in route_paths:
             errors.append(f"FastAPI route missing: {required_route}")
@@ -272,6 +279,15 @@ def validate_imports(repo_root: Path) -> list[str]:
     static_schema = json.loads(schema_path.read_text(encoding="utf-8"))
     if static_schema != governance_manifest_schema():
         errors.append("static governance manifest schema does not match runtime schema")
+    continuation_budget = resolve_performance_budget("art.continuation")
+    submit_budget = resolve_performance_budget("draft.submit")
+    unknown_budget = evaluate_operation_budget("future.unclassified.operation")
+    if continuation_budget.invocation_class != "inline-fast":
+        errors.append("ART continuation budget must be inline-fast")
+    if submit_budget.invocation_class != "receipt-check":
+        errors.append("draft submit budget must be receipt-check")
+    if unknown_budget.within_budget:
+        errors.append("unknown WGCF operation budget must require classification")
     example_manifest = json.loads(example_path.read_text(encoding="utf-8"))
     manifest_result = validate_governance_manifest(example_manifest)
     if not manifest_result.valid:
