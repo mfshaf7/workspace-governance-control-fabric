@@ -66,7 +66,7 @@ class CatalogOperatorPlanResult:
 
     def to_record(self) -> dict[str, Any]:
         return {
-            "catalog": self.catalog.to_summary_record(),
+            "catalog": _catalog_summary_for_plan(self.catalog, self.plan),
             "plan": self.plan.to_record(),
         }
 
@@ -85,7 +85,10 @@ class CatalogOperatorCheckResult:
 
     def to_record(self) -> dict[str, Any]:
         record = self.check_result.to_record()
-        record["catalog"] = self.catalog.to_summary_record()
+        record["catalog"] = _catalog_summary_for_plan(
+            self.catalog,
+            self.check_result.plan,
+        )
         record["catalog_manifest_path"] = self.manifest_path
         return record
 
@@ -256,6 +259,42 @@ def list_control_receipts(receipt_dir: str | Path) -> tuple[ReceiptSummary, ...]
             reverse=True,
         ),
     )
+
+
+def _catalog_summary_for_plan(
+    catalog: CatalogManifestResult,
+    plan: ValidationPlan,
+) -> dict[str, Any]:
+    """Return catalog metadata with plan-selected entries separated clearly.
+
+    The generated manifest can contain every profile-admitted catalog entry.
+    Operator-facing plan/check output must not call those entries "selected"
+    because the planner may suppress most of them for the requested scope.
+    """
+
+    summary = catalog.to_summary_record()
+    manifest_entries = list(summary["selected_entries"])
+    planned_entry_ids = [
+        str(check.validator_id).removeprefix("catalog:")
+        for check in plan.checks
+    ]
+    planned_id_set = set(planned_entry_ids)
+    planned_entries = [
+        entry
+        for entry in manifest_entries
+        if entry["entry_id"] in planned_id_set
+    ]
+    summary["manifest_selected_entry_count"] = summary["selected_entry_count"]
+    summary["manifest_selected_entries"] = manifest_entries
+    summary["planned_entry_count"] = len(planned_entries)
+    summary["planned_entries"] = planned_entries
+    summary["selected_entry_count"] = len(planned_entries)
+    summary["selected_entries"] = planned_entries
+    summary["selection_note"] = (
+        "selected_entries are planner-selected for this target scope; "
+        "manifest_selected_entries are all profile-admitted catalog entries."
+    )
+    return summary
 
 
 def _receipt_summary(path: Path) -> ReceiptSummary:
