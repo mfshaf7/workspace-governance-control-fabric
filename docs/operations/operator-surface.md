@@ -307,6 +307,9 @@ Current execution behavior:
 - writes full stdout/stderr to local artifact files
 - includes only artifact refs, digests, byte counts, line counts, exit codes,
   duration, planner decision, and outcome in receipts
+- includes a compact artifact custody summary in receipts with artifact ids,
+  purposes, and a digest manifest, while keeping raw artifact bytes out of
+  receipt and ledger records
 - records per-check timeout, retry, and output-budget decisions in compact
   receipt metadata
 - appends ledger events as JSONL through the core helper

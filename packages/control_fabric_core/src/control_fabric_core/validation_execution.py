@@ -244,6 +244,7 @@ def execute_validation_plan(
     planner_decision = plan.decision.to_record()
     suppressed_output_summary = {
         "artifact_count": len(artifact_refs),
+        "custody": _artifact_custody_summary(tuple(artifact_refs)),
         "execution_suppressed": plan.decision.outcome != "planned",
         "planner_outcome": plan.decision.outcome,
         "raw_output_in_receipt": False,
@@ -330,6 +331,7 @@ def build_validation_ledger_event(
     action = "validation.run.completed" if receipt.outcome in {"success", "failure"} else "validation.run.blocked"
     receipt_ref = {
         "digest": receipt.digest,
+        "outcome": receipt.outcome,
         "receipt_id": receipt.receipt_id,
     }
     digest_payload = {
@@ -581,6 +583,16 @@ def _output_budget_decision(
         "budget_bytes": output_budget_bytes,
         "exceeded": exceeded,
         "observed_bytes": observed_bytes,
+    }
+
+
+def _artifact_custody_summary(artifact_refs: tuple[ValidationArtifactRef, ...]) -> dict[str, Any]:
+    artifact_records = [artifact.to_record() for artifact in artifact_refs]
+    return {
+        "artifact_digest_manifest": _digest_json({"artifact_refs": artifact_records}),
+        "artifact_ids": [artifact.artifact_id for artifact in artifact_refs],
+        "artifact_purposes": sorted({artifact.purpose for artifact in artifact_refs}),
+        "raw_artifacts_embedded": False,
     }
 
 

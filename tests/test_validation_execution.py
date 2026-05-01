@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from hashlib import sha256
 from pathlib import Path
 from unittest import TestCase
 
@@ -104,6 +105,41 @@ class ValidationExecutionTests(TestCase):
                 marker,
                 Path(result.receipt.artifact_refs[0].path).read_text(encoding="utf-8"),
             )
+
+    def test_receipt_and_ledger_share_artifact_custody_refs_without_raw_output(self) -> None:
+        marker = "RAW-CUSTODY-MARKER"
+        plan = build_validation_plan(
+            minimal_manifest(f"python3 -c \"print('{marker}')\""),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                temp_dir,
+                now="2026-04-30T00:00:00Z",
+            )
+            artifact_payloads = [
+                (artifact, Path(artifact.path).read_bytes())
+                for artifact in result.receipt.artifact_refs
+            ]
+
+        receipt_record = result.receipt.to_record()
+        ledger_record = result.ledger_event.to_record()
+        receipt_json = json.dumps(receipt_record, sort_keys=True)
+        ledger_json = json.dumps(ledger_record, sort_keys=True)
+        self.assertNotIn(marker, receipt_json)
+        self.assertNotIn(marker, ledger_json)
+        self.assertEqual(
+            [artifact["artifact_id"] for artifact in receipt_record["artifact_refs"]],
+            [artifact["artifact_id"] for artifact in ledger_record["artifact_refs"]],
+        )
+        self.assertEqual(ledger_record["receipt_refs"][0]["outcome"], "success")
+        self.assertFalse(receipt_record["suppressed_output_summary"]["custody"]["raw_artifacts_embedded"])
+        for artifact, payload in artifact_payloads:
+            self.assertEqual("sha256:" + sha256(payload).hexdigest(), artifact.digest)
 
     def test_failure_command_records_exit_code_and_artifact_refs(self) -> None:
         plan = build_validation_plan(

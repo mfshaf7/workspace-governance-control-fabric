@@ -121,6 +121,9 @@ produces compact proof records without becoming a policy engine:
 - receipts contain artifact ids, digests, byte counts, line counts, exit codes,
   durations, timeout/retry/output-budget decisions, planner decision context,
   and outcome
+- receipts include a compact custody summary with artifact ids, purposes, and a
+  digest manifest; ledger events link the same artifact refs and receipt
+  outcome without embedding raw output
 - receipts do not embed raw stdout/stderr
 - ledger events reference receipts and artifacts for append-only audit
 

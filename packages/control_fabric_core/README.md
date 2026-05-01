@@ -90,6 +90,8 @@ check types as blocked, suppress execution when the planner decision is not
   policy, and output limits
 - stdout/stderr artifact references with sha256 digests, byte counts, and line
   counts
+- compact custody summaries that bind receipt and ledger records back to the
+  same artifact ids and digest manifest without embedding raw output
 - compact timeout, retry, and output-budget metadata
 - a `ControlReceipt` that omits raw command output
 - a `LedgerEvent` suitable for append-only JSONL storage
