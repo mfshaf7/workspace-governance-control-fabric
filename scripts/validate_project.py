@@ -145,8 +145,10 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_validation_plan,
         evaluate_admission_policy,
         evaluate_art_readiness,
+        evaluate_operator_readiness,
         execute_validation_plan,
         governance_manifest_schema,
+        inspect_control_receipt,
         list_control_receipts,
         persist_governance_state,
         project_receipt_to_art_completion_evidence,
@@ -156,6 +158,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         query_manifest_graph,
         record_blocker_decision,
         record_change_event,
+        run_operator_readiness_evaluation,
         run_operator_validation_check,
         status_snapshot,
         validate_governance_manifest,
@@ -212,6 +215,20 @@ def validate_imports(repo_root: Path) -> list[str]:
     receipts_parsed = parser.parse_args(["receipts", "list", "--repo-root", str(repo_root)])
     if receipts_parsed.command != "receipts" or receipts_parsed.receipts_command != "list":
         errors.append("wgcf parser did not accept receipts list command")
+    inspect_parsed = parser.parse_args(["inspect", "--receipt", "control-receipt:example"])
+    if inspect_parsed.command != "inspect":
+        errors.append("wgcf parser did not accept inspect command")
+    readiness_parsed = parser.parse_args(
+        [
+            "readiness",
+            "--target",
+            "operator-surface:wgcf-cli",
+            "--profile",
+            "local-read-only",
+        ],
+    )
+    if readiness_parsed.command != "readiness":
+        errors.append("wgcf parser did not accept readiness command")
     art_readiness_parsed = parser.parse_args(
         ["art", "readiness", "--context", "context.json", "--target-item-id", "517"],
     )
@@ -409,6 +426,35 @@ def validate_imports(repo_root: Path) -> list[str]:
             errors.append("operator check did not produce a successful receipt")
         if len(receipt_summaries) != 1:
             errors.append("operator receipt listing did not find the written receipt")
+        inspection = inspect_control_receipt(
+            operator_result.receipt.receipt_id,
+            receipt_dir=temp_path / "receipts",
+        )
+        if inspection.raw_output_embedded:
+            errors.append("receipt inspection must not embed raw output")
+        if inspection.receipt.get("receipt_id") != operator_result.receipt.receipt_id:
+            errors.append("receipt inspection did not resolve the requested receipt id")
+        readiness_decision = evaluate_operator_readiness(
+            profile="local-read-only",
+            receipt_dir=temp_path / "receipts",
+            repo_root=repo_root,
+            target="operator-surface:wgcf-cli",
+        )
+        if not readiness_decision.ready:
+            errors.append("operator readiness unexpectedly blocked the CLI surface")
+        readiness_result = run_operator_readiness_evaluation(
+            actor="wgcf-project-validator",
+            ledger_path=temp_path / "readiness-ledger.jsonl",
+            now="2026-04-30T00:00:00Z",
+            profile="local-read-only",
+            receipt_dir=temp_path / "receipts",
+            repo_root=repo_root,
+            target="operator-surface:wgcf-cli",
+        )
+        if readiness_result.ledger_event.action != "readiness.decision.recorded":
+            errors.append("operator readiness did not emit the readiness ledger action")
+        if not Path(readiness_result.ledger_path).is_file():
+            errors.append("operator readiness did not append a ledger event")
     receipt_record = execution_result.receipt.to_record()
     if receipt_record["suppressed_output_summary"]["raw_output_in_receipt"]:
         errors.append("validation receipt must not embed raw validator output")

@@ -242,3 +242,54 @@ class FoundationTests(TestCase):
                 list_payload["receipts"][0]["receipt_id"],
                 check_payload["receipt"]["receipt_id"],
             )
+
+            inspect_buffer = StringIO()
+            with redirect_stdout(inspect_buffer):
+                inspect_result = main(
+                    [
+                        "inspect",
+                        "--repo-root",
+                        str(REPO_ROOT),
+                        "--receipt-dir",
+                        str(temp_path / "receipts"),
+                        "--receipt",
+                        check_payload["receipt"]["receipt_id"],
+                        "--json",
+                    ],
+                )
+
+            self.assertEqual(inspect_result, 0)
+            inspect_payload = json.loads(inspect_buffer.getvalue())
+            self.assertEqual(
+                inspect_payload["receipt"]["receipt_id"],
+                check_payload["receipt"]["receipt_id"],
+            )
+            self.assertFalse(inspect_payload["raw_output_embedded"])
+
+    def test_cli_readiness_returns_compact_decision_json(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            buffer = StringIO()
+            with redirect_stdout(buffer):
+                result = main(
+                    [
+                        "readiness",
+                        "--repo-root",
+                        str(REPO_ROOT),
+                        "--target",
+                        "operator-surface:wgcf-cli",
+                        "--profile",
+                        "local-read-only",
+                        "--ledger",
+                        str(temp_path / "ledger.jsonl"),
+                        "--json",
+                    ],
+                )
+
+            self.assertEqual(result, 0)
+            payload = json.loads(buffer.getvalue())
+            self.assertTrue(payload["ready"])
+            self.assertEqual(payload["outcome"], "ready")
+            self.assertEqual(payload["mutation_boundary"], "fabric-local decision record only")
+            self.assertEqual(payload["ledger_event"]["action"], "readiness.decision.recorded")
+            self.assertTrue((temp_path / "ledger.jsonl").is_file())

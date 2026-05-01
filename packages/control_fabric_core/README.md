@@ -26,6 +26,9 @@ Current slice:
 - operator-surface helpers that build validation plans, run bounded local
   checks, write compact receipts, append ledger events, and list receipt
   metadata for CLI/API surfaces
+- operator-surface helpers that inspect compact receipt records and evaluate
+  known local readiness targets without reading raw artifacts or mutating
+  upstream authority
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - runtime governance record helpers for blocker decisions, approvals, waivers,
@@ -108,8 +111,10 @@ authority, decide readiness, or replace Review Packets for ART work.
 Operator-surface helpers compose planning and execution into the local
 operator workflow. They write receipts under a caller-supplied receipt
 directory, append a JSONL ledger event, and return compact metadata for CLI/API
-rendering. Receipt-list views read only receipt JSON metadata and do not open
-raw stdout/stderr artifacts.
+rendering. Receipt-list and receipt-inspection views read only receipt JSON
+metadata and do not open raw stdout/stderr artifacts. Readiness helpers block
+unknown targets or profiles and append a readiness ledger event while keeping
+the decision fabric-local.
 
 Policy admission helpers consume authority refs and receipt refs supplied by
 the runtime caller. They return compact allow, deny, blocked, waived, or
