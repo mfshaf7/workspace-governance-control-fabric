@@ -246,7 +246,8 @@ and artifact refs only; raw runtime output stays in receipt-linked artifacts.
 ART readiness projection currently lives in the core library. It consumes
 broker-owned continuation, execution-summary, quality, roadmap, PM2 projection,
 and projection-state context as read-only input, builds a compact graph, detects
-metadata/narrative/projection/stale-parent drift before mutation, and returns
+metadata/narrative/projection/stale-parent drift before mutation, blocks last
+child completion when the parent Feature is not closeout-ready, and returns
 recommendations such as repair narrative, sync projection, stale-open closeout,
 or proceed through OOS. It never writes ART directly.
 

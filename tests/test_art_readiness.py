@@ -101,6 +101,107 @@ def continuation_context(
     }
 
 
+def child_completion_context(
+    *,
+    parent_with_headings: bool = True,
+    open_sibling: bool = False,
+) -> dict:
+    parent_headings = [
+        "What This Enables",
+        "Benefit Hypothesis",
+        "Scope Boundaries",
+        "Evidence Expectation",
+        "Execution Context",
+        "Operator work notes",
+    ]
+    if not parent_with_headings:
+        parent_headings = [
+            "What This Enables",
+            "Benefit Hypothesis",
+            "Scope Boundaries",
+            "Execution Context",
+        ]
+    sibling = {
+        "id": 643,
+        "type": "User story",
+        "subject": "Enabler: Prove CGG end-to-end devint launch access smoke and closeout readiness",
+        "status": "ready",
+        "owner_repo": "workspace-governance",
+        "delivery_team": "Workspace Governance",
+        "iteration": "PI-2026-03 / Iteration 1",
+        "target_pi": "PI-2026-03",
+        "parent_id": 641,
+        "record_ref": "openproject://work_packages/643",
+    }
+    return {
+        "continuation_context": {
+            "delivery_epic": {
+                "id": 629,
+                "type": "Epic",
+                "subject": "Activate CGG as an operational dev-integration service",
+                "status": "in-progress",
+                "owner_repo": "context-governance-gateway",
+                "target_pi": "PI-2026-03",
+                "record_ref": "openproject://work_packages/629",
+            },
+            "planning_contract": {
+                "workflow_id": "delivery-art-planning-workflow",
+                "pi_lifecycle": {
+                    "iteration_compatibility": {
+                        "allowed_prefix_templates": [
+                            "<target_pi> / ",
+                            "Program-wide / ",
+                        ],
+                    },
+                },
+            },
+            "summary": {
+                "completed_related_count": 8,
+                "open_child_count": 0,
+                "open_sibling_count": 1 if open_sibling else 0,
+            },
+            "target_item": {
+                "id": 642,
+                "type": "User story",
+                "subject": "Enabler: Promote CGG dev-integration profile lifecycle to active in workspace governance",
+                "status": "ready",
+                "owner_repo": "workspace-governance",
+                "delivery_team": "Workspace Governance",
+                "iteration": "PI-2026-03 / Iteration 1",
+                "target_pi": "PI-2026-03",
+                "parent_id": 641,
+                "record_ref": "openproject://work_packages/642",
+            },
+            "open_siblings": [sibling] if open_sibling else [],
+            "parent_chain": [
+                {
+                    "id": 629,
+                    "type": "Epic",
+                    "subject": "Activate CGG as an operational dev-integration service",
+                    "status": "in-progress",
+                    "owner_repo": "context-governance-gateway",
+                    "target_pi": "PI-2026-03",
+                    "record_ref": "openproject://work_packages/629",
+                },
+                {
+                    "id": 641,
+                    "type": "Feature",
+                    "subject": "Enabler: Activate CGG profile in workspace governance and prove end-to-end devint operation",
+                    "status": "ready",
+                    "owner_repo": "workspace-governance",
+                    "delivery_team": "Workspace Governance",
+                    "iteration": "PI-2026-03 / Iteration 1",
+                    "target_pi": "PI-2026-03",
+                    "parent_id": 629,
+                    "record_ref": "openproject://work_packages/641",
+                    "description_present": True,
+                    "description_headings": parent_headings,
+                },
+            ],
+        }
+    }
+
+
 SAMPLE_RECEIPT = {
     "artifact_refs": [
         {
@@ -315,6 +416,50 @@ class ArtReadinessTests(TestCase):
         self.assertFalse(readiness.mutation_allowed)
         self.assertEqual(readiness.outcome, "blocked")
         self.assertIn("weak-feature-narrative", {finding.code for finding in readiness.findings})
+
+    def test_last_child_completion_blocks_weak_parent_feature_narrative(self) -> None:
+        readiness = evaluate_art_readiness(
+            child_completion_context(parent_with_headings=False),
+            operation="complete",
+            target_item_id=642,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        finding_codes = {finding.code for finding in readiness.findings}
+        recommendations = {recommendation.action for recommendation in readiness.recommendations}
+
+        self.assertFalse(readiness.mutation_allowed)
+        self.assertEqual(readiness.outcome, "blocked")
+        self.assertIn("parent-feature-narrative-not-closeout-ready", finding_codes)
+        self.assertIn("repair_art_metadata", recommendations)
+
+    def test_last_child_completion_allows_closeout_ready_parent_feature(self) -> None:
+        readiness = evaluate_art_readiness(
+            child_completion_context(parent_with_headings=True),
+            operation="complete",
+            target_item_id=642,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertNotIn(
+            "parent-feature-narrative-not-closeout-ready",
+            {finding.code for finding in readiness.findings},
+        )
+
+    def test_non_last_child_completion_does_not_block_on_parent_repair(self) -> None:
+        readiness = evaluate_art_readiness(
+            child_completion_context(parent_with_headings=False, open_sibling=True),
+            operation="complete",
+            target_item_id=642,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertNotIn(
+            "parent-feature-narrative-not-closeout-ready",
+            {finding.code for finding in readiness.findings},
+        )
 
     def test_evidence_packet_is_completion_preflight_compatible(self) -> None:
         raw_marker = "RAW-OUTPUT-MUST-NOT-APPEAR"
