@@ -32,6 +32,8 @@ FEATURE_NARRATIVE_HEADINGS = (
     "Operator work notes",
 )
 ERROR_SEVERITIES = {"error", "blocker"}
+TERMINAL_ART_STATUSES = {"done", "retired"}
+DEFAULT_PI_ITERATION_PREFIX_TEMPLATES = ("<target_pi> / ", "Program-wide / ")
 
 
 @dataclass(frozen=True)
@@ -669,6 +671,25 @@ def _readiness_findings(
                     "work-item.update",
                 )
 
+    if (
+        target_item.get("target_pi")
+        and target_item.get("iteration")
+        and _optional_string(target_item.get("status")).lower() not in TERMINAL_ART_STATUSES
+        and not _iteration_matches_target_pi(
+            target_item.get("target_pi"),
+            target_item.get("iteration"),
+            context,
+        )
+    ):
+        yield _finding(
+            "target-pi-iteration-mismatch",
+            "error",
+            target,
+            owner_repo,
+            "Target work item Iteration does not align to Target PI or an allowed Program-wide iteration label.",
+            "work-item.update",
+        )
+
     if operation in {"complete", "stale-open-close"}:
         missing = _missing_feature_headings(target_item)
         if missing:
@@ -765,6 +786,7 @@ def _recommendations(
             "missing-iteration",
             "missing-owner-repo",
             "missing-target-pi",
+            "target-pi-iteration-mismatch",
             "weak-feature-narrative",
         }:
             emitted.add("repair_art_metadata")
@@ -847,6 +869,42 @@ def _missing_feature_headings(item: dict[str, Any]) -> tuple[str, ...]:
     if not headings and not item.get("description_present"):
         return FEATURE_NARRATIVE_HEADINGS
     return tuple(heading for heading in FEATURE_NARRATIVE_HEADINGS if heading not in headings)
+
+
+def _iteration_matches_target_pi(
+    target_pi: str | None,
+    iteration: str | None,
+    context: dict[str, Any],
+) -> bool:
+    normalized_target_pi = _optional_string(target_pi)
+    normalized_iteration = _optional_string(iteration)
+    if not normalized_target_pi or not normalized_iteration:
+        return True
+
+    for template in _pi_iteration_prefix_templates(context):
+        prefix = template.replace("<target_pi>", normalized_target_pi)
+        if prefix and normalized_iteration.startswith(prefix):
+            return True
+
+    return False
+
+
+def _pi_iteration_prefix_templates(context: dict[str, Any]) -> tuple[str, ...]:
+    contract = context.get("planning_contract") or {}
+    lifecycle = contract.get("pi_lifecycle") if isinstance(contract, dict) else {}
+    compatibility = (
+        lifecycle.get("iteration_compatibility")
+        if isinstance(lifecycle, dict)
+        else {}
+    )
+    templates = (
+        compatibility.get("allowed_prefix_templates")
+        if isinstance(compatibility, dict)
+        else None
+    )
+    if isinstance(templates, list) and all(isinstance(item, str) for item in templates):
+        return tuple(templates)
+    return DEFAULT_PI_ITERATION_PREFIX_TEMPLATES
 
 
 def _finding(

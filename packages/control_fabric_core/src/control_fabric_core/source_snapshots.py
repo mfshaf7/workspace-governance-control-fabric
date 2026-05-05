@@ -26,6 +26,7 @@ CORE_AUTHORITY_DECLARATIONS: tuple[tuple[str, str, str], ...] = (
     ("validator-catalog", "workspace-governance", "contracts/governance-validator-catalog.yaml"),
     ("validator-catalog", "workspace-governance", "contracts/validation-matrix.yaml"),
     ("platform-runtime", "platform-engineering", "products/openproject/delivery-art-contract.md"),
+    ("platform-runtime", "platform-engineering", "products/openproject/delivery-art-planning-workflow.json"),
     ("platform-runtime", "platform-engineering", "products/openproject/runbooks/check-delivery-art-quality.md"),
     ("platform-runtime", "platform-engineering", "docs/runbooks/dev-integration-profiles.md"),
     ("security-review", "security-architecture", "registers/review-inventory.yaml"),
