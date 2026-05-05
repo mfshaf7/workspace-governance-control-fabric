@@ -690,9 +690,22 @@ def _readiness_findings(
             "work-item.update",
         )
 
+    summary = context.get("summary") or {}
+    stale_open_parent = (
+        target_item.get("type") == "Feature"
+        and target_item.get("status") in {"ready", "in-progress"}
+        and summary.get("open_child_count") == 0
+        and summary.get("completed_related_count", 0) > 0
+    )
+
     if operation in {"complete", "stale-open-close"}:
         missing = _missing_feature_headings(target_item)
-        if missing:
+        stale_open_notes_only_repair = (
+            operation == "stale-open-close"
+            and stale_open_parent
+            and tuple(missing) == ("Operator work notes",)
+        )
+        if missing and not stale_open_notes_only_repair:
             yield _finding(
                 "weak-feature-narrative",
                 "error",
@@ -702,13 +715,7 @@ def _readiness_findings(
                 "work-item.update",
             )
 
-    summary = context.get("summary") or {}
-    if (
-        target_item.get("type") == "Feature"
-        and target_item.get("status") in {"ready", "in-progress"}
-        and summary.get("open_child_count") == 0
-        and summary.get("completed_related_count", 0) > 0
-    ):
+    if stale_open_parent:
         yield _finding(
             "stale-open-parent",
             "warning",

@@ -16,7 +16,22 @@ from control_fabric_core import (  # noqa: E402
 )
 
 
-def continuation_context(*, projection_dirty: bool = False, with_headings: bool = True) -> dict:
+def continuation_context(
+    *,
+    projection_dirty: bool = False,
+    with_headings: bool = True,
+    without_operator_notes: bool = False,
+) -> dict:
+    feature_headings = [
+        "What This Enables",
+        "Benefit Hypothesis",
+        "Scope Boundaries",
+        "Evidence Expectation",
+        "Execution Context",
+        "Operator work notes",
+    ]
+    if without_operator_notes:
+        feature_headings.remove("Operator work notes")
     target_item = {
         "id": 517,
         "type": "Feature",
@@ -29,16 +44,7 @@ def continuation_context(*, projection_dirty: bool = False, with_headings: bool 
         "parent_id": 498,
         "record_ref": "openproject://work_packages/517",
         "descriptionPresent": with_headings,
-        "descriptionHeadings": [
-            "What This Enables",
-            "Benefit Hypothesis",
-            "Scope Boundaries",
-            "Evidence Expectation",
-            "Execution Context",
-            "Operator work notes",
-        ]
-        if with_headings
-        else [],
+        "descriptionHeadings": feature_headings if with_headings else [],
     }
     return {
         "continuation_context": {
@@ -279,6 +285,36 @@ class ArtReadinessTests(TestCase):
         self.assertEqual(readiness.outcome, "review_required")
         self.assertEqual(readiness.findings[0].code, "stale-open-parent")
         self.assertEqual(readiness.recommendations[0].action, "stale_open_close")
+
+    def test_stale_open_closeout_allows_operator_notes_section_repair(self) -> None:
+        context = continuation_context(without_operator_notes=True)
+        context["continuation_context"]["summary"]["open_child_count"] = 0
+
+        readiness = evaluate_art_readiness(
+            context,
+            operation="stale-open-close",
+            target_item_id=517,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        finding_codes = {finding.code for finding in readiness.findings}
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertEqual(readiness.outcome, "review_required")
+        self.assertIn("stale-open-parent", finding_codes)
+        self.assertNotIn("weak-feature-narrative", finding_codes)
+
+    def test_normal_completion_still_blocks_missing_operator_notes(self) -> None:
+        readiness = evaluate_art_readiness(
+            continuation_context(without_operator_notes=True),
+            operation="complete",
+            target_item_id=517,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertFalse(readiness.mutation_allowed)
+        self.assertEqual(readiness.outcome, "blocked")
+        self.assertIn("weak-feature-narrative", {finding.code for finding in readiness.findings})
 
     def test_evidence_packet_is_completion_preflight_compatible(self) -> None:
         raw_marker = "RAW-OUTPUT-MUST-NOT-APPEAR"
