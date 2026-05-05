@@ -115,6 +115,9 @@ Required CLI behavior:
 - support `--json` for implemented automation surfaces
 - return receipt, artifact, and ledger references for full evidence
 - deny or block readiness when authority truth is unknown or stale
+- block ART readiness when broker context shows a `Target PI`/`Iteration`
+  mismatch, unless the iteration is an explicitly allowed `Program-wide / ...`
+  label
 - avoid printing raw validation dumps unless explicitly requested
 
 ## Worker Diagnostic Entry Point

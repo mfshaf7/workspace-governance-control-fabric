@@ -51,6 +51,20 @@ def continuation_context(*, projection_dirty: bool = False, with_headings: bool 
                 "target_pi": "PI-2026-03",
                 "record_ref": "openproject://work_packages/498",
             },
+            "planning_contract": {
+                "workflow_id": "delivery-art-planning-workflow",
+                "pi_lifecycle": {
+                    "iteration_compatibility": {
+                        "allowed_prefix_templates": [
+                            "<target_pi> / ",
+                            "Program-wide / ",
+                        ],
+                    },
+                    "commitment_rules": {
+                        "item_count_never_triggers_new_pi": True,
+                    },
+                },
+            },
             "summary": {
                 "completed_related_count": 3,
                 "open_child_count": 4,
@@ -160,6 +174,50 @@ class ArtReadinessTests(TestCase):
         self.assertEqual(readiness.findings, ())
         self.assertEqual(readiness.recommendations[0].action, "proceed_via_oos_broker")
         self.assertFalse(readiness.raw_context_embedded)
+
+    def test_readiness_blocks_target_pi_iteration_mismatch(self) -> None:
+        context = continuation_context()
+        context["continuation_context"]["target_item"]["iteration"] = (
+            "PI-2026-02 / Iteration 1"
+        )
+
+        readiness = evaluate_art_readiness(
+            context,
+            operation="complete",
+            target_item_id=517,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertFalse(readiness.mutation_allowed)
+        self.assertEqual(readiness.outcome, "blocked")
+        self.assertIn(
+            "target-pi-iteration-mismatch",
+            {finding.code for finding in readiness.findings},
+        )
+        self.assertIn(
+            "repair_art_metadata",
+            {recommendation.action for recommendation in readiness.recommendations},
+        )
+
+    def test_readiness_ignores_terminal_target_pi_iteration_mismatch(self) -> None:
+        context = continuation_context()
+        context["continuation_context"]["target_item"]["status"] = "done"
+        context["continuation_context"]["target_item"]["iteration"] = (
+            "PI-2026-02 / Iteration 1"
+        )
+
+        readiness = evaluate_art_readiness(
+            context,
+            operation="complete",
+            target_item_id=517,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertNotIn(
+            "target-pi-iteration-mismatch",
+            {finding.code for finding in readiness.findings},
+        )
 
     def test_readiness_blocks_unhealthy_quality_pack(self) -> None:
         context = continuation_context()
