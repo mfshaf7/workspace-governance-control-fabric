@@ -118,6 +118,8 @@ Required CLI behavior:
 - block ART readiness when broker context shows a `Target PI`/`Iteration`
   mismatch, unless the iteration is an explicitly allowed `Program-wide / ...`
   label
+- block completion of the last open `User story` or `Defect` child when its
+  parent Feature is missing closeout-ready narrative headings
 - avoid printing raw validation dumps unless explicitly requested
 
 ## Worker Diagnostic Entry Point

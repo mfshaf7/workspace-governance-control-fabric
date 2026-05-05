@@ -247,6 +247,8 @@ The readiness evaluator checks for pre-mutation drift before OOS writes:
 
 - missing owner repo, target PI, delivery team, or iteration metadata
 - weak Feature narratives before completion
+- last-child completion under a Feature whose parent narrative is not
+  closeout-ready
 - blocked or dependency-blocked target items
 - stale-open parent candidates when completed child scope already satisfies
   the Feature

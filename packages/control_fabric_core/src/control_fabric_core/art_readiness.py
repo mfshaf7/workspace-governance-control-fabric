@@ -31,6 +31,7 @@ FEATURE_NARRATIVE_HEADINGS = (
     "Execution Context",
     "Operator work notes",
 )
+FEATURE_LEAF_CHILD_TYPES = {"Defect", "User story"}
 ERROR_SEVERITIES = {"error", "blocker"}
 TERMINAL_ART_STATUSES = {"done", "retired"}
 DEFAULT_PI_ITERATION_PREFIX_TEMPLATES = ("<target_pi> / ", "Program-wide / ")
@@ -715,6 +716,9 @@ def _readiness_findings(
                 "work-item.update",
             )
 
+    if operation == "complete":
+        yield from _last_child_parent_feature_findings(context, target_item)
+
     if stale_open_parent:
         yield _finding(
             "stale-open-parent",
@@ -795,6 +799,7 @@ def _recommendations(
             "missing-target-pi",
             "target-pi-iteration-mismatch",
             "weak-feature-narrative",
+            "parent-feature-narrative-not-closeout-ready",
         }:
             emitted.add("repair_art_metadata")
             yield _recommendation(
@@ -876,6 +881,91 @@ def _missing_feature_headings(item: dict[str, Any]) -> tuple[str, ...]:
     if not headings and not item.get("description_present"):
         return FEATURE_NARRATIVE_HEADINGS
     return tuple(heading for heading in FEATURE_NARRATIVE_HEADINGS if heading not in headings)
+
+
+def _parent_feature_for_target(
+    context: dict[str, Any],
+    target_item: dict[str, Any],
+) -> dict[str, Any] | None:
+    parent_id = _string_id(target_item.get("parent_id"))
+    if not parent_id:
+        return None
+
+    for item in context.get("parent_chain") or ():
+        normalized = _normalize_item(item)
+        if (
+            normalized
+            and normalized.get("id") == parent_id
+            and normalized.get("type") == "Feature"
+        ):
+            return normalized
+
+    for item in _iter_art_items(context):
+        normalized = _normalize_item(item)
+        if (
+            normalized
+            and normalized.get("id") == parent_id
+            and normalized.get("type") == "Feature"
+        ):
+            return normalized
+
+    return None
+
+
+def _has_open_leaf_sibling(context: dict[str, Any], target_item: dict[str, Any]) -> bool:
+    parent_id = _string_id(target_item.get("parent_id"))
+    target_id = _string_id(target_item.get("id"))
+    if not parent_id:
+        return False
+
+    for item in context.get("open_siblings") or ():
+        normalized = _normalize_item(item)
+        if not normalized:
+            continue
+        if normalized.get("id") == target_id:
+            continue
+        if normalized.get("parent_id") != parent_id:
+            continue
+        if normalized.get("type") not in FEATURE_LEAF_CHILD_TYPES:
+            continue
+        if _optional_string(normalized.get("status")).lower() in TERMINAL_ART_STATUSES:
+            continue
+        return True
+
+    return False
+
+
+def _last_child_parent_feature_findings(
+    context: dict[str, Any],
+    target_item: dict[str, Any],
+) -> Iterable[ArtReadinessFinding]:
+    if target_item.get("type") not in FEATURE_LEAF_CHILD_TYPES:
+        return
+    if _optional_string(target_item.get("status")).lower() in TERMINAL_ART_STATUSES:
+        return
+    if _has_open_leaf_sibling(context, target_item):
+        return
+
+    parent_feature = _parent_feature_for_target(context, target_item)
+    if not parent_feature:
+        return
+
+    missing = _missing_feature_headings(parent_feature)
+    if not missing:
+        return
+
+    yield _finding(
+        "parent-feature-narrative-not-closeout-ready",
+        "error",
+        f"work-item:{parent_feature['id']}",
+        parent_feature.get("owner_repo"),
+        (
+            "Completing the last open child would leave the parent Feature ready "
+            "for closeout, but the parent narrative is missing required heading(s): "
+            + ", ".join(missing)
+        ),
+        "work-item.update",
+    )
 
 
 def _iteration_matches_target_pi(
