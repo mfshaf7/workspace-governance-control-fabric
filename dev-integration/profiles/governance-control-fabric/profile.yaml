@@ -1,5 +1,6 @@
 schema_version: 1
 profile_id: governance-control-fabric
+lane_class: governed-devint
 summary: Persistent local-k3s dev-integration lane for the Workspace Governance Control Fabric API runtime and PostgreSQL metadata store.
 runtime:
   platform: local-k3s
