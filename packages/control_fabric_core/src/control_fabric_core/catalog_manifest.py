@@ -7,6 +7,7 @@ authority input into a runtime governance manifest without redefining policy.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -53,6 +54,12 @@ DEFAULT_ALLOWED_SCOPE_PREFIXES = (
     "release:",
     "changed-file:",
 )
+ALLOWED_COMMAND_TEMPLATE_FIELDS = {
+    "art_delivery_id",
+    "target_id",
+    "target_scope",
+    "target_type",
+}
 
 
 @dataclass(frozen=True)
@@ -310,9 +317,16 @@ def _catalog_entry_to_validator(
         return None, _suppressed(entry_id, payload, "support libraries are authority inputs, not invocation targets")
     if payload.get("mutates_authority") is True or payload.get("writes_materialized_outputs") is True:
         return None, _suppressed(entry_id, payload, "mutating or materializing entries are not normal WGCF invocation targets")
-    command = str(invocation.get("command") or payload.get("command") or "").strip()
+    command = str(invocation.get("command_template") or invocation.get("command") or payload.get("command") or "").strip()
     if not command:
         return None, _suppressed(entry_id, payload, "entry has no command")
+    invalid_template_fields = _invalid_command_template_fields(command)
+    if invalid_template_fields:
+        return None, _suppressed(
+            entry_id,
+            payload,
+            "effective command contains unsupported template fields: " + ", ".join(invalid_template_fields),
+        )
     if "<" in command or ">" in command:
         return None, _suppressed(entry_id, payload, "effective command still contains unresolved placeholders")
     if _has_shell_control_token(command):
@@ -433,6 +447,16 @@ def _is_env_assignment(value: str) -> bool:
         character.isalnum() or character == "_"
         for character in key
     )
+
+
+def _invalid_command_template_fields(command: str) -> list[str]:
+    if command.count("{") != command.count("}"):
+        return ["<unbalanced-braces>"]
+    fields = re.findall(r"{([^{}]+)}", command)
+    invalid_fields = sorted({field for field in fields if field not in ALLOWED_COMMAND_TEMPLATE_FIELDS})
+    if re.sub(r"{[^{}]+}", "", command).count("{") or re.sub(r"{[^{}]+}", "", command).count("}"):
+        invalid_fields.append("<malformed-braces>")
+    return invalid_fields
 
 
 def _has_shell_control_token(command: str) -> bool:

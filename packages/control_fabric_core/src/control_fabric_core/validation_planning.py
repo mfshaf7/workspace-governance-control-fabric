@@ -7,6 +7,7 @@ does not execute commands, persist receipts, or invent workspace policy.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -45,6 +46,12 @@ VALIDATION_TIER_ORDER = {
 
 DEFAULT_VALIDATION_TIER = ValidationTier.SCOPED
 DEFAULT_CHECK_TYPE = ValidationCheckType.COMMAND
+ALLOWED_COMMAND_TEMPLATE_FIELDS = {
+    "art_delivery_id",
+    "target_id",
+    "target_scope",
+    "target_type",
+}
 KNOWN_TARGET_PREFIXES = (
     "authority:",
     "component:",
@@ -200,7 +207,7 @@ def build_validation_plan(
     graph = build_manifest_graph(manifest)
     declared_scope_ids = _declared_scope_ids(manifest, graph)
     target_scopes = _target_scope_candidates(manifest, target)
-    target_declared = bool(target_scopes & declared_scope_ids) or target.target_type == "workspace"
+    target_declared = _scope_sets_match(declared_scope_ids, target_scopes) or target.target_type == "workspace"
 
     selected: list[ValidationCheck] = []
     suppressed: list[SuppressedValidator] = []
@@ -219,6 +226,13 @@ def build_validation_plan(
             suppressed.append(SuppressedValidator(validator_id=validator["validator_id"], reason=reason))
             check_statuses.append(
                 _check_status(validator, "suppressed", reason),
+            )
+            continue
+        template_error = _command_template_target_error(str(validator["command"]), target)
+        if template_error:
+            suppressed.append(SuppressedValidator(validator_id=validator["validator_id"], reason=template_error))
+            check_statuses.append(
+                _check_status(validator, "suppressed", template_error),
             )
             continue
 
@@ -362,7 +376,7 @@ def _validation_check(
         cache_decision=cache_decision,
         check_id=_check_id(validator_id, target.scope, requested_tier),
         check_type=_validator_check_type(validator).value,
-        command=validator["command"].strip(),
+        command=_render_validator_command(validator["command"].strip(), target),
         execution_mode=execution_mode.value,
         execution_policy=_validator_execution_policy(validator),
         owner_repo=validator["owner_repo"].strip(),
@@ -417,7 +431,7 @@ def _scope_included(
     if requested_tier in {ValidationTier.FULL, ValidationTier.RELEASE}:
         return True
     declared_scopes = {str(scope).strip() for scope in validator_scopes}
-    return bool(declared_scopes & _target_scope_candidates(manifest, target)) or "workspace" in declared_scopes
+    return _scope_sets_match(declared_scopes, _target_scope_candidates(manifest, target)) or "workspace" in declared_scopes
 
 
 def _selection_reason(
@@ -428,7 +442,12 @@ def _selection_reason(
     manifest: dict[str, Any],
 ) -> str:
     declared_scopes = {str(scope).strip() for scope in validator["scopes"]}
-    matching_scopes = sorted(declared_scopes & _target_scope_candidates(manifest, target))
+    target_candidates = _target_scope_candidates(manifest, target)
+    matching_scopes = sorted(
+        declared_scope
+        for declared_scope in declared_scopes
+        if any(_scope_matches(declared_scope, candidate) for candidate in target_candidates)
+    )
     if matching_scopes or "workspace" in declared_scopes:
         if target.target_type == "changed-file" and matching_scopes:
             return (
@@ -571,6 +590,55 @@ def _declared_scope_ids(manifest: dict[str, Any], graph) -> set[str]:
     for validator in manifest["validators"]:
         scopes.update(str(scope).strip() for scope in validator["scopes"])
     return scopes
+
+
+def _scope_sets_match(declared_scopes: set[str], target_scopes: set[str]) -> bool:
+    return any(
+        _scope_matches(declared_scope, target_scope)
+        for declared_scope in declared_scopes
+        for target_scope in target_scopes
+    )
+
+
+def _scope_matches(declared_scope: str, target_scope: str) -> bool:
+    if declared_scope == target_scope:
+        return True
+    if declared_scope.endswith("*"):
+        prefix = declared_scope[:-1]
+        return bool(prefix) and target_scope.startswith(prefix) and target_scope != prefix
+    return False
+
+
+def _command_template_target_error(command: str, target: ValidationTarget) -> str | None:
+    if command.count("{") != command.count("}"):
+        return "validator command template has unbalanced braces"
+    fields = {field for field in re.findall(r"{([^{}]+)}", command)}
+    invalid_fields = sorted(fields - ALLOWED_COMMAND_TEMPLATE_FIELDS)
+    if invalid_fields:
+        return "validator command template contains unsupported fields: " + ", ".join(invalid_fields)
+    if "{art_delivery_id}" not in command:
+        return None
+    if _art_delivery_id(target) is None:
+        return "validator command template requires a concrete art:delivery-<id> target scope"
+    return None
+
+
+def _render_validator_command(command: str, target: ValidationTarget) -> str:
+    art_delivery_id = _art_delivery_id(target)
+    values = {
+        "art_delivery_id": art_delivery_id or "",
+        "target_id": target.target_id,
+        "target_scope": target.scope,
+        "target_type": target.target_type,
+    }
+    return command.format(**values)
+
+
+def _art_delivery_id(target: ValidationTarget) -> str | None:
+    match = re.fullmatch(r"art:delivery-(\d+)", target.scope)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _normalize_changed_file_target(scope: str) -> ValidationTarget:
@@ -770,7 +838,7 @@ def _receipt_match_decision(
         target.scope != receipt_target
         and receipt_target not in target_candidates
         and target.scope not in receipt_scopes
-        and not (target_candidates & receipt_scopes)
+        and not _scope_sets_match(receipt_scopes, target_candidates)
     ):
         return False, _receipt_rejection(receipt_id, "scope-mismatch", "scope mismatch")
     try:
