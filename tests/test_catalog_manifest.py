@@ -187,3 +187,46 @@ class CatalogManifestTests(TestCase):
                 ["contract-model", "security-evidence"],
             )
             self.assertIn("planner-selected", catalog["selection_note"])
+
+    def test_catalog_art_scope_command_template_renders_target_delivery_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace_root = Path(temp_dir)
+            write_authority_files(workspace_root)
+            write_catalog(
+                workspace_root,
+                {
+                    "openproject-quality-check": catalog_entry(
+                        command="make openproject-check-delivery-art-quality",
+                        owner_repo="platform-engineering",
+                        wgcf_invocation={
+                            "enabled": True,
+                            "command_template": "TARGET_EPIC_ID={art_delivery_id} python3 -c \"import os; print(os.environ['TARGET_EPIC_ID'])\"",
+                            "scopes": ["art:delivery-*"],
+                            "validation_tier": "scoped",
+                            "working_directory_repo": "workspace-governance",
+                        },
+                    ),
+                },
+            )
+
+            plan_result = build_catalog_operator_validation_plan(
+                target_scope="art:delivery-650",
+                tier="scoped",
+                workspace_root=workspace_root,
+            )
+            plan = plan_result.plan
+
+            self.assertEqual(plan.decision.outcome, "planned")
+            self.assertEqual(plan.checks[0].command, "TARGET_EPIC_ID=650 python3 -c \"import os; print(os.environ['TARGET_EPIC_ID'])\"")
+
+            with tempfile.TemporaryDirectory() as artifact_dir:
+                result = execute_validation_plan(
+                    plan,
+                    repo_root=workspace_root,
+                    artifact_root=artifact_dir,
+                    now="2026-05-01T00:00:00Z",
+                )
+                artifact_stdout = Path(result.receipt.artifact_refs[0].path).read_text(encoding="utf-8").strip()
+
+            self.assertEqual(result.receipt.outcome, "success")
+            self.assertEqual(artifact_stdout, "650")

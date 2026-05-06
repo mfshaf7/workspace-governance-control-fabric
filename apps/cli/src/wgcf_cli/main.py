@@ -1241,7 +1241,7 @@ def _add_catalog_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--scope",
         required=True,
-        help="Validation scope such as workspace, component:delivery-art, art:delivery-498, or profile:<id>.",
+        help="Validation scope such as workspace, component:delivery-art, art:delivery-<id>, or profile:<id>.",
     )
     parser.add_argument(
         "--profile",

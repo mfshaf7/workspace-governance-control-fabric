@@ -91,6 +91,31 @@ class ValidationPlanningTests(TestCase):
         self.assertEqual(plan.decision.outcome, "planned")
         self.assertEqual(plan.checks[0].validator_id, "control-fabric-project-scaffold")
 
+    def test_art_wildcard_scope_selects_and_renders_delivery_target(self) -> None:
+        manifest = deepcopy(load_example_manifest())
+        manifest["validators"].append(
+            {
+                "authority_ref_ids": ["wgcf-runtime-repo-guidance"],
+                "check_type": "command",
+                "command": "TARGET_EPIC_ID={art_delivery_id} make openproject-check-delivery-art-quality",
+                "owner_repo": "platform-engineering",
+                "required": True,
+                "scopes": ["art:delivery-*"],
+                "validation_tier": "scoped",
+                "validator_id": "openproject-quality-check",
+            },
+        )
+
+        plan = build_validation_plan(manifest, "art:delivery-650", tier="scoped")
+
+        checks = {check.validator_id: check for check in plan.checks}
+        self.assertEqual(plan.decision.outcome, "planned")
+        self.assertIn("openproject-quality-check", checks)
+        self.assertEqual(
+            checks["openproject-quality-check"].command,
+            "TARGET_EPIC_ID=650 make openproject-check-delivery-art-quality",
+        )
+
     def test_changed_file_plan_expands_to_repo_and_component_scopes(self) -> None:
         plan = build_validation_plan(
             load_example_manifest(),
