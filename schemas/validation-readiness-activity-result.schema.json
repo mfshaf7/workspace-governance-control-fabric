@@ -40,6 +40,12 @@
         "ready": {
           "type": "boolean"
         },
+        "retryable": {
+          "const": false
+        },
+        "terminal": {
+          "const": true
+        },
         "validation_event_ref": {
           "$ref": "#/$defs/identifier"
         },
@@ -59,6 +65,8 @@
         "readiness_outcome",
         "readiness_reason_count",
         "ready",
+        "retryable",
+        "terminal",
         "validation_event_ref",
         "validation_outcome"
       ],
@@ -128,7 +136,9 @@
     "status_code": {
       "enum": [
         "ready",
-        "blocked"
+        "blocked",
+        "timed-out",
+        "unavailable"
       ],
       "type": "string"
     },

@@ -47,6 +47,14 @@ class WorkerTests(TestCase):
             snapshot["temporal"]["registered_activities"],
             ["wgcf.validation-readiness.evaluate"],
         )
+        self.assertEqual(
+            snapshot["temporal"]["result_status_codes"],
+            ["ready", "blocked", "timed-out", "unavailable"],
+        )
+        self.assertEqual(
+            snapshot["temporal"]["failure_status_codes"],
+            ["blocked", "retryable", "timed-out", "cancelled", "unavailable"],
+        )
 
     def test_worker_status_uses_temporal_environment_names(self) -> None:
         with patch.dict(

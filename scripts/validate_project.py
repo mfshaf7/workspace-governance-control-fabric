@@ -292,6 +292,21 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("worker status must not start a long-running worker")
     if worker_snapshot["activation"]["authorized"]:
         errors.append("worker activation must be denied by default")
+    if worker_snapshot["temporal"]["result_status_codes"] != [
+        "ready",
+        "blocked",
+        "timed-out",
+        "unavailable",
+    ]:
+        errors.append("worker result status taxonomy drifted")
+    if worker_snapshot["temporal"]["failure_status_codes"] != [
+        "blocked",
+        "retryable",
+        "timed-out",
+        "cancelled",
+        "unavailable",
+    ]:
+        errors.append("worker failure status taxonomy drifted")
     schema_path = repo_root / "schemas/governance-manifest.schema.json"
     example_path = repo_root / "examples/governance-manifest.example.json"
     static_schema = json.loads(schema_path.read_text(encoding="utf-8"))
