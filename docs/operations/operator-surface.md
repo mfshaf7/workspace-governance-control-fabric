@@ -159,9 +159,11 @@ Failure semantics are split by whether bounded evidence was produced:
 Temporal failure messages are stable and omit raw exception details. OOS owns
 retry limits, activity timeouts, and terminal run projection. The activity
 adapter shields its execution thread from task cancellation and waits for that
-thread before acknowledging cancellation to Temporal. A cancelled OOS run
-therefore cannot close while WGCF validation is still executing in the
-background.
+thread before acknowledging cancellation to Temporal. Aggregate ordering also
+requires OOS to schedule the activity with Temporal's
+`WAIT_CANCELLATION_COMPLETED` policy; WGCF does not own that setting. When both
+sides are present, a cancelled OOS run cannot close while WGCF validation is
+still executing in the background.
 
 Operator Orchestration Service owns the aggregate workflow, run state, retry
 policy, and operator projection. WGCF owns only this bounded activity and its
@@ -537,8 +539,8 @@ second policy path.
 This is build-admitted source, not an active or production worker. The
 dev-integration Deployment remains at zero replicas by default and later
 activation must prove cross-namespace network policy, payload admission,
-restart safety, cancellation acknowledgement through the owner activity, and
-fresh Security acceptance.
+restart safety, WGCF cancellation acknowledgement paired with the compatible
+OOS wait-for-completion policy, and fresh Security acceptance.
 
 ## Profiles
 
