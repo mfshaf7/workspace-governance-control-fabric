@@ -153,10 +153,15 @@ Failure semantics are split by whether bounded evidence was produced:
   activity failures
 - `WGCF_ACTIVITY_TIMED_OUT`, `WGCF_ACTIVITY_UNAVAILABLE`, and
   `WGCF_ACTIVITY_RETRYABLE`: retryable pre-result activity failures
-- cancellation: propagated as native Temporal cancellation
+- cancellation: propagated as native Temporal cancellation only after the
+  synchronous owner execution has stopped or completed
 
 Temporal failure messages are stable and omit raw exception details. OOS owns
-retry limits, activity timeouts, and terminal run projection.
+retry limits, activity timeouts, and terminal run projection. The activity
+adapter shields its execution thread from task cancellation and waits for that
+thread before acknowledging cancellation to Temporal. A cancelled OOS run
+therefore cannot close while WGCF validation is still executing in the
+background.
 
 Operator Orchestration Service owns the aggregate workflow, run state, retry
 policy, and operator projection. WGCF owns only this bounded activity and its
@@ -532,7 +537,8 @@ second policy path.
 This is build-admitted source, not an active or production worker. The
 dev-integration Deployment remains at zero replicas by default and later
 activation must prove cross-namespace network policy, payload admission,
-restart safety, and fresh Security acceptance.
+restart safety, cancellation acknowledgement through the owner activity, and
+fresh Security acceptance.
 
 ## Profiles
 

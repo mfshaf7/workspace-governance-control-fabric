@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
@@ -115,3 +116,44 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         ):
             with self.assertRaises(asyncio.CancelledError):
                 await validation_readiness_activity(valid_request())
+
+    async def test_temporal_cancellation_waits_for_owner_execution_to_stop(
+        self,
+    ) -> None:
+        started = Event()
+        release = Event()
+        finished = Event()
+
+        def delayed_execution(
+            *_args: object,
+            **_kwargs: object,
+        ) -> dict[str, object]:
+            started.set()
+            release.wait()
+            finished.set()
+            return {}
+
+        with (
+            patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
+            patch(
+                "wgcf_worker.activities.execute_validation_readiness_activity",
+                side_effect=delayed_execution,
+            ),
+        ):
+            activity_task = asyncio.create_task(
+                validation_readiness_activity(valid_request()),
+            )
+            self.assertTrue(await asyncio.to_thread(started.wait, 1))
+            try:
+                activity_task.cancel()
+                await asyncio.sleep(0)
+
+                self.assertFalse(activity_task.done())
+                self.assertFalse(finished.is_set())
+            finally:
+                release.set()
+
+            with self.assertRaises(asyncio.CancelledError):
+                await activity_task
+
+        self.assertTrue(finished.is_set())

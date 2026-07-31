@@ -29,8 +29,8 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
     """Run the bounded validation/readiness activity off the event loop."""
 
     info = activity.info()
-    try:
-        return await asyncio.to_thread(
+    execution = asyncio.create_task(
+        asyncio.to_thread(
             execute_validation_readiness_activity,
             payload,
             activity_context=ValidationReadinessActivityContext(
@@ -52,8 +52,12 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
                 ),
             ),
             workspace_root=Path(os.environ.get(WORKSPACE_ROOT_ENV, "/workspace")),
-        )
+        ),
+    )
+    try:
+        return await asyncio.shield(execution)
     except asyncio.CancelledError:
+        await _wait_for_execution(execution)
         raise
     except Exception as exc:
         failure = classify_validation_readiness_exception(exc)
@@ -62,3 +66,24 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
             type=failure.error_type,
             non_retryable=not failure.retryable,
         ) from None
+
+
+async def _wait_for_execution(execution: asyncio.Task[dict[str, Any]]) -> None:
+    """Do not acknowledge cancellation while synchronous owner work is running."""
+
+    while not execution.done():
+        try:
+            await asyncio.shield(execution)
+        except asyncio.CancelledError:
+            continue
+        except Exception:
+            break
+
+    if execution.cancelled():
+        return
+    try:
+        execution.result()
+    except Exception:
+        # Cancellation remains the authoritative activity outcome. Retrieving the
+        # result here prevents an unobserved task failure after the thread exits.
+        pass
