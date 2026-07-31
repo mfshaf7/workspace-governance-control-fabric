@@ -221,15 +221,12 @@ def execute_validation_readiness_activity(
     and authority records. Those stay in WGCF-owned evidence storage.
     """
 
-    request = ValidationReadinessActivityRequest.from_payload(payload)
+    request, request_digest, key_digest = _validation_readiness_binding(payload)
     if request.workflow_id != activity_context.workflow_id:
         raise ValidationReadinessContractError(
             "workflow_id must match the Temporal execution context",
         )
-    request_record = request.to_record()
-    request_digest = _record_digest(request_record)
     evidence_path = Path(evidence_root).resolve()
-    key_digest = sha256(request.idempotency_key.encode("utf-8")).hexdigest()
     cache_path = evidence_path / "idempotency" / f"{key_digest}.json"
     lock_path = evidence_path / "locks" / f"{key_digest}.lock"
 
@@ -279,6 +276,62 @@ def execute_validation_readiness_activity(
             },
         )
         return result
+
+
+def load_committed_validation_readiness_result(
+    payload: Mapping[str, Any],
+    *,
+    evidence_root: str | Path,
+) -> dict[str, Any] | None:
+    """Read one canonically committed result without executing owner work."""
+
+    _request, request_digest, key_digest = _validation_readiness_binding(payload)
+    evidence_path = Path(evidence_root).resolve()
+    lock_path = evidence_path / "locks" / f"{key_digest}.lock"
+    committed_root = evidence_path / "committed" / key_digest
+    cache_path = committed_root / "idempotency" / f"{key_digest}.json"
+    with _exclusive_lock(lock_path):
+        return _bound_cached_result(cache_path, request_digest)
+
+
+def commit_validation_readiness_staging_result(
+    payload: Mapping[str, Any],
+    *,
+    evidence_root: str | Path,
+    staging_root: str | Path,
+    expected_result: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Atomically grant canonical evidence authority to one stopped attempt."""
+
+    _request, request_digest, key_digest = _validation_readiness_binding(payload)
+    evidence_path = Path(evidence_root).resolve()
+    staging_path = Path(staging_root).resolve()
+    staging_parent = (evidence_path / "staging").resolve()
+    if staging_path.parent != staging_parent:
+        raise RuntimeError("validation/readiness staging root is outside its authority boundary")
+
+    staged_cache_path = staging_path / "idempotency" / f"{key_digest}.json"
+    staged_result = _bound_cached_result(staged_cache_path, request_digest)
+    if staged_result is None:
+        raise RuntimeError("validation/readiness staging result is missing")
+    if staged_result != dict(expected_result):
+        raise RuntimeError("validation/readiness staging result does not match owner output")
+
+    lock_path = evidence_path / "locks" / f"{key_digest}.lock"
+    committed_root = evidence_path / "committed" / key_digest
+    committed_cache_path = committed_root / "idempotency" / f"{key_digest}.json"
+    with _exclusive_lock(lock_path):
+        committed_result = _bound_cached_result(
+            committed_cache_path,
+            request_digest,
+        )
+        if committed_result is not None:
+            return committed_result
+        if committed_root.exists():
+            raise RuntimeError("validation/readiness committed evidence is incomplete")
+        committed_root.parent.mkdir(parents=True, exist_ok=True)
+        staging_path.rename(committed_root)
+        return staged_result
 
 
 def classify_validation_readiness_exception(
@@ -432,6 +485,29 @@ def _record_digest(record: Mapping[str, Any]) -> str:
         json.dumps(record, separators=(",", ":"), sort_keys=True).encode("utf-8"),
     ).hexdigest()
     return f"sha256:{digest}"
+
+
+def _validation_readiness_binding(
+    payload: Mapping[str, Any],
+) -> tuple[ValidationReadinessActivityRequest, str, str]:
+    request = ValidationReadinessActivityRequest.from_payload(payload)
+    request_digest = _record_digest(request.to_record())
+    key_digest = sha256(request.idempotency_key.encode("utf-8")).hexdigest()
+    return request, request_digest, key_digest
+
+
+def _bound_cached_result(
+    cache_path: Path,
+    request_digest: str,
+) -> dict[str, Any] | None:
+    cached = _load_cached_result(cache_path)
+    if cached is None:
+        return None
+    if cached["request_digest"] != request_digest:
+        raise ValidationReadinessIdempotencyConflict(
+            "idempotency key is already bound to a different request",
+        )
+    return dict(cached["result"])
 
 
 def _load_cached_result(path: Path) -> dict[str, Any] | None:

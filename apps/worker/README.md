@@ -17,8 +17,12 @@ Current source:
   pre-result availability and timeout failures retryable, and preserves native
   Temporal cancellation only after the isolated owner process has stopped
 - heartbeats every two seconds for cancellation delivery, bounds owner
-  execution to four minutes, and terminates the complete process group within a
-  five-second grace before acknowledging any result, cancellation, or timeout
+  execution including spawn to four minutes, and bounds TERM grace plus
+  process-group exit confirmation to ten additional seconds
+- writes owner evidence only under an attempt-specific staging root and grants
+  canonical evidence authority by atomic rename only after the complete process
+  group is confirmed absent; unconfirmed attempts remain quarantined and cannot
+  mutate committed evidence during a Temporal retry
 - replaces exception details with stable public error types and messages
 - refuses `wgcf-worker run` until explicit activation and Security review
   evidence are present
