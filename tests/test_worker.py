@@ -13,48 +13,57 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 sys.path.insert(0, str(REPO_ROOT / "apps/worker/src"))
 
-from control_fabric_core.worker import worker_status_snapshot
+from control_fabric_core.worker import (
+    worker_activation_status,
+    worker_status_snapshot,
+)
 from wgcf_worker.main import main, render_worker_status_human
 
 
 class WorkerTests(TestCase):
-    def test_worker_status_is_temporal_ready_without_runtime_connection(self) -> None:
+    def test_worker_status_is_source_ready_without_runtime_connection(self) -> None:
         snapshot = worker_status_snapshot(REPO_ROOT)
 
         self.assertTrue(snapshot["ready"])
-        self.assertEqual(snapshot["status"], "worker-skeleton")
-        self.assertEqual(snapshot["runtime_mode"], "local-scaffold")
+        self.assertEqual(snapshot["status"], "activity-worker-source-ready")
+        self.assertEqual(snapshot["runtime_mode"], "build-admitted-disabled")
         self.assertTrue(snapshot["temporal"]["task_queue"])
         self.assertTrue(snapshot["temporal"]["ready_boundary"])
         self.assertFalse(snapshot["temporal"]["connects_to_temporal"])
         self.assertFalse(snapshot["temporal"]["long_running_worker"])
-        self.assertEqual(snapshot["temporal"]["sdk_dependency"], "deferred")
+        self.assertEqual(snapshot["temporal"]["sdk_dependency"], "temporalio>=1.30,<2")
+        self.assertFalse(snapshot["activation"]["authorized"])
 
-    def test_worker_status_declares_future_capabilities_without_implementing_them(self) -> None:
+    def test_worker_status_declares_only_bounded_implemented_activity(self) -> None:
         snapshot = worker_status_snapshot(REPO_ROOT)
         capabilities = {
             capability["capability_id"]: capability
             for capability in snapshot["capabilities"]
         }
 
-        self.assertIn("source-snapshot-ingest", capabilities)
-        self.assertIn("validation-plan-execute", capabilities)
-        self.assertIn("control-receipt-append", capabilities)
-        self.assertFalse(any(capability["implemented"] for capability in capabilities.values()))
+        self.assertTrue(capabilities["validation-readiness"]["implemented"])
+        self.assertFalse(capabilities["aggregate-workflow-control"]["implemented"])
+        self.assertEqual(
+            snapshot["temporal"]["registered_activities"],
+            ["wgcf.validation-readiness.evaluate"],
+        )
 
     def test_worker_status_uses_temporal_environment_names(self) -> None:
         with patch.dict(
             "os.environ",
             {
                 "WGCF_TEMPORAL_NAMESPACE": "devint",
-                "WGCF_TEMPORAL_TASK_QUEUE": "wgcf-devint",
+                "WGCF_TEMPORAL_TASK_QUEUE": "wgcf.validation-readiness.v1",
                 "WGCF_TEMPORAL_ADDRESS": "temporal.devint.local:7233",
             },
         ):
             snapshot = worker_status_snapshot(REPO_ROOT)
 
         self.assertEqual(snapshot["temporal"]["namespace"], "devint")
-        self.assertEqual(snapshot["temporal"]["task_queue"], "wgcf-devint")
+        self.assertEqual(
+            snapshot["temporal"]["task_queue"],
+            "wgcf.validation-readiness.v1",
+        )
         self.assertEqual(snapshot["temporal"]["address"], "temporal.devint.local:7233")
 
     def test_worker_human_status_is_compact(self) -> None:
@@ -83,3 +92,30 @@ class WorkerTests(TestCase):
         payload = json.loads(buffer.getvalue())
         self.assertTrue(payload["ready"])
         self.assertFalse(payload["temporal"]["connects_to_temporal"])
+
+    def test_worker_run_refuses_default_disabled_posture(self) -> None:
+        error = StringIO()
+        with redirect_stdout(StringIO()), patch("sys.stderr", error):
+            result = main(["run"])
+
+        self.assertEqual(result, 2)
+        self.assertIn("refused to start", error.getvalue())
+
+    def test_worker_activation_requires_all_gates_and_exact_identity(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "WGCF_TEMPORAL_WORKER_ENABLED": "true",
+                "WGCF_TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED": "true",
+                "WGCF_TEMPORAL_ACTIVATION_REVIEW_REF": (
+                    "security-review:temporal-activation"
+                ),
+                "WGCF_TEMPORAL_TASK_QUEUE": "wgcf.validation-readiness.v1",
+                "WGCF_TEMPORAL_WORKER_ID": "wgcf-activity-worker",
+            },
+            clear=False,
+        ):
+            activation = worker_activation_status()
+
+        self.assertTrue(activation["authorized"])
+        self.assertEqual(activation["blockers"], [])

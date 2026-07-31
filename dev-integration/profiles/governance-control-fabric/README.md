@@ -7,6 +7,8 @@ Runtime boundary:
 
 - local-k3s Deployment and Service managed by the shared platform runner
 - local-k3s PostgreSQL StatefulSet and Service for fabric-local metadata
+- WGCF-owned Temporal activity Deployment, using the dedicated worker image,
+  rendered at zero replicas by default
 - persistent local state root under `.dev-integration/governance-control-fabric/<operator>`
 - read-only smoke for API, graph, validation-plan, and receipt metadata reads
 - no stage or prod deployment approval
@@ -18,9 +20,12 @@ gates remain separate.
 
 ## What It Will Run
 
-- control-fabric FastAPI service from the published WGCF image
+- control-fabric FastAPI service from the published WGCF API image
+- bounded activity execution from the separately published WGCF worker image
 - local k3s Service for operator and future console access
 - local PostgreSQL for graph, receipt, readiness, and ledger state
+- a bounded `wgcf.validation-readiness.evaluate` activity worker after explicit
+  activation
 - workspace-governance contracts mounted or synced as read-only authority input
 - local session artifacts that bind source repos, profile state, and smoke
   evidence
@@ -40,8 +45,18 @@ into this persistent working lane.
 The current profile starts PostgreSQL as a local k3s StatefulSet, runs database
 migrations from the WGCF image, starts the API as a local k3s Deployment,
 exposes it through a ClusterIP Service, and writes the operator access details
-to the profile state root. It does not create a stage deployment and does not
-activate the worker runtime.
+to the profile state root. The Temporal worker remains at zero replicas unless
+all of these are supplied together:
+
+- `DEVINT_WGCF_TEMPORAL_WORKER_ENABLED=true`
+- `DEVINT_WGCF_TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED=true`
+- `DEVINT_WGCF_TEMPORAL_ACTIVATION_REVIEW_REF=<accepted-security-review>`
+
+The worker process repeats those checks before connecting. It consumes only
+`wgcf.validation-readiness.v1`, writes only WGCF-local evidence, and never owns
+the aggregate workflow. Cross-namespace reachability to the platform-owned
+Temporal frontend is a separate activation prerequisite. This profile does not
+create a stage deployment.
 
 ## Operator Actions
 

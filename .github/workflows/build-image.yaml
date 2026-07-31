@@ -40,6 +40,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          target: api
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
@@ -100,3 +101,83 @@ jobs:
         with:
           name: workspace-governance-control-fabric-release-metadata
           path: release-metadata.json
+
+  build-worker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/workspace-governance-control-fabric-worker
+          tags: |
+            type=sha,format=short,prefix=sha-
+
+      - uses: docker/build-push-action@v6
+        id: build
+        with:
+          context: .
+          file: ./Dockerfile
+          target: worker
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=Workspace Governance Control Fabric Activity Worker
+            org.opencontainers.image.description=Bounded Temporal activity worker for WGCF-owned validation and readiness execution
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Prove worker source status and default denial
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/workspace-governance-control-fabric-worker@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm "${IMAGE_REF}" | grep -q "status: activity-worker-source-ready"
+          if docker run --rm "${IMAGE_REF}" wgcf-worker run; then
+            echo "worker unexpectedly started without activation evidence" >&2
+            exit 1
+          fi
+
+      - name: Publish build summary
+        run: |
+          {
+            echo "## WGCF Temporal Activity Worker Image"
+            echo
+            echo "- Image: \`ghcr.io/${{ github.repository_owner }}/workspace-governance-control-fabric-worker\`"
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Source SHA: \`${{ github.sha }}\`"
+            echo "- Default runtime posture: denied"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write release metadata
+        run: |
+          cat > worker-release-metadata.json <<EOF
+          {
+            "component": "workspace-governance-control-fabric-temporal-activity-worker",
+            "repository": "ghcr.io/${{ github.repository_owner }}/workspace-governance-control-fabric-worker",
+            "digest": "${{ steps.build.outputs.digest }}",
+            "sourceSha": "${{ github.sha }}",
+            "workflow": "${{ github.workflow }}",
+            "runId": "${{ github.run_id }}",
+            "runAttempt": "${{ github.run_attempt }}"
+          }
+          EOF
+
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-governance-control-fabric-worker-release-metadata
+          path: worker-release-metadata.json

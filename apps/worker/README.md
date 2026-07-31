@@ -1,14 +1,18 @@
 # Control Fabric Worker
 
-This app will own future background execution for validation plans, receipts,
-and ledger writes.
+This app owns the WGCF side of bounded background validation/readiness work.
+Operator Orchestration Service remains the aggregate workflow owner.
 
-Current slice:
+Current source:
 
-- provide the `wgcf-worker` diagnostic entrypoint
-- expose Temporal-shaped namespace, task-queue, and address settings
-- declare future worker capabilities without implementing workflow execution
-- document that long-running worker behavior is intentionally deferred
+- provides `wgcf-worker status` without opening a Temporal connection
+- registers only `wgcf.validation-readiness.evaluate`
+- polls only `wgcf.validation-readiness.v1`
+- rejects unknown or authority-expanding payload fields
+- stores raw output and local paths only in WGCF-owned evidence storage
+- deduplicates completed execution by idempotency key
+- refuses `wgcf-worker run` until explicit activation and Security review
+  evidence are present
 
 Run locally after installing dependencies:
 
@@ -16,6 +20,5 @@ Run locally after installing dependencies:
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_worker status --repo-root .
 ```
 
-The worker is Temporal-ready in shape only. It does not import the Temporal SDK,
-connect to a Temporal service, poll a task queue, or run production workflow
-logic in this slice.
+`wgcf-worker run` is intentionally fail-closed by default. Source readiness is
+not runtime activation, governed-stage admission, or production authority.

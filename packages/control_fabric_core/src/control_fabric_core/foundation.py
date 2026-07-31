@@ -95,6 +95,10 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/operator_surfaces.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/orchestration_activities.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/orchestration_activities.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/validation_planning.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/validation_planning.py"
         ),
@@ -119,6 +123,12 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "schemas/runtime-governance-record.schema.json": (
             repo_root / "schemas/runtime-governance-record.schema.json"
+        ),
+        "schemas/validation-readiness-activity-request.schema.json": (
+            repo_root / "schemas/validation-readiness-activity-request.schema.json"
+        ),
+        "schemas/validation-readiness-activity-result.schema.json": (
+            repo_root / "schemas/validation-readiness-activity-result.schema.json"
         ),
         "schemas/validation-receipt.schema.json": (
             repo_root / "schemas/validation-receipt.schema.json"

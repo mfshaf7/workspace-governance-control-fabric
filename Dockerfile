@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12-slim AS app-base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -20,8 +20,21 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
   && python -m pip install --no-cache-dir .
 
 RUN useradd --create-home --uid 10001 wgcf
+
+FROM app-base AS worker
+
+RUN apt-get update \
+  && apt-get install --no-install-recommends --yes ca-certificates git \
+  && rm -rf /var/lib/apt/lists/* \
+  && python -m pip install --no-cache-dir ".[worker]"
+
+USER wgcf
+
+CMD ["wgcf-worker", "status", "--repo-root", "/app"]
+
+FROM app-base AS api
+
 USER wgcf
 
 EXPOSE 8080
-
 CMD ["uvicorn", "wgcf_api.app:app", "--host", "0.0.0.0", "--port", "8080"]

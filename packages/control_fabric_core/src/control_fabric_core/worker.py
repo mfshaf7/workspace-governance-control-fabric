@@ -1,9 +1,4 @@
-"""Worker scaffold helpers for the control-fabric runtime.
-
-The worker surface is Temporal-ready without importing or connecting to a
-Temporal runtime yet. This keeps Phase 1 source work testable while preserving
-the task-queue and workflow vocabulary needed for the later runtime lane.
-"""
+"""Worker settings and activation gates for WGCF-owned Temporal activities."""
 
 from __future__ import annotations
 
@@ -13,17 +8,28 @@ from pathlib import Path
 from typing import Any
 
 from .foundation import PACKAGE_VERSION, RUNTIME_REPO
+from .orchestration_activities import (
+    VALIDATION_READINESS_ACTIVITY_NAME,
+    VALIDATION_READINESS_TASK_QUEUE,
+)
 
 
-WORKER_STATUS = "worker-skeleton"
-WORKER_RUNTIME_MODE = "local-scaffold"
+WORKER_STATUS = "activity-worker-source-ready"
+WORKER_RUNTIME_MODE = "build-admitted-disabled"
 WORKER_ENTRYPOINT_PATH = Path("apps/worker/src/wgcf_worker/main.py")
 TEMPORAL_NAMESPACE_ENV = "WGCF_TEMPORAL_NAMESPACE"
 TEMPORAL_TASK_QUEUE_ENV = "WGCF_TEMPORAL_TASK_QUEUE"
 TEMPORAL_ADDRESS_ENV = "WGCF_TEMPORAL_ADDRESS"
+TEMPORAL_WORKER_ID_ENV = "WGCF_TEMPORAL_WORKER_ID"
+TEMPORAL_WORKER_ENABLED_ENV = "WGCF_TEMPORAL_WORKER_ENABLED"
+TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED_ENV = (
+    "WGCF_TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED"
+)
+TEMPORAL_ACTIVATION_REVIEW_REF_ENV = "WGCF_TEMPORAL_ACTIVATION_REVIEW_REF"
 DEFAULT_TEMPORAL_NAMESPACE = "default"
-DEFAULT_TEMPORAL_TASK_QUEUE = "workspace-governance-control-fabric"
+DEFAULT_TEMPORAL_TASK_QUEUE = VALIDATION_READINESS_TASK_QUEUE
 DEFAULT_TEMPORAL_ADDRESS = "127.0.0.1:7233"
+DEFAULT_TEMPORAL_WORKER_ID = "wgcf-activity-worker"
 
 
 @dataclass(frozen=True)
@@ -46,38 +52,36 @@ class WorkerSettings:
             "identity": self.identity,
             "ready_boundary": True,
             "connects_to_temporal": False,
-            "sdk_dependency": "deferred",
+            "sdk_dependency": "temporalio>=1.30,<2",
             "long_running_worker": False,
+            "registered_activities": [VALIDATION_READINESS_ACTIVITY_NAME],
         }
 
 
 @dataclass(frozen=True)
 class WorkerCapability:
-    """Declared future worker capability without executable workflow behavior."""
+    """Declared owner capability exposed by this worker source."""
 
     capability_id: str
     purpose: str
-    temporal_workflow_hint: str
+    temporal_activity: str | None
     implemented: bool
 
 
-PLANNED_WORKER_CAPABILITIES = (
+WORKER_CAPABILITIES = (
     WorkerCapability(
-        capability_id="source-snapshot-ingest",
-        purpose="Ingest authority-source snapshots for later validation planning.",
-        temporal_workflow_hint="SourceSnapshotIngestWorkflow",
-        implemented=False,
+        capability_id="validation-readiness",
+        purpose=(
+            "Execute the bounded validation/readiness proof and return compact "
+            "receipt evidence to the OOS-owned workflow."
+        ),
+        temporal_activity=VALIDATION_READINESS_ACTIVITY_NAME,
+        implemented=True,
     ),
     WorkerCapability(
-        capability_id="validation-plan-execute",
-        purpose="Execute scoped validation plans and summarize bounded evidence.",
-        temporal_workflow_hint="ValidationPlanExecutionWorkflow",
-        implemented=False,
-    ),
-    WorkerCapability(
-        capability_id="control-receipt-append",
-        purpose="Append receipt and ledger records after validation or readiness actions.",
-        temporal_workflow_hint="ControlReceiptAppendWorkflow",
+        capability_id="aggregate-workflow-control",
+        purpose="Aggregate workflow and retry control remain owned by OOS.",
+        temporal_activity=None,
         implemented=False,
     ),
 )
@@ -93,12 +97,45 @@ def worker_settings() -> WorkerSettings:
         namespace=namespace,
         task_queue=task_queue,
         address=address,
-        identity=f"{RUNTIME_REPO}-local-worker",
+        identity=environ.get(TEMPORAL_WORKER_ID_ENV, DEFAULT_TEMPORAL_WORKER_ID),
     )
 
 
+def worker_activation_status() -> dict[str, Any]:
+    """Return the explicit gates required before a worker may connect."""
+
+    enabled = _env_true(TEMPORAL_WORKER_ENABLED_ENV)
+    execution_authorized = _env_true(TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED_ENV)
+    review_ref = environ.get(TEMPORAL_ACTIVATION_REVIEW_REF_ENV, "").strip()
+    settings = worker_settings()
+    blockers: list[str] = []
+    if not enabled:
+        blockers.append(f"{TEMPORAL_WORKER_ENABLED_ENV}=true is required")
+    if not execution_authorized:
+        blockers.append(
+            f"{TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED_ENV}=true is required",
+        )
+    if not review_ref:
+        blockers.append(f"{TEMPORAL_ACTIVATION_REVIEW_REF_ENV} is required")
+    if settings.task_queue != VALIDATION_READINESS_TASK_QUEUE:
+        blockers.append(
+            f"{TEMPORAL_TASK_QUEUE_ENV} must be {VALIDATION_READINESS_TASK_QUEUE}",
+        )
+    if settings.identity != DEFAULT_TEMPORAL_WORKER_ID:
+        blockers.append(
+            f"{TEMPORAL_WORKER_ID_ENV} must be {DEFAULT_TEMPORAL_WORKER_ID}",
+        )
+    return {
+        "authorized": not blockers,
+        "enabled": enabled,
+        "activity_execution_authorized": execution_authorized,
+        "activation_review_ref": review_ref or None,
+        "blockers": blockers,
+    }
+
+
 def worker_required_paths(repo_root: Path) -> dict[str, bool]:
-    """Return the worker scaffold file checks this repo must satisfy."""
+    """Return the worker source files this repo must provide."""
 
     paths = {
         "apps/worker/README.md": repo_root / "apps/worker/README.md",
@@ -108,13 +145,25 @@ def worker_required_paths(repo_root: Path) -> dict[str, bool]:
         "apps/worker/src/wgcf_worker/__main__.py": (
             repo_root / "apps/worker/src/wgcf_worker/__main__.py"
         ),
+        "apps/worker/src/wgcf_worker/activities.py": (
+            repo_root / "apps/worker/src/wgcf_worker/activities.py"
+        ),
+        "apps/worker/src/wgcf_worker/runner.py": (
+            repo_root / "apps/worker/src/wgcf_worker/runner.py"
+        ),
         str(WORKER_ENTRYPOINT_PATH): repo_root / WORKER_ENTRYPOINT_PATH,
+        "schemas/validation-readiness-activity-request.schema.json": (
+            repo_root / "schemas/validation-readiness-activity-request.schema.json"
+        ),
+        "schemas/validation-readiness-activity-result.schema.json": (
+            repo_root / "schemas/validation-readiness-activity-result.schema.json"
+        ),
     }
     return {name: path.exists() and path.is_file() for name, path in paths.items()}
 
 
 def worker_status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any]:
-    """Return a compact, operator-safe worker scaffold status."""
+    """Return compact, connection-free worker source and activation status."""
 
     root = Path(repo_root or ".").resolve()
     required_paths = worker_required_paths(root)
@@ -126,5 +175,10 @@ def worker_status_snapshot(repo_root: str | Path | None = None) -> dict[str, Any
         "ready": all(required_paths.values()),
         "required_paths": required_paths,
         "temporal": worker_settings().to_status(),
-        "capabilities": [asdict(capability) for capability in PLANNED_WORKER_CAPABILITIES],
+        "activation": worker_activation_status(),
+        "capabilities": [asdict(capability) for capability in WORKER_CAPABILITIES],
     }
+
+
+def _env_true(name: str) -> bool:
+    return environ.get(name, "").strip().lower() == "true"

@@ -1,7 +1,7 @@
 schema_version: 1
 profile_id: governance-control-fabric
 lane_class: governed-devint
-summary: Persistent local-k3s dev-integration lane for the Workspace Governance Control Fabric API runtime and PostgreSQL metadata store.
+summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata store, and disabled-by-default Temporal activity worker.
 runtime:
   platform: local-k3s
   state_model: persistent
@@ -11,6 +11,7 @@ runtime:
     - workspace-governance-control-fabric-api
     - workspace-governance-control-fabric-service
     - workspace-governance-control-fabric-postgresql
+    - workspace-governance-control-fabric-temporal-activity
 testing:
   smoke:
     mutation_mode: read-only
@@ -33,6 +34,7 @@ session:
   required_artifacts:
     - control-fabric-session.yaml
     - wgcf-api-runtime.yaml
+    - temporal-activity-worker-status.txt
     - api-health.json
     - readiness.json
     - database-migration.txt

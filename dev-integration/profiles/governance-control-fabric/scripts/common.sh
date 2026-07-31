@@ -13,6 +13,16 @@ readonly PROFILE_JSON="${DEVINT_PROFILE_JSON:?DEVINT_PROFILE_JSON is required}"
 readonly PROMOTION_REPORT="${DEVINT_PROMOTION_REPORT:?DEVINT_PROMOTION_REPORT is required}"
 readonly PROFILE_FILE="${DEVINT_PROFILE_FILE:?DEVINT_PROFILE_FILE is required}"
 readonly DEVINT_KUBECONFIG_PATH="${DEVINT_KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+readonly OPERATOR_SLUG="$(
+  python3 - "${OPERATOR}" <<'PY'
+import re
+import sys
+
+value = re.sub(r"[^a-z0-9-]+", "-", sys.argv[1].lower())
+value = re.sub(r"-{2,}", "-", value).strip("-")
+print(value or "operator")
+PY
+)"
 
 export KUBECONFIG="${DEVINT_KUBECONFIG_PATH}"
 
@@ -33,8 +43,23 @@ readonly POSTGRES_PASSWORD="${DEVINT_WGCF_POSTGRES_PASSWORD:-wgcf-devint-local}"
 readonly POSTGRES_VOLUME_SIZE="${DEVINT_WGCF_POSTGRES_VOLUME_SIZE:-2Gi}"
 readonly DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVICE}:5432/${POSTGRES_DATABASE}"
 readonly DEFAULT_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric"
+readonly DEFAULT_WORKER_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric-worker"
 readonly DEFAULT_IMAGE_TAG="sha-$(git -C "${OWNER_REPO_ROOT}" rev-parse --short=7 HEAD)"
 readonly API_IMAGE="${DEVINT_WGCF_IMAGE:-${DEFAULT_IMAGE_REPO}:${DEFAULT_IMAGE_TAG}}"
+readonly TEMPORAL_WORKER_IMAGE="${DEVINT_WGCF_TEMPORAL_WORKER_IMAGE:-${DEFAULT_WORKER_IMAGE_REPO}:${DEFAULT_IMAGE_TAG}}"
+readonly TEMPORAL_WORKER_DEPLOYMENT="${DEVINT_WGCF_TEMPORAL_WORKER_DEPLOYMENT:-workspace-governance-control-fabric-temporal-activity}"
+readonly TEMPORAL_WORKER_SERVICE_ACCOUNT="temporal-wgcf-activity"
+readonly TEMPORAL_WORKER_ID="wgcf-activity-worker"
+readonly TEMPORAL_WORKER_TASK_QUEUE="wgcf.validation-readiness.v1"
+readonly TEMPORAL_WORKER_ENABLED="${DEVINT_WGCF_TEMPORAL_WORKER_ENABLED:-false}"
+readonly TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED="${DEVINT_WGCF_TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED:-false}"
+readonly TEMPORAL_ACTIVATION_REVIEW_REF="${DEVINT_WGCF_TEMPORAL_ACTIVATION_REVIEW_REF:-}"
+readonly TEMPORAL_PLATFORM_NAMESPACE="${DEVINT_WGCF_TEMPORAL_PLATFORM_NAMESPACE:-devint-temporal-${OPERATOR_SLUG}}"
+readonly TEMPORAL_WORKFLOW_NAMESPACE="${DEVINT_WGCF_TEMPORAL_NAMESPACE:-governance-${OPERATOR_SLUG}}"
+readonly TEMPORAL_ADDRESS="${DEVINT_WGCF_TEMPORAL_ADDRESS:-temporal-frontend.${TEMPORAL_PLATFORM_NAMESPACE}.svc.cluster.local:7233}"
+readonly TEMPORAL_EVIDENCE_PVC="${TEMPORAL_WORKER_DEPLOYMENT}-evidence"
+readonly TEMPORAL_EVIDENCE_VOLUME_SIZE="${DEVINT_WGCF_TEMPORAL_EVIDENCE_VOLUME_SIZE:-2Gi}"
+readonly TEMPORAL_WORKER_STATUS_FILE="${STATE_ROOT}/temporal-activity-worker-status.txt"
 readonly LOGS_DIR="${STATE_ROOT}/logs"
 readonly RENDERED_DIR="${STATE_ROOT}/rendered"
 readonly SESSION_ARTIFACT="${STATE_ROOT}/control-fabric-session.yaml"
@@ -49,6 +74,52 @@ readonly SMOKE_SUMMARY="${STATE_ROOT}/smoke-summary.txt"
 readonly ACCESS_FILE="${STATE_ROOT}/access.txt"
 readonly PROFILE_PROMOTION_NOTES="${STATE_ROOT}/profile-promotion-notes.md"
 readonly RUNTIME_MANIFEST="${RENDERED_DIR}/wgcf-api-runtime.yaml"
+
+temporal_worker_replicas() {
+  case "${TEMPORAL_WORKER_ENABLED}" in
+    true)
+      printf '1'
+      ;;
+    false)
+      printf '0'
+      ;;
+    *)
+      echo "DEVINT_WGCF_TEMPORAL_WORKER_ENABLED must be true or false" >&2
+      return 2
+      ;;
+  esac
+}
+
+validate_temporal_worker_activation() {
+  if [[ "${TEMPORAL_WORKER_ENABLED}" != "true" ]]; then
+    return
+  fi
+  if [[ "${TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED}" != "true" ]]; then
+    echo "Temporal activity worker requires explicit execution authorization" >&2
+    return 2
+  fi
+  if [[ -z "${TEMPORAL_ACTIVATION_REVIEW_REF}" ]]; then
+    echo "Temporal activity worker requires a Security activation review reference" >&2
+    return 2
+  fi
+}
+
+write_temporal_worker_status() {
+  ensure_state_dirs
+  cat >"${TEMPORAL_WORKER_STATUS_FILE}" <<EOF
+deployment: ${TEMPORAL_WORKER_DEPLOYMENT}
+owner_repo: workspace-governance-control-fabric
+worker_identity: ${TEMPORAL_WORKER_ID}
+image: ${TEMPORAL_WORKER_IMAGE}
+task_queue: ${TEMPORAL_WORKER_TASK_QUEUE}
+enabled: ${TEMPORAL_WORKER_ENABLED}
+replicas: $(temporal_worker_replicas)
+activity_execution_authorized: ${TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED}
+activation_review_ref: ${TEMPORAL_ACTIVATION_REVIEW_REF:-not-recorded}
+temporal_address: ${TEMPORAL_ADDRESS}
+temporal_namespace: ${TEMPORAL_WORKFLOW_NAMESPACE}
+EOF
+}
 
 kubectl_cmd() {
   "${KUBECTL_CMD[@]}" "$@"
@@ -109,6 +180,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: dev-integration
     devint.profile: ${PROFILE_ID}
+    dev-integration-profile: ${PROFILE_ID}
 ---
 apiVersion: v1
 kind: Secret
@@ -237,6 +309,118 @@ metadata:
     app.kubernetes.io/component: api
     devint.profile: ${PROFILE_ID}
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${TEMPORAL_WORKER_SERVICE_ACCOUNT}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: temporal-activity-worker
+    devint.profile: ${PROFILE_ID}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${TEMPORAL_EVIDENCE_PVC}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: temporal-activity-evidence
+    devint.profile: ${PROFILE_ID}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: ${TEMPORAL_EVIDENCE_VOLUME_SIZE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${TEMPORAL_WORKER_DEPLOYMENT}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: temporal-activity-worker
+    orchestration.workspace/identity: ${TEMPORAL_WORKER_ID}
+    devint.profile: ${PROFILE_ID}
+spec:
+  replicas: $(temporal_worker_replicas)
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP_LABEL}
+      app.kubernetes.io/component: temporal-activity-worker
+      orchestration.workspace/identity: ${TEMPORAL_WORKER_ID}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: temporal-activity-worker
+        orchestration.workspace/identity: ${TEMPORAL_WORKER_ID}
+        devint.profile: ${PROFILE_ID}
+    spec:
+      serviceAccountName: ${TEMPORAL_WORKER_SERVICE_ACCOUNT}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: temporal-activity-worker
+          image: ${TEMPORAL_WORKER_IMAGE}
+          imagePullPolicy: Always
+          command:
+            - wgcf-worker
+            - run
+          env:
+            - name: WGCF_TEMPORAL_WORKER_ENABLED
+              value: "${TEMPORAL_WORKER_ENABLED}"
+            - name: WGCF_TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED
+              value: "${TEMPORAL_ACTIVITY_EXECUTION_AUTHORIZED}"
+            - name: WGCF_TEMPORAL_ACTIVATION_REVIEW_REF
+              value: "${TEMPORAL_ACTIVATION_REVIEW_REF}"
+            - name: WGCF_TEMPORAL_ADDRESS
+              value: "${TEMPORAL_ADDRESS}"
+            - name: WGCF_TEMPORAL_NAMESPACE
+              value: "${TEMPORAL_WORKFLOW_NAMESPACE}"
+            - name: WGCF_TEMPORAL_TASK_QUEUE
+              value: "${TEMPORAL_WORKER_TASK_QUEUE}"
+            - name: WGCF_TEMPORAL_WORKER_ID
+              value: "${TEMPORAL_WORKER_ID}"
+            - name: WGCF_WORKSPACE_ROOT
+              value: /workspace
+            - name: WGCF_REPO_ROOT
+              value: /workspace/workspace-governance-control-fabric
+            - name: WGCF_ORCHESTRATION_EVIDENCE_ROOT
+              value: /var/lib/wgcf/orchestration/validation-readiness
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+              readOnly: true
+            - name: orchestration-evidence
+              mountPath: /var/lib/wgcf/orchestration
+          resources:
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 1
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: workspace
+          hostPath:
+            path: ${WORKSPACE_ROOT}
+            type: Directory
+        - name: orchestration-evidence
+          persistentVolumeClaim:
+            claimName: ${TEMPORAL_EVIDENCE_PVC}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -335,11 +519,16 @@ EOF
 }
 
 deploy_api() {
+  validate_temporal_worker_activation
   render_runtime_manifest
+  write_temporal_worker_status
   kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
   kubectl_cmd -n "${NAMESPACE}" rollout status "statefulset/${POSTGRES_STATEFULSET}" --timeout=180s
   run_database_migration
   kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
+  if [[ "${TEMPORAL_WORKER_ENABLED}" == "true" ]]; then
+    kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" --timeout=180s
+  fi
 }
 
 scale_api() {
@@ -349,6 +538,9 @@ scale_api() {
   fi
   if kubectl_cmd -n "${NAMESPACE}" get "statefulset/${POSTGRES_STATEFULSET}" >/dev/null 2>&1; then
     kubectl_cmd -n "${NAMESPACE}" scale "statefulset/${POSTGRES_STATEFULSET}" --replicas="${replicas}" >/dev/null
+  fi
+  if kubectl_cmd -n "${NAMESPACE}" get "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" >/dev/null 2>&1; then
+    kubectl_cmd -n "${NAMESPACE}" scale "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" --replicas="${replicas}" >/dev/null
   fi
 }
 
@@ -494,5 +686,6 @@ status: http://127.0.0.1:${API_LOCAL_PORT}/v1/status
 graph_query: http://127.0.0.1:${API_LOCAL_PORT}/v1/graph/query?scope=repo:workspace-governance-control-fabric
 state_root: ${STATE_ROOT}
 runtime_manifest: ${RUNTIME_MANIFEST}
+temporal_activity_worker_status: ${TEMPORAL_WORKER_STATUS_FILE}
 EOF
 }

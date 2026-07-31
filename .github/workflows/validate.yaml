@@ -36,3 +36,40 @@ jobs:
           export PYTHONPATH="packages/control_fabric_core/src:apps/api/src:apps/cli/src"
           python3 -m unittest discover -s tests
           python3 -m wgcf_cli status --repo-root .
+
+  runtime-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API and activity-worker targets
+        run: |
+          set -euo pipefail
+          docker build --target api --tag wgcf-api:ci .
+          docker build --target worker --tag wgcf-worker:ci .
+
+      - name: Smoke test API target
+        run: |
+          set -euo pipefail
+          cid="$(docker run -d --rm -p 18090:8080 wgcf-api:ci)"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18090/healthz | grep -q '"status":"ok"'; then
+              curl --fail --silent http://127.0.0.1:18090/readyz | grep -q '"ready":true'
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs "$cid"
+          exit 1
+
+      - name: Prove activity-worker source and default denial
+        run: |
+          set -euo pipefail
+          docker run --rm wgcf-worker:ci | grep -q "status: activity-worker-source-ready"
+          if docker run --rm wgcf-worker:ci wgcf-worker run; then
+            echo "worker unexpectedly started without activation evidence" >&2
+            exit 1
+          fi
