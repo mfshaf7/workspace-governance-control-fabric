@@ -20,7 +20,9 @@ from control_fabric_core.orchestration_activities import (
     ValidationReadinessContractError,
     ValidationReadinessIdempotencyConflict,
     classify_validation_readiness_exception,
+    commit_validation_readiness_staging_result,
     execute_validation_readiness_activity,
+    load_committed_validation_readiness_result,
 )
 
 
@@ -213,6 +215,101 @@ class OrchestrationActivityTests(TestCase):
                         repo_root=REPO_ROOT,
                         workspace_root=REPO_ROOT.parent,
                     )
+
+    def test_staged_evidence_becomes_visible_only_after_atomic_commit(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wgcf-activity-") as temp_dir:
+            evidence_root = Path(temp_dir) / "evidence"
+            staging_root = evidence_root / "staging" / "attempt-one"
+            with (
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_catalog_operator_validation_check",
+                    return_value=validation_result(),
+                ),
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_operator_readiness_evaluation",
+                    return_value=readiness_result(),
+                ),
+            ):
+                staged = execute_validation_readiness_activity(
+                    valid_request(),
+                    activity_context=ValidationReadinessActivityContext(
+                        activity_id="activity:one",
+                        attempt=1,
+                        worker_id="wgcf-activity-worker",
+                        workflow_id="workflow:validation-readiness-698",
+                    ),
+                    evidence_root=staging_root,
+                    repo_root=REPO_ROOT,
+                    workspace_root=REPO_ROOT.parent,
+                )
+
+            self.assertIsNone(
+                load_committed_validation_readiness_result(
+                    valid_request(),
+                    evidence_root=evidence_root,
+                ),
+            )
+            committed = commit_validation_readiness_staging_result(
+                valid_request(),
+                evidence_root=evidence_root,
+                staging_root=staging_root,
+                expected_result=staged,
+            )
+
+            self.assertEqual(committed, staged)
+            self.assertFalse(staging_root.exists())
+            self.assertEqual(
+                load_committed_validation_readiness_result(
+                    valid_request(),
+                    evidence_root=evidence_root,
+                ),
+                staged,
+            )
+
+    def test_staged_output_mismatch_never_receives_commit_authority(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wgcf-activity-") as temp_dir:
+            evidence_root = Path(temp_dir) / "evidence"
+            staging_root = evidence_root / "staging" / "attempt-one"
+            with (
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_catalog_operator_validation_check",
+                    return_value=validation_result(),
+                ),
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_operator_readiness_evaluation",
+                    return_value=readiness_result(),
+                ),
+            ):
+                execute_validation_readiness_activity(
+                    valid_request(),
+                    activity_context=ValidationReadinessActivityContext(
+                        activity_id="activity:one",
+                        attempt=1,
+                        worker_id="wgcf-activity-worker",
+                        workflow_id="workflow:validation-readiness-698",
+                    ),
+                    evidence_root=staging_root,
+                    repo_root=REPO_ROOT,
+                    workspace_root=REPO_ROOT.parent,
+                )
+
+            with self.assertRaisesRegex(RuntimeError, "does not match owner output"):
+                commit_validation_readiness_staging_result(
+                    valid_request(),
+                    evidence_root=evidence_root,
+                    staging_root=staging_root,
+                    expected_result={"status_code": "ready"},
+                )
+            self.assertIsNone(
+                load_committed_validation_readiness_result(
+                    valid_request(),
+                    evidence_root=evidence_root,
+                ),
+            )
 
     def test_failed_validation_projects_blocked_without_raising(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wgcf-activity-") as temp_dir:

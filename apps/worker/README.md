@@ -15,7 +15,18 @@ Current source:
   bounded execution has produced evidence
 - makes contract and idempotency violations non-retryable, keeps known
   pre-result availability and timeout failures retryable, and preserves native
-  Temporal cancellation
+  Temporal cancellation only after the isolated owner process has stopped
+- heartbeats every two seconds for cancellation delivery, bounds owner
+  execution including spawn to four minutes, and bounds TERM grace plus
+  process-group exit confirmation to ten additional seconds
+- writes owner evidence only under an attempt-specific staging root and grants
+  canonical evidence authority by atomic rename only after the complete process
+  group is confirmed absent; unconfirmed attempts remain quarantined and cannot
+  mutate committed evidence during a Temporal retry
+- pre-binds receipt artifact references to the committed root so the atomic
+  rename preserves valid custody paths and receipt digests
+- shields the bounded stop-and-confirm task from cancellation until that task
+  returns, then propagates the cancellation outcome
 - replaces exception details with stable public error types and messages
 - refuses `wgcf-worker run` until explicit activation and Security review
   evidence are present

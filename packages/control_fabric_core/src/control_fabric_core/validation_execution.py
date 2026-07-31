@@ -196,6 +196,7 @@ def execute_validation_plan(
     artifact_root: str | Path,
     *,
     actor: str = "wgcf-local",
+    artifact_reference_root: str | Path | None = None,
     env: dict[str, str] | None = None,
     now: datetime | str | None = None,
     timeout_seconds: int = COMMAND_TIMEOUT_SECONDS,
@@ -207,6 +208,11 @@ def execute_validation_plan(
         raise ValueError(f"repo_root does not exist or is not a directory: {root}")
     artifacts_root = Path(artifact_root).resolve()
     artifacts_root.mkdir(parents=True, exist_ok=True)
+    artifact_refs_root = (
+        Path(artifact_reference_root).resolve()
+        if artifact_reference_root is not None
+        else artifacts_root
+    )
 
     captured_at = _coerce_timestamp(now)
     captured_at_text = captured_at.isoformat().replace("+00:00", "Z")
@@ -255,6 +261,7 @@ def execute_validation_plan(
                 check,
                 root,
                 artifacts_root,
+                artifact_reference_root=artifact_refs_root,
                 env=env,
                 timeout_seconds=timeout_seconds,
             )
@@ -405,6 +412,7 @@ def _run_command_check(
     repo_root: Path,
     artifact_root: Path,
     *,
+    artifact_reference_root: Path,
     env: dict[str, str] | None,
     timeout_seconds: int,
 ) -> ValidationCheckResult:
@@ -475,6 +483,7 @@ def _run_command_check(
     command_env.update(env_overrides)
 
     check_dir = artifact_root / _safe_path_id(check.check_id)
+    reference_check_dir = artifact_reference_root / _safe_path_id(check.check_id)
     artifact_refs: list[ValidationArtifactRef] = []
     attempt_summaries: list[dict[str, Any]] = []
     final_stdout = b""
@@ -512,11 +521,31 @@ def _run_command_check(
             attempt_error = str(exc)
 
         if max_attempts > 1:
-            stdout_ref = _write_artifact(check_dir, f"attempt-{attempt}-stdout", stdout)
-            stderr_ref = _write_artifact(check_dir, f"attempt-{attempt}-stderr", stderr)
+            stdout_ref = _write_artifact(
+                check_dir,
+                f"attempt-{attempt}-stdout",
+                stdout,
+                reference_root=reference_check_dir,
+            )
+            stderr_ref = _write_artifact(
+                check_dir,
+                f"attempt-{attempt}-stderr",
+                stderr,
+                reference_root=reference_check_dir,
+            )
         else:
-            stdout_ref = _write_artifact(check_dir, "stdout", stdout)
-            stderr_ref = _write_artifact(check_dir, "stderr", stderr)
+            stdout_ref = _write_artifact(
+                check_dir,
+                "stdout",
+                stdout,
+                reference_root=reference_check_dir,
+            )
+            stderr_ref = _write_artifact(
+                check_dir,
+                "stderr",
+                stderr,
+                reference_root=reference_check_dir,
+            )
         artifact_refs.extend((stdout_ref, stderr_ref))
         attempt_summaries.append(
             {
@@ -828,7 +857,13 @@ def _python_first_path(current_path: str | None) -> str:
     return os.pathsep.join([python_bin, *parts])
 
 
-def _write_artifact(root: Path, stream_name: str, content: bytes) -> ValidationArtifactRef:
+def _write_artifact(
+    root: Path,
+    stream_name: str,
+    content: bytes,
+    *,
+    reference_root: Path,
+) -> ValidationArtifactRef:
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{stream_name}.log"
     path.write_bytes(content)
@@ -839,7 +874,7 @@ def _write_artifact(root: Path, stream_name: str, content: bytes) -> ValidationA
         byte_count=len(content),
         digest=digest,
         media_type="text/plain; charset=utf-8",
-        path=str(path),
+        path=str(reference_root / path.name),
         purpose=f"validation-{stream_name}",
     )
 

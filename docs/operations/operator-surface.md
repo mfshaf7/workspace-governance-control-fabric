@@ -153,10 +153,28 @@ Failure semantics are split by whether bounded evidence was produced:
   activity failures
 - `WGCF_ACTIVITY_TIMED_OUT`, `WGCF_ACTIVITY_UNAVAILABLE`, and
   `WGCF_ACTIVITY_RETRYABLE`: retryable pre-result activity failures
-- cancellation: propagated as native Temporal cancellation
+- cancellation: propagated as native Temporal cancellation only after the
+  isolated owner process group has stopped or completed
 
 Temporal failure messages are stable and omit raw exception details. OOS owns
-retry limits, activity timeouts, and terminal run projection.
+retry limits, activity timeouts, and terminal run projection. The activity
+adapter heartbeats every two seconds and runs synchronous validation in an
+isolated process group with a four-minute spawn-and-execution limit. Owner
+evidence remains in an attempt-specific staging root until the complete process
+group is confirmed absent; only then does an atomic rename grant canonical
+evidence authority. Receipt artifact references are pre-bound to that committed
+root, so promotion preserves their custody paths and digests. Cancellation
+cannot interrupt the bounded stop-and-confirm task itself. Cancellation,
+timeout, or unconfirmed termination leaves the attempt quarantined, so a retry
+cannot overlap canonical evidence writes.
+Aggregate ordering also requires OOS to schedule the activity with Temporal's
+`WAIT_CANCELLATION_COMPLETED` policy, no heartbeat timeout, and a five-minute
+start-to-close window that outlives WGCF's four-minute limit, five-second TERM
+grace, and five-second group-exit confirmation; WGCF does not own those
+settings. Heartbeats exist for cancellation delivery, not as proof that owner
+execution stopped. When both sides are present, a cancelled or timed-out OOS
+attempt cannot release a retry that shares canonical mutation authority with an
+earlier WGCF owner.
 
 Operator Orchestration Service owns the aggregate workflow, run state, retry
 policy, and operator projection. WGCF owns only this bounded activity and its
@@ -532,7 +550,8 @@ second policy path.
 This is build-admitted source, not an active or production worker. The
 dev-integration Deployment remains at zero replicas by default and later
 activation must prove cross-namespace network policy, payload admission,
-restart safety, and fresh Security acceptance.
+restart safety, WGCF cancellation acknowledgement paired with the compatible
+OOS wait-for-completion policy, and fresh Security acceptance.
 
 ## Profiles
 
