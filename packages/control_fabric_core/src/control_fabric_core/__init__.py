@@ -91,11 +91,15 @@ from .operator_surfaces import (
 )
 from .orchestration_activities import (
     VALIDATION_READINESS_ACTIVITY_NAME,
+    VALIDATION_READINESS_FAILURE_STATUS_CODES,
+    VALIDATION_READINESS_RESULT_STATUS_CODES,
     VALIDATION_READINESS_TASK_QUEUE,
     ValidationReadinessActivityContext,
     ValidationReadinessActivityRequest,
     ValidationReadinessContractError,
+    ValidationReadinessFailureClassification,
     ValidationReadinessIdempotencyConflict,
+    classify_validation_readiness_exception,
     execute_validation_readiness_activity,
 )
 from .performance_budgets import (
@@ -235,6 +239,8 @@ __all__ = [
     "ExcludedSourceRef",
     "STATUS_BOOTSTRAP",
     "VALIDATION_READINESS_ACTIVITY_NAME",
+    "VALIDATION_READINESS_FAILURE_STATUS_CODES",
+    "VALIDATION_READINESS_RESULT_STATUS_CODES",
     "VALIDATION_READINESS_TASK_QUEUE",
     "ManifestGraph",
     "ManifestGraphEdge",
@@ -258,6 +264,7 @@ __all__ = [
     "ValidationReadinessActivityContext",
     "ValidationReadinessActivityRequest",
     "ValidationReadinessContractError",
+    "ValidationReadinessFailureClassification",
     "ValidationReadinessIdempotencyConflict",
     "ValidationTarget",
     "ValidationTier",
@@ -277,6 +284,7 @@ __all__ = [
     "build_source_snapshot",
     "bootstrap_validation_contract",
     "coerce_execution_limits",
+    "classify_validation_readiness_exception",
     "database_settings",
     "default_catalog_path",
     "evaluate_admission_policy",

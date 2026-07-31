@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from asyncio import CancelledError
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import TestCase
@@ -18,6 +19,7 @@ from control_fabric_core.orchestration_activities import (
     ValidationReadinessActivityRequest,
     ValidationReadinessContractError,
     ValidationReadinessIdempotencyConflict,
+    classify_validation_readiness_exception,
     execute_validation_readiness_activity,
 )
 
@@ -43,13 +45,18 @@ def valid_request() -> dict[str, object]:
     }
 
 
-def validation_result(outcome: str = "success") -> SimpleNamespace:
+def validation_result(
+    outcome: str = "success",
+    *,
+    check_results: tuple[SimpleNamespace, ...] = (),
+) -> SimpleNamespace:
     receipt = SimpleNamespace(
         receipt_id="control-receipt:0123456789abcdef01234567",
         digest=f"sha256:{'1' * 64}",
         outcome=outcome,
         target_scope="component:workspace-governance",
         tier="smoke",
+        check_results=check_results,
     )
     return SimpleNamespace(
         receipt=receipt,
@@ -240,6 +247,107 @@ class OrchestrationActivityTests(TestCase):
             result["bounded_decision"]["validation_outcome"],
             "failure",
         )
+
+    def test_exhausted_validator_timeout_projects_terminal_timeout(self) -> None:
+        timed_out_check = SimpleNamespace(
+            output_summary={"timed_out": True},
+            error="command timed out",
+            exit_code=None,
+        )
+        with tempfile.TemporaryDirectory(prefix="wgcf-activity-") as temp_dir:
+            with (
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_catalog_operator_validation_check",
+                    return_value=validation_result(
+                        "failure",
+                        check_results=(timed_out_check,),
+                    ),
+                ),
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_operator_readiness_evaluation",
+                    return_value=readiness_result(),
+                ),
+            ):
+                result = execute_validation_readiness_activity(
+                    valid_request(),
+                    activity_context=ValidationReadinessActivityContext(
+                        activity_id="activity:timed-out",
+                        attempt=1,
+                        worker_id="wgcf-activity-worker",
+                        workflow_id="workflow:validation-readiness-698",
+                    ),
+                    evidence_root=temp_dir,
+                    repo_root=REPO_ROOT,
+                    workspace_root=REPO_ROOT.parent,
+                )
+
+        self.assertEqual(result["status_code"], "timed-out")
+        self.assertTrue(result["bounded_decision"]["terminal"])
+        self.assertFalse(result["bounded_decision"]["retryable"])
+
+    def test_unavailable_validator_projects_terminal_unavailable(self) -> None:
+        unavailable_check = SimpleNamespace(
+            output_summary={"timed_out": False},
+            error="executable unavailable",
+            exit_code=None,
+        )
+        with tempfile.TemporaryDirectory(prefix="wgcf-activity-") as temp_dir:
+            with (
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_catalog_operator_validation_check",
+                    return_value=validation_result(
+                        "failure",
+                        check_results=(unavailable_check,),
+                    ),
+                ),
+                patch(
+                    "control_fabric_core.orchestration_activities."
+                    "run_operator_readiness_evaluation",
+                    return_value=readiness_result(),
+                ),
+            ):
+                result = execute_validation_readiness_activity(
+                    valid_request(),
+                    activity_context=ValidationReadinessActivityContext(
+                        activity_id="activity:unavailable",
+                        attempt=1,
+                        worker_id="wgcf-activity-worker",
+                        workflow_id="workflow:validation-readiness-698",
+                    ),
+                    evidence_root=temp_dir,
+                    repo_root=REPO_ROOT,
+                    workspace_root=REPO_ROOT.parent,
+                )
+
+        self.assertEqual(result["status_code"], "unavailable")
+
+    def test_exception_taxonomy_is_bounded_and_retry_aware(self) -> None:
+        cases = (
+            (
+                ValidationReadinessContractError("raw contract detail"),
+                "blocked",
+                False,
+            ),
+            (
+                ValidationReadinessIdempotencyConflict("raw collision detail"),
+                "blocked",
+                False,
+            ),
+            (TimeoutError("raw timeout detail"), "timed-out", True),
+            (OSError("raw unavailable detail"), "unavailable", True),
+            (RuntimeError("raw internal detail"), "retryable", True),
+            (CancelledError("raw cancellation detail"), "cancelled", False),
+        )
+
+        for error, status_code, retryable in cases:
+            with self.subTest(status_code=status_code):
+                failure = classify_validation_readiness_exception(error)
+                self.assertEqual(failure.status_code, status_code)
+                self.assertEqual(failure.retryable, retryable)
+                self.assertNotIn("raw", failure.public_message)
 
     def test_activity_schemas_are_strict_and_do_not_admit_paths(self) -> None:
         request_schema = json.loads(

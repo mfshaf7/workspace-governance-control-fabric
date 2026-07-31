@@ -11,6 +11,12 @@ Current source:
 - rejects unknown or authority-expanding payload fields
 - stores raw output and local paths only in WGCF-owned evidence storage
 - deduplicates completed execution by idempotency key
+- returns terminal `blocked`, `timed-out`, or `unavailable` results after the
+  bounded execution has produced evidence
+- makes contract and idempotency violations non-retryable, keeps known
+  pre-result availability and timeout failures retryable, and preserves native
+  Temporal cancellation
+- replaces exception details with stable public error types and messages
 - refuses `wgcf-worker run` until explicit activation and Security review
   evidence are present
 

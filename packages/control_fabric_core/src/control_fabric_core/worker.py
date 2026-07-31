@@ -10,6 +10,8 @@ from typing import Any
 from .foundation import PACKAGE_VERSION, RUNTIME_REPO
 from .orchestration_activities import (
     VALIDATION_READINESS_ACTIVITY_NAME,
+    VALIDATION_READINESS_FAILURE_STATUS_CODES,
+    VALIDATION_READINESS_RESULT_STATUS_CODES,
     VALIDATION_READINESS_TASK_QUEUE,
 )
 
@@ -55,6 +57,8 @@ class WorkerSettings:
             "sdk_dependency": "temporalio>=1.30,<2",
             "long_running_worker": False,
             "registered_activities": [VALIDATION_READINESS_ACTIVITY_NAME],
+            "result_status_codes": list(VALIDATION_READINESS_RESULT_STATUS_CODES),
+            "failure_status_codes": list(VALIDATION_READINESS_FAILURE_STATUS_CODES),
         }
 
 

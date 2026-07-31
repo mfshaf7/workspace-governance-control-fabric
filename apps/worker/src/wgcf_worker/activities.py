@@ -13,7 +13,7 @@ from temporalio.exceptions import ApplicationError
 from control_fabric_core.orchestration_activities import (
     VALIDATION_READINESS_ACTIVITY_NAME,
     ValidationReadinessActivityContext,
-    ValidationReadinessContractError,
+    classify_validation_readiness_exception,
     execute_validation_readiness_activity,
 )
 
@@ -53,9 +53,12 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
             ),
             workspace_root=Path(os.environ.get(WORKSPACE_ROOT_ENV, "/workspace")),
         )
-    except ValidationReadinessContractError as exc:
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        failure = classify_validation_readiness_exception(exc)
         raise ApplicationError(
-            str(exc),
-            type=type(exc).__name__,
-            non_retryable=True,
-        ) from exc
+            failure.public_message,
+            type=failure.error_type,
+            non_retryable=not failure.retryable,
+        ) from None

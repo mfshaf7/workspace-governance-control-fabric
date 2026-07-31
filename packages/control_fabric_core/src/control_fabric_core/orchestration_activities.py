@@ -11,6 +11,7 @@ import fcntl
 import json
 import os
 import re
+from asyncio import CancelledError
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -33,6 +34,19 @@ VALIDATION_READINESS_PROFILE = "local-read-only"
 VALIDATION_READINESS_TIER = "smoke"
 VALIDATION_READINESS_SCOPE = "component:workspace-governance"
 VALIDATION_READINESS_TARGET = "repo:workspace-governance-control-fabric"
+VALIDATION_READINESS_RESULT_STATUS_CODES = (
+    "ready",
+    "blocked",
+    "timed-out",
+    "unavailable",
+)
+VALIDATION_READINESS_FAILURE_STATUS_CODES = (
+    "blocked",
+    "retryable",
+    "timed-out",
+    "cancelled",
+    "unavailable",
+)
 
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$")
 _REQUEST_FIELDS = frozenset(
@@ -63,6 +77,16 @@ class ValidationReadinessContractError(ValueError):
 
 class ValidationReadinessIdempotencyConflict(ValidationReadinessContractError):
     """Raised when one idempotency key is reused for a different request."""
+
+
+@dataclass(frozen=True)
+class ValidationReadinessFailureClassification:
+    """Bounded failure projection used by the Temporal adapter."""
+
+    error_type: str
+    public_message: str
+    retryable: bool
+    status_code: str
 
 
 @dataclass(frozen=True)
@@ -257,6 +281,54 @@ def execute_validation_readiness_activity(
         return result
 
 
+def classify_validation_readiness_exception(
+    error: BaseException,
+) -> ValidationReadinessFailureClassification:
+    """Map failures to stable Temporal semantics without exposing raw details."""
+
+    if isinstance(error, ValidationReadinessIdempotencyConflict):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_IDEMPOTENCY_CONFLICT",
+            public_message="WGCF rejected an idempotency key collision",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, ValidationReadinessContractError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTRACT_REJECTED",
+            public_message="WGCF rejected the bounded activity contract",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, CancelledError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_ACTIVITY_CANCELLED",
+            public_message="WGCF activity execution was cancelled",
+            retryable=False,
+            status_code="cancelled",
+        )
+    if isinstance(error, TimeoutError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_ACTIVITY_TIMED_OUT",
+            public_message="WGCF activity execution timed out before producing a result",
+            retryable=True,
+            status_code="timed-out",
+        )
+    if isinstance(error, OSError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_ACTIVITY_UNAVAILABLE",
+            public_message="WGCF activity execution is temporarily unavailable",
+            retryable=True,
+            status_code="unavailable",
+        )
+    return ValidationReadinessFailureClassification(
+        error_type="WGCF_ACTIVITY_RETRYABLE",
+        public_message="WGCF activity execution failed before producing a result",
+        retryable=True,
+        status_code="retryable",
+    )
+
+
 def _build_result(
     *,
     activity_context: ValidationReadinessActivityContext,
@@ -268,7 +340,8 @@ def _build_result(
     decision = readiness.decision
     validation_outcome = str(receipt.outcome)
     readiness_outcome = str(decision.outcome)
-    ready = validation_outcome == "success" and bool(decision.ready)
+    status_code = _result_status_code(receipt, decision)
+    ready = status_code == "ready"
     evidence_digest = _record_digest(
         {
             "readiness_decision_ref": decision.decision_id,
@@ -292,9 +365,11 @@ def _build_result(
         "correlation_id": request.correlation_id,
         "causation_id": request.causation_id,
         "idempotency_key": request.idempotency_key,
-        "status_code": "ready" if ready else "blocked",
+        "status_code": status_code,
         "bounded_decision": {
             "ready": ready,
+            "terminal": True,
+            "retryable": False,
             "validation_outcome": validation_outcome,
             "readiness_outcome": readiness_outcome,
             "readiness_reason_count": len(decision.reasons),
@@ -311,6 +386,23 @@ def _build_result(
             "tier": receipt.tier,
         },
     }
+
+
+def _result_status_code(receipt: Any, decision: Any) -> str:
+    check_results = tuple(getattr(receipt, "check_results", ()) or ())
+    if any(
+        bool(getattr(check, "output_summary", {}).get("timed_out"))
+        for check in check_results
+    ):
+        return "timed-out"
+    if any(
+        getattr(check, "error", None) and getattr(check, "exit_code", None) is None
+        for check in check_results
+    ):
+        return "unavailable"
+    if str(receipt.outcome) != "success" or not bool(decision.ready):
+        return "blocked"
+    return "ready"
 
 
 def _required_integer(payload: Mapping[str, Any], field: str) -> int:

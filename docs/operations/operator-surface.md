@@ -143,6 +143,21 @@ The only implemented activity is:
   `local-read-only`
 - readiness target: `repo:workspace-governance-control-fabric`
 
+Failure semantics are split by whether bounded evidence was produced:
+
+- `blocked`: validation or readiness reached a terminal governance decision
+- `timed-out`: a bounded validator exhausted its configured command timeout
+- `unavailable`: bounded execution proved a required local execution
+  capability was unavailable
+- `WGCF_CONTRACT_REJECTED` and `WGCF_IDEMPOTENCY_CONFLICT`: non-retryable
+  activity failures
+- `WGCF_ACTIVITY_TIMED_OUT`, `WGCF_ACTIVITY_UNAVAILABLE`, and
+  `WGCF_ACTIVITY_RETRYABLE`: retryable pre-result activity failures
+- cancellation: propagated as native Temporal cancellation
+
+Temporal failure messages are stable and omit raw exception details. OOS owns
+retry limits, activity timeouts, and terminal run projection.
+
 Operator Orchestration Service owns the aggregate workflow, run state, retry
 policy, and operator projection. WGCF owns only this bounded activity and its
 fabric-local receipt, artifact, ledger, and idempotency records. The Temporal
