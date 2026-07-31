@@ -126,12 +126,17 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
     async def test_owner_process_heartbeats_until_bounded_result(self) -> None:
         process = _FakeOwnerProcess()
         heartbeat = Mock()
+        stop_owner = AsyncMock()
         with (
             patch(
                 "wgcf_worker.activities.asyncio.create_subprocess_exec",
                 new=AsyncMock(return_value=process),
             ),
             patch("wgcf_worker.activities.activity.heartbeat", heartbeat),
+            patch(
+                "wgcf_worker.activities._stop_owner_process",
+                new=stop_owner,
+            ),
         ):
             execution = asyncio.create_task(
                 _run_owner_execution(
@@ -147,6 +152,7 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
             self.assertEqual(await execution, {"ok": True})
 
         self.assertGreaterEqual(heartbeat.call_count, 2)
+        stop_owner.assert_awaited_once_with(process, 5.0)
 
     async def test_real_owner_process_returns_bounded_failure(self) -> None:
         envelope = {

@@ -93,6 +93,7 @@ async def _run_owner_execution(
                     asyncio.shield(communication),
                     timeout=min(heartbeat_interval_seconds, remaining),
                 )
+                await _stop_owner_process(process, termination_grace_seconds)
                 return _decode_owner_response(stdout, process.returncode)
             except TimeoutError:
                 activity.heartbeat()
