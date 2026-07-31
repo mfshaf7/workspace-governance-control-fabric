@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import signal
 import sys
 from pathlib import Path
-from threading import Event
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from temporalio.exceptions import ApplicationError
 
@@ -18,7 +19,12 @@ sys.path.insert(0, str(REPO_ROOT / "apps/worker/src"))
 from control_fabric_core.orchestration_activities import (
     ValidationReadinessContractError,
 )
-from wgcf_worker.activities import validation_readiness_activity
+from wgcf_worker.activities import (
+    _OwnerExecutionFailure,
+    _run_owner_execution,
+    _stop_owner_process,
+    validation_readiness_activity,
+)
 
 
 def valid_request() -> dict[str, object]:
@@ -57,7 +63,7 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         with (
             patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
             patch(
-                "wgcf_worker.activities.asyncio.to_thread",
+                "wgcf_worker.activities._run_owner_execution",
                 new=AsyncMock(
                     side_effect=ValidationReadinessContractError(
                         "raw contract detail",
@@ -78,7 +84,7 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         with (
             patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
             patch(
-                "wgcf_worker.activities.asyncio.to_thread",
+                "wgcf_worker.activities._run_owner_execution",
                 new=AsyncMock(side_effect=OSError("raw filesystem detail")),
             ),
         ):
@@ -95,7 +101,7 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         with (
             patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
             patch(
-                "wgcf_worker.activities.asyncio.to_thread",
+                "wgcf_worker.activities._run_owner_execution",
                 new=AsyncMock(side_effect=RuntimeError("raw internal detail")),
             ),
         ):
@@ -110,50 +116,168 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         with (
             patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
             patch(
-                "wgcf_worker.activities.asyncio.to_thread",
+                "wgcf_worker.activities._run_owner_execution",
                 new=AsyncMock(side_effect=asyncio.CancelledError()),
             ),
         ):
             with self.assertRaises(asyncio.CancelledError):
                 await validation_readiness_activity(valid_request())
 
-    async def test_temporal_cancellation_waits_for_owner_execution_to_stop(
+    async def test_owner_process_heartbeats_until_bounded_result(self) -> None:
+        process = _FakeOwnerProcess()
+        heartbeat = Mock()
+        with (
+            patch(
+                "wgcf_worker.activities.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ),
+            patch("wgcf_worker.activities.activity.heartbeat", heartbeat),
+        ):
+            execution = asyncio.create_task(
+                _run_owner_execution(
+                    {"schema_version": 1},
+                    heartbeat_interval_seconds=0.001,
+                    owner_timeout_seconds=1,
+                ),
+            )
+            await process.communicating.wait()
+            await asyncio.sleep(0.005)
+            process.complete({"ok": True})
+
+            self.assertEqual(await execution, {"ok": True})
+
+        self.assertGreaterEqual(heartbeat.call_count, 2)
+
+    async def test_real_owner_process_returns_bounded_failure(self) -> None:
+        envelope = {
+            "schema_version": 1,
+            "payload": {"schema_version": 1},
+            "activity_context": {
+                "activity_id": "activity:validation-readiness",
+                "attempt": 1,
+                "worker_id": "wgcf-worker:test",
+                "workflow_id": "workflow:validation-readiness-698",
+            },
+        }
+        with patch("wgcf_worker.activities.activity.heartbeat"):
+            with self.assertRaises(_OwnerExecutionFailure) as raised:
+                await _run_owner_execution(
+                    envelope,
+                    heartbeat_interval_seconds=0.1,
+                    owner_timeout_seconds=5,
+                )
+
+        self.assertEqual(raised.exception.error_type, "WGCF_CONTRACT_REJECTED")
+
+    async def test_temporal_cancellation_waits_for_owner_process_to_stop(
         self,
     ) -> None:
-        started = Event()
-        release = Event()
-        finished = Event()
+        process = _FakeOwnerProcess()
+        allow_stop = asyncio.Event()
+        stop_started = asyncio.Event()
+        stopped = asyncio.Event()
 
-        def delayed_execution(
-            *_args: object,
-            **_kwargs: object,
-        ) -> dict[str, object]:
-            started.set()
-            release.wait()
-            finished.set()
-            return {}
+        async def stop_owner(*_args: object) -> None:
+            self.assertFalse(stopped.is_set())
+            stop_started.set()
+            await allow_stop.wait()
+            process.complete({"ignored": True}, returncode=-15)
+            stopped.set()
 
         with (
-            patch("wgcf_worker.activities.activity.info", return_value=activity_info()),
             patch(
-                "wgcf_worker.activities.execute_validation_readiness_activity",
-                side_effect=delayed_execution,
+                "wgcf_worker.activities.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ),
+            patch("wgcf_worker.activities.activity.heartbeat"),
+            patch(
+                "wgcf_worker.activities._stop_owner_process",
+                new=AsyncMock(side_effect=stop_owner),
             ),
         ):
             activity_task = asyncio.create_task(
-                validation_readiness_activity(valid_request()),
+                _run_owner_execution(
+                    {"schema_version": 1},
+                    heartbeat_interval_seconds=1,
+                    owner_timeout_seconds=10,
+                ),
             )
-            self.assertTrue(await asyncio.to_thread(started.wait, 1))
-            try:
-                activity_task.cancel()
-                await asyncio.sleep(0)
+            await process.communicating.wait()
+            activity_task.cancel()
+            await stop_started.wait()
 
-                self.assertFalse(activity_task.done())
-                self.assertFalse(finished.is_set())
-            finally:
-                release.set()
+            self.assertFalse(activity_task.done())
+            self.assertFalse(stopped.is_set())
+            allow_stop.set()
 
             with self.assertRaises(asyncio.CancelledError):
                 await activity_task
 
-        self.assertTrue(finished.is_set())
+        self.assertTrue(stopped.is_set())
+
+    async def test_owner_timeout_stops_process_before_returning(self) -> None:
+        process = _FakeOwnerProcess()
+        stopped = asyncio.Event()
+
+        async def stop_owner(*_args: object) -> None:
+            process.complete({"ignored": True}, returncode=-15)
+            stopped.set()
+
+        with (
+            patch(
+                "wgcf_worker.activities.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ),
+            patch("wgcf_worker.activities.activity.heartbeat"),
+            patch(
+                "wgcf_worker.activities._stop_owner_process",
+                new=AsyncMock(side_effect=stop_owner),
+            ),
+        ):
+            with self.assertRaises(TimeoutError):
+                await _run_owner_execution(
+                    {"schema_version": 1},
+                    heartbeat_interval_seconds=0.001,
+                    owner_timeout_seconds=0.002,
+                )
+
+        self.assertTrue(stopped.is_set())
+
+    async def test_completed_group_leader_still_clears_descendants(self) -> None:
+        process = _FakeOwnerProcess()
+        process.complete({}, returncode=0)
+
+        with patch("wgcf_worker.activities._signal_process_group") as signal_group:
+            await _stop_owner_process(process, grace_seconds=0.001)
+
+        signal_group.assert_called_once_with(process.pid, signal.SIGKILL)
+
+
+class _FakeOwnerProcess:
+    def __init__(self) -> None:
+        self.pid = 4242
+        self.returncode: int | None = None
+        self.communicating = asyncio.Event()
+        self._completed = asyncio.Event()
+        self._stdout = b""
+
+    async def communicate(self, *, input: bytes) -> tuple[bytes, bytes]:
+        self.input = input
+        self.communicating.set()
+        await self._completed.wait()
+        return self._stdout, b""
+
+    async def wait(self) -> int:
+        await self._completed.wait()
+        return self.returncode or 0
+
+    def complete(self, result: dict[str, object], *, returncode: int = 0) -> None:
+        self.returncode = returncode
+        self._stdout = json.dumps(
+            {
+                "schema_version": 1,
+                "status": "completed",
+                "result": result,
+            },
+        ).encode("utf-8")
+        self._completed.set()

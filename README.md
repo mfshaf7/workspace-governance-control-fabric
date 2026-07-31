@@ -86,9 +86,10 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/art/evidence-packet` with compact runtime metadata.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
-  activity, and refuses runtime startup until explicit activation gates pass.
-  CI publishes it as a separate worker image so validator tooling does not
-  expand the API image runtime surface.
+  activity, heartbeats bounded owner work from an isolated process group, and
+  refuses runtime startup until explicit activation gates pass. CI publishes it
+  as a separate worker image so validator tooling does not expand the API image
+  runtime surface.
 - `dev-integration/profiles/governance-control-fabric/` owns the local-k3s
   dev-integration lane for the API runtime and PostgreSQL metadata store. It
   deploys the published WGCF API image and local PostgreSQL through the shared
@@ -212,7 +213,8 @@ through `POST /v1/validation-plans`, `POST /v1/validation-runs`,
 `GET /v1/receipts`, `GET /v1/receipts/{receipt_id}`, and
 `POST /v1/readiness/evaluate`. The worker composes those same primitives behind
 the platform-gated `wgcf.validation-readiness.v1` activity queue without
-copying raw output into Temporal history.
+copying raw output into Temporal history. It terminates the isolated owner
+process group before acknowledging cancellation or its bounded runtime limit.
 
 `wgcf lifecycle plan` inspects fabric-local `.wgcf` artifacts, receipts, and
 ledger state without mutating anything. `wgcf lifecycle apply --confirm`

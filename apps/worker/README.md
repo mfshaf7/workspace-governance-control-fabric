@@ -15,7 +15,10 @@ Current source:
   bounded execution has produced evidence
 - makes contract and idempotency violations non-retryable, keeps known
   pre-result availability and timeout failures retryable, and preserves native
-  Temporal cancellation only after the synchronous owner execution has stopped
+  Temporal cancellation only after the isolated owner process has stopped
+- heartbeats every two seconds, bounds owner execution to four minutes, and
+  terminates the complete process group before acknowledging cancellation or
+  timeout
 - replaces exception details with stable public error types and messages
 - refuses `wgcf-worker run` until explicit activation and Security review
   evidence are present
