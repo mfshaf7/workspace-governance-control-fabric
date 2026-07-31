@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/validation-readiness-activity-result.schema.json",
+  "additionalProperties": false,
+  "description": "Compact WGCF activity result. Local paths and raw validator output are forbidden.",
+  "properties": {
+    "activity_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "activity_name": {
+      "const": "wgcf.validation-readiness.evaluate"
+    },
+    "artifact_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "attempt": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "bounded_decision": {
+      "additionalProperties": false,
+      "properties": {
+        "readiness_decision_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "readiness_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "readiness_outcome": {
+          "enum": [
+            "ready",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "readiness_reason_count": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "validation_event_ref": {
+          "$ref": "#/$defs/identifier"
+        },
+        "validation_outcome": {
+          "enum": [
+            "success",
+            "failure",
+            "blocked",
+            "operator_review_required"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "readiness_decision_ref",
+        "readiness_event_ref",
+        "readiness_outcome",
+        "readiness_reason_count",
+        "ready",
+        "validation_event_ref",
+        "validation_outcome"
+      ],
+      "type": "object"
+    },
+    "causation_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "correlation_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "definition_id": {
+      "const": "validation-readiness-run"
+    },
+    "definition_version": {
+      "const": 1
+    },
+    "idempotency_key": {
+      "$ref": "#/$defs/identifier"
+    },
+    "receipt_ref": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "failure",
+            "blocked",
+            "operator_review_required"
+          ],
+          "type": "string"
+        },
+        "receipt_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "target_scope": {
+          "const": "component:workspace-governance"
+        },
+        "tier": {
+          "const": "smoke"
+        }
+      },
+      "required": [
+        "digest",
+        "outcome",
+        "receipt_id",
+        "target_scope",
+        "tier"
+      ],
+      "type": "object"
+    },
+    "run_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_ref": {
+      "$ref": "#/$defs/identifier"
+    },
+    "source_version": {
+      "$ref": "#/$defs/identifier"
+    },
+    "status_code": {
+      "enum": [
+        "ready",
+        "blocked"
+      ],
+      "type": "string"
+    },
+    "worker_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "workflow_id": {
+      "$ref": "#/$defs/identifier"
+    }
+  },
+  "required": [
+    "activity_id",
+    "activity_name",
+    "artifact_digest",
+    "attempt",
+    "bounded_decision",
+    "causation_id",
+    "correlation_id",
+    "definition_id",
+    "definition_version",
+    "idempotency_key",
+    "receipt_ref",
+    "run_id",
+    "schema_version",
+    "source_ref",
+    "source_version",
+    "status_code",
+    "worker_id",
+    "workflow_id"
+  ],
+  "title": "WGCF Validation Readiness Activity Result",
+  "type": "object",
+  "$defs": {
+    "digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "identifier": {
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$",
+      "type": "string"
+    }
+  }
+}

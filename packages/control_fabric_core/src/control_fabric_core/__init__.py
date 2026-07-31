@@ -89,6 +89,15 @@ from .operator_surfaces import (
     run_operator_readiness_evaluation,
     run_operator_validation_check,
 )
+from .orchestration_activities import (
+    VALIDATION_READINESS_ACTIVITY_NAME,
+    VALIDATION_READINESS_TASK_QUEUE,
+    ValidationReadinessActivityContext,
+    ValidationReadinessActivityRequest,
+    ValidationReadinessContractError,
+    ValidationReadinessIdempotencyConflict,
+    execute_validation_readiness_activity,
+)
 from .performance_budgets import (
     BudgetDecision,
     ExecutionLimitDecision,
@@ -225,6 +234,8 @@ __all__ = [
     "AuthoritySourceRef",
     "ExcludedSourceRef",
     "STATUS_BOOTSTRAP",
+    "VALIDATION_READINESS_ACTIVITY_NAME",
+    "VALIDATION_READINESS_TASK_QUEUE",
     "ManifestGraph",
     "ManifestGraphEdge",
     "ManifestGraphNode",
@@ -244,6 +255,10 @@ __all__ = [
     "ValidationExecutionMode",
     "ValidationExecutionResult",
     "ValidationPlan",
+    "ValidationReadinessActivityContext",
+    "ValidationReadinessActivityRequest",
+    "ValidationReadinessContractError",
+    "ValidationReadinessIdempotencyConflict",
     "ValidationTarget",
     "ValidationTier",
     "append_ledger_event",
@@ -303,6 +318,7 @@ __all__ = [
     "status_snapshot",
     "source_snapshot_status",
     "execute_validation_plan",
+    "execute_validation_readiness_activity",
     "validate_governance_manifest",
     "validation_execution_metrics",
     "validation_target_scope_candidates",

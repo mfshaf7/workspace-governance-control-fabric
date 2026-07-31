@@ -122,30 +122,36 @@ Required CLI behavior:
   parent Feature is missing closeout-ready narrative headings
 - avoid printing raw validation dumps unless explicitly requested
 
-## Worker Diagnostic Entry Point
+## Temporal Activity Worker
 
-The implementation also exposes a worker diagnostic entrypoint:
+The worker exposes a connection-free diagnostic:
 
 ```bash
 wgcf-worker status
 ```
 
 This is not a separate governance workflow command and does not expand the
-authority contract. It lets operators and CI prove the worker package is
-packaged, Temporal-shaped, and still intentionally non-running.
+authority contract. It proves the owner adapter, task queue, activity
+registration, and activation posture without contacting Temporal.
 
-Current worker constraints:
+The only implemented activity is:
 
-- no Temporal SDK dependency
-- no connection to a Temporal service
-- no task-queue polling
-- no long-running workflow execution
-- no upstream authority mutation
+- activity: `wgcf.validation-readiness.evaluate`
+- queue: `wgcf.validation-readiness.v1`
+- definition: `validation-readiness-run` version `1`
+- validation: `component:workspace-governance`, `smoke`,
+  `local-read-only`
+- readiness target: `repo:workspace-governance-control-fabric`
 
-The worker status may show Temporal namespace, task queue, and address settings
-from `WGCF_TEMPORAL_NAMESPACE`, `WGCF_TEMPORAL_TASK_QUEUE`, and
-`WGCF_TEMPORAL_ADDRESS`, but it treats them as configuration shape only until a
-future runtime slice activates the worker lane.
+Operator Orchestration Service owns the aggregate workflow, run state, retry
+policy, and operator projection. WGCF owns only this bounded activity and its
+fabric-local receipt, artifact, ledger, and idempotency records. The Temporal
+payload contains no local path or raw validator output.
+
+`wgcf-worker run` refuses to connect unless the worker is enabled, activity
+execution is explicitly authorized, and a fresh Security activation review
+reference is supplied. A successful `status` command is source-readiness
+evidence only.
 
 ## Dev-Integration API Access
 
@@ -163,9 +169,10 @@ make -C /home/mfshaf7/projects/platform-engineering devint-access PROFILE=govern
 make -C /home/mfshaf7/projects/platform-engineering devint-down PROFILE=governance-control-fabric
 ```
 
-This path is intentionally local dev-integration. It is not a stage deployment,
-does not create a governed platform PostgreSQL instance, and does not activate
-the worker runtime.
+This path is intentionally local dev-integration. It is not a stage deployment
+and does not create a governed platform PostgreSQL instance. The profile
+renders the activity worker at zero replicas until the activation gates above
+are satisfied.
 
 ## Required API Shape
 
@@ -419,8 +426,9 @@ execution into a local receipt and ledger event. CLI `wgcf inspect` and API
 outside the configured receipt directory. CLI `wgcf readiness` and API
 `POST /v1/readiness/evaluate` evaluate only known targets and supported
 profiles, then append a fabric-local ledger event for the readiness decision.
-CLI `wgcf run --plan`, API-side database persistence wiring, and worker queue
-execution remain later slices.
+CLI `wgcf run --plan` and API-side database persistence wiring remain later
+slices. The Temporal activity adapter exists but stays disabled until runtime
+activation is accepted.
 
 Policy admission uses the schemas and policies at:
 
@@ -491,22 +499,25 @@ Source snapshots are digest-only records for upstream authority files, repo
 manifests, component contracts, and dev-integration profile files. The current
 implementation can build these records in the core library and persist them
 with authority digests, freshness markers, graph nodes, graph edges, and
-synthetic scope nodes through the fabric-local SQLAlchemy model. CLI, API, and
-worker wiring remain later slices.
+synthetic scope nodes through the fabric-local SQLAlchemy model. CLI and API
+wiring for those snapshots remain later slices.
 
 Database configuration uses `WGCF_DATABASE_URL`. Operator status may display a
 redacted database URL, but it must not print database passwords or raw
 connection secrets.
 
-## Worker Foundation
+## Worker Boundary
 
-The local worker foundation declares future capabilities for source-snapshot
-ingestion, validation-plan execution, and control-receipt ledger appends. Those
-capabilities are advertised as planned, not implemented.
+The worker implements one owner-scoped Temporal adapter. It validates an exact
+request schema, rejects extra fields, serializes duplicate keys, returns the
+prior result for an identical request, and fails on idempotency-key collisions.
+It composes existing validation and readiness primitives rather than defining a
+second policy path.
 
-The worker is ready for a later Temporal adapter because it already names the
-namespace, task queue, workflow hints, and process identity. It is not a
-production worker yet and should not be deployed as one.
+This is build-admitted source, not an active or production worker. The
+dev-integration Deployment remains at zero replicas by default and later
+activation must prove cross-namespace network policy, payload admission,
+restart safety, and fresh Security acceptance.
 
 ## Profiles
 

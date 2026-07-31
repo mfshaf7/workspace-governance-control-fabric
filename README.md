@@ -84,9 +84,11 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/readiness/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and
   `POST /v1/art/evidence-packet` with compact runtime metadata.
-- `apps/worker/` owns the Temporal-ready worker package boundary. The current
-  implementation exposes `wgcf-worker status`, declares future worker
-  capabilities, and intentionally does not run long-lived workflow behavior.
+- `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
+  connection-free status command, registers only the validation/readiness
+  activity, and refuses runtime startup until explicit activation gates pass.
+  CI publishes it as a separate worker image so validator tooling does not
+  expand the API image runtime surface.
 - `dev-integration/profiles/governance-control-fabric/` owns the local-k3s
   dev-integration lane for the API runtime and PostgreSQL metadata store. It
   deploys the published WGCF API image and local PostgreSQL through the shared
@@ -208,8 +210,9 @@ directory. `wgcf readiness` blocks unknown targets or profiles and appends a
 local readiness ledger event. The API exposes the same local-first contract
 through `POST /v1/validation-plans`, `POST /v1/validation-runs`,
 `GET /v1/receipts`, `GET /v1/receipts/{receipt_id}`, and
-`POST /v1/readiness/evaluate`; the worker queue execution path remains a later
-platform-gated slice.
+`POST /v1/readiness/evaluate`. The worker composes those same primitives behind
+the platform-gated `wgcf.validation-readiness.v1` activity queue without
+copying raw output into Temporal history.
 
 `wgcf lifecycle plan` inspects fabric-local `.wgcf` artifacts, receipts, and
 ledger state without mutating anything. `wgcf lifecycle apply --confirm`

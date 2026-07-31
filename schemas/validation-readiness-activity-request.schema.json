@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/validation-readiness-activity-request.schema.json",
+  "additionalProperties": false,
+  "description": "Strict OOS-to-WGCF payload for the bounded validation/readiness activity.",
+  "properties": {
+    "caller_id": {
+      "const": "operator-orchestration-service"
+    },
+    "causation_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "correlation_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "definition_id": {
+      "const": "validation-readiness-run"
+    },
+    "definition_version": {
+      "const": 1
+    },
+    "idempotency_key": {
+      "$ref": "#/$defs/identifier"
+    },
+    "operator_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "profile": {
+      "const": "local-read-only"
+    },
+    "readiness_target": {
+      "const": "repo:workspace-governance-control-fabric"
+    },
+    "run_id": {
+      "$ref": "#/$defs/identifier"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "source_ref": {
+      "$ref": "#/$defs/identifier"
+    },
+    "source_version": {
+      "$ref": "#/$defs/identifier"
+    },
+    "tier": {
+      "const": "smoke"
+    },
+    "validation_scope": {
+      "const": "component:workspace-governance"
+    },
+    "workflow_id": {
+      "$ref": "#/$defs/identifier"
+    }
+  },
+  "required": [
+    "caller_id",
+    "causation_id",
+    "correlation_id",
+    "definition_id",
+    "definition_version",
+    "idempotency_key",
+    "operator_id",
+    "profile",
+    "readiness_target",
+    "run_id",
+    "schema_version",
+    "source_ref",
+    "source_version",
+    "tier",
+    "validation_scope",
+    "workflow_id"
+  ],
+  "title": "WGCF Validation Readiness Activity Request",
+  "type": "object",
+  "$defs": {
+    "identifier": {
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$",
+      "type": "string"
+    }
+  }
+}

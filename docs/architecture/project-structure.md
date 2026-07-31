@@ -8,8 +8,8 @@ The control fabric is split by runtime responsibility:
   and ART projection surface.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
-- `apps/worker`: Temporal-ready worker diagnostic entrypoint and future
-  background validation execution surface.
+- `apps/worker`: WGCF-owned Temporal activity adapter and guarded worker
+  entrypoint.
 - `packages/control_fabric_core`: shared runtime primitives and record helpers.
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
@@ -35,12 +35,12 @@ not decide which validations are required. Scoped validation planning remains a
 separate ART feature so the planner can consume workspace-governance contracts
 instead of hardcoding validation policy into storage.
 
-The worker foundation is intentionally queue-neutral. It declares the future
-Temporal task-queue boundary and planned worker capabilities, but it does not
-import the Temporal SDK, connect to a Temporal server, poll a queue, or run
-long-lived workflows. The core library now owns the local validation execution
-and receipt/ledger primitives; worker activation remains a later runtime
-adapter.
+The worker is intentionally not queue-neutral: it registers only
+`wgcf.validation-readiness.evaluate` on `wgcf.validation-readiness.v1`.
+Operator Orchestration Service owns the aggregate workflow. The core library
+owns strict payload validation, idempotent activity execution, local validation
+and readiness composition, and compact evidence projection. Runtime activation
+remains a separate platform and Security decision.
 
 The implementation must continue to consume the authority contract from
 `workspace-governance/contracts/governance-control-fabric-operator-surface.yaml`
@@ -141,9 +141,10 @@ through `wgcf check`, writes compact receipt JSON, appends a local ledger event,
 and lists receipt metadata through `wgcf receipts list`. The API exposes the
 same bounded local execution contract through `POST /v1/validation-runs` and
 receipt inspection through `GET /v1/receipts/{receipt_id}`. CLI
-`wgcf run --plan`, worker queue execution, central deployment posture, and
-runtime API database persistence wiring stay in later slices so this layer
-remains testable and bounded.
+`wgcf run --plan`, central deployment posture, and runtime API database
+persistence wiring stay in later slices. Worker queue execution is implemented
+but disabled by default so this layer remains testable and bounded before
+activation.
 
 ## Lifecycle Retention Model
 

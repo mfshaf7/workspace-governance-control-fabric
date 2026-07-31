@@ -24,6 +24,10 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(profile["runtime"]["platform"], "local-k3s")
         self.assertEqual(profile["runtime"]["state_model"], "persistent")
         self.assertIn("workspace-governance-control-fabric-postgresql", profile["runtime"]["components"])
+        self.assertIn(
+            "workspace-governance-control-fabric-temporal-activity",
+            profile["runtime"]["components"],
+        )
         self.assertEqual(profile["testing"]["smoke"]["mutation_mode"], "read-only")
         self.assertIn("API readiness", profile["stage_handoff"]["required_checks"])
         self.assertIn("database migration", profile["stage_handoff"]["required_checks"])
@@ -61,6 +65,9 @@ class DevIntegrationProfileTests(TestCase):
                 "DEVINT_SESSION_FILE": str(session_file),
                 "DEVINT_STATE_ROOT": str(state_root),
                 "DEVINT_WGCF_IMAGE": "ghcr.io/mfshaf7/workspace-governance-control-fabric:sha-test",
+                "DEVINT_WGCF_TEMPORAL_WORKER_IMAGE": (
+                    "ghcr.io/mfshaf7/workspace-governance-control-fabric-worker:sha-test"
+                ),
                 "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
             }
 
@@ -68,7 +75,12 @@ class DevIntegrationProfileTests(TestCase):
                 [
                     "bash",
                     "-c",
-                    f"source {SCRIPTS_ROOT / 'common.sh'}; render_runtime_manifest; write_access_file",
+                    (
+                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        "render_runtime_manifest; "
+                        "write_temporal_worker_status; "
+                        "write_access_file"
+                    ),
                 ],
                 cwd=REPO_ROOT,
                 env=env,
@@ -85,6 +97,9 @@ class DevIntegrationProfileTests(TestCase):
 
             manifest = (state_root / "rendered/wgcf-api-runtime.yaml").read_text(encoding="utf-8")
             access = (state_root / "access.txt").read_text(encoding="utf-8")
+            worker_status = (
+                state_root / "temporal-activity-worker-status.txt"
+            ).read_text(encoding="utf-8")
 
             self.assertIn("kind: Deployment", manifest)
             self.assertIn("kind: StatefulSet", manifest)
@@ -95,5 +110,67 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("image: ghcr.io/mfshaf7/workspace-governance-control-fabric:sha-test", manifest)
             self.assertIn("runAsNonRoot: true", manifest)
             self.assertIn("allowPrivilegeEscalation: false", manifest)
+            self.assertIn(
+                "name: workspace-governance-control-fabric-temporal-activity",
+                manifest,
+            )
+            self.assertIn(
+                "image: ghcr.io/mfshaf7/workspace-governance-control-fabric-worker:sha-test",
+                manifest,
+            )
+            self.assertIn("replicas: 0", manifest)
+            self.assertIn("name: temporal-wgcf-activity", manifest)
+            self.assertIn(
+                "orchestration.workspace/identity: wgcf-activity-worker",
+                manifest,
+            )
+            self.assertIn(
+                "value: \"wgcf.validation-readiness.v1\"",
+                manifest,
+            )
+            self.assertIn("mountPath: /workspace", manifest)
+            self.assertIn("readOnly: true", manifest)
             self.assertIn("service: workspace-governance-control-fabric-api", access)
             self.assertIn("postgres_service: workspace-governance-control-fabric-postgresql", access)
+            self.assertIn("enabled: false", worker_status)
+            self.assertIn("replicas: 0", worker_status)
+
+    def test_worker_activation_requires_execution_and_security_evidence(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-profile-") as temp_dir:
+            state_root = Path(temp_dir)
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WGCF_TEMPORAL_WORKER_ENABLED": "true",
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    (
+                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        "validate_temporal_worker_activation"
+                    ),
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=20,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("explicit execution authorization", result.stderr)

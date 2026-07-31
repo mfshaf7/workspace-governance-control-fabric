@@ -72,6 +72,8 @@ REQUIRED_PATHS = (
     "schemas/ledger-event.schema.json",
     "schemas/policy-decision.schema.json",
     "schemas/runtime-governance-record.schema.json",
+    "schemas/validation-readiness-activity-request.schema.json",
+    "schemas/validation-readiness-activity-result.schema.json",
     "schemas/validation-receipt.schema.json",
 )
 
@@ -274,21 +276,22 @@ def validate_imports(repo_root: Path) -> list[str]:
     missing_tables = REQUIRED_DB_TABLES.difference(metadata.tables)
     if missing_tables:
         errors.append(f"database metadata missing required tables: {sorted(missing_tables)}")
-    capability_ids = {
-        capability["capability_id"]
+    capabilities = {
+        capability["capability_id"]: capability
         for capability in worker_snapshot["capabilities"]
     }
-    for required_capability in (
-        "source-snapshot-ingest",
-        "validation-plan-execute",
-        "control-receipt-append",
-    ):
-        if required_capability not in capability_ids:
-            errors.append(f"worker capability missing: {required_capability}")
+    validation_readiness = capabilities.get("validation-readiness")
+    if not validation_readiness or not validation_readiness["implemented"]:
+        errors.append("worker must implement the bounded validation-readiness activity")
+    aggregate_control = capabilities.get("aggregate-workflow-control")
+    if not aggregate_control or aggregate_control["implemented"]:
+        errors.append("worker must not claim aggregate workflow control")
     if worker_snapshot["temporal"]["connects_to_temporal"]:
-        errors.append("worker scaffold must not connect to Temporal yet")
+        errors.append("worker status must not connect to Temporal")
     if worker_snapshot["temporal"]["long_running_worker"]:
-        errors.append("worker scaffold must not run as a long-running worker yet")
+        errors.append("worker status must not start a long-running worker")
+    if worker_snapshot["activation"]["authorized"]:
+        errors.append("worker activation must be denied by default")
     schema_path = repo_root / "schemas/governance-manifest.schema.json"
     example_path = repo_root / "examples/governance-manifest.example.json"
     static_schema = json.loads(schema_path.read_text(encoding="utf-8"))

@@ -1,12 +1,17 @@
-"""Temporal-ready worker diagnostic entrypoint for the scaffold phase."""
+"""WGCF activity-worker diagnostic and guarded runtime entrypoint."""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import sys
 from typing import Sequence
 
-from control_fabric_core.worker import worker_status_snapshot
+from control_fabric_core.worker import (
+    worker_activation_status,
+    worker_status_snapshot,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     status_parser = subparsers.add_parser(
         "status",
-        help="Show worker scaffold and Temporal-readiness status.",
+        help="Show worker source, registration, and activation status.",
     )
     status_parser.add_argument(
         "--repo-root",
@@ -36,6 +41,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help="Print machine-readable JSON for this command.",
     )
+    subparsers.add_parser(
+        "run",
+        help="Run the Temporal activity worker after every activation gate passes.",
+    )
     return parser
 
 
@@ -44,6 +53,8 @@ def render_worker_status_human(snapshot: dict[str, object]) -> str:
     assert isinstance(required_paths, dict)
     temporal = snapshot["temporal"]
     assert isinstance(temporal, dict)
+    activation = snapshot["activation"]
+    assert isinstance(activation, dict)
 
     path_lines = [
         f"- {path}: {'present' if present else 'missing'}"
@@ -61,6 +72,8 @@ def render_worker_status_human(snapshot: dict[str, object]) -> str:
             f"temporal-ready boundary: {str(temporal['ready_boundary']).lower()}",
             f"connects to temporal: {str(temporal['connects_to_temporal']).lower()}",
             f"long-running worker: {str(temporal['long_running_worker']).lower()}",
+            f"runtime activation authorized: {str(activation['authorized']).lower()}",
+            f"registered activities: {', '.join(temporal['registered_activities'])}",
             "required paths:",
             *path_lines,
         ],
@@ -79,5 +92,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_worker_status_human(snapshot))
         return 0 if snapshot["ready"] else 1
 
-    parser.error(f"{args.command} is not implemented in the worker scaffold.")
+    if args.command == "run":
+        activation = worker_activation_status()
+        if not activation["authorized"]:
+            print(
+                "WGCF Temporal activity worker refused to start:",
+                file=sys.stderr,
+            )
+            for blocker in activation["blockers"]:
+                print(f"- {blocker}", file=sys.stderr)
+            return 2
+        from .runner import run_worker
+
+        asyncio.run(run_worker())
+        return 0
+
+    parser.error(f"{args.command} is not implemented.")
     return 2
