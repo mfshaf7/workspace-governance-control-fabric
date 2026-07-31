@@ -214,6 +214,7 @@ def execute_validation_readiness_activity(
     evidence_root: str | Path,
     repo_root: str | Path,
     workspace_root: str | Path,
+    artifact_reference_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Execute the bounded activity once per idempotency key.
 
@@ -249,6 +250,7 @@ def execute_validation_readiness_activity(
             ledger_path=run_root / "ledger.jsonl",
             manifest_dir=run_root / "manifests",
             actor=actor,
+            artifact_reference_root=artifact_reference_root,
             operator_approved=False,
             profile=request.profile,
             tier=request.tier,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +44,31 @@ class OwnerExecutionProtocolTests(TestCase):
                 "status": "completed",
                 "result": {"schema_version": 1, "status_code": "ready"},
             },
+        )
+
+    def test_owner_uses_parent_bound_committed_artifact_references(self) -> None:
+        execute = Mock(return_value={"schema_version": 1, "status_code": "ready"})
+        committed_artifacts = "/evidence/committed/binding/runs/run/artifacts"
+        with (
+            patch.dict(
+                "os.environ",
+                {
+                    "WGCF_ORCHESTRATION_ARTIFACT_REFERENCE_ROOT": (
+                        committed_artifacts
+                    ),
+                },
+            ),
+            patch(
+                "wgcf_worker.owner_execution.execute_validation_readiness_activity",
+                new=execute,
+            ),
+        ):
+            response = execute_owner_envelope(valid_envelope())
+
+        self.assertEqual(response["status"], "completed")
+        self.assertEqual(
+            execute.call_args.kwargs["artifact_reference_root"],
+            Path(committed_artifacts),
         )
 
     def test_owner_failure_suppresses_raw_detail(self) -> None:

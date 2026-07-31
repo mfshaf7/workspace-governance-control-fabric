@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import tempfile
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
@@ -130,7 +131,7 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
     async def test_owner_process_heartbeats_until_bounded_result(self) -> None:
         process = _FakeOwnerProcess()
         heartbeat = Mock()
-        stop_owner = AsyncMock()
+        stop_owner = AsyncMock(return_value=True)
         with (
             patch(
                 "wgcf_worker.activities.asyncio.create_subprocess_exec",
@@ -291,6 +292,49 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
 
         self.assertTrue(stopped.is_set())
 
+    async def test_cancellation_during_timeout_cleanup_waits_for_fence(self) -> None:
+        process = _FakeOwnerProcess()
+        stop_started = asyncio.Event()
+        allow_stop = asyncio.Event()
+        stop_finished = asyncio.Event()
+
+        async def stop_owner(*_args: object) -> bool:
+            stop_started.set()
+            await allow_stop.wait()
+            process.complete({"ignored": True}, returncode=-15)
+            stop_finished.set()
+            return True
+
+        with (
+            patch(
+                "wgcf_worker.activities.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=process),
+            ),
+            patch("wgcf_worker.activities.activity.heartbeat"),
+            patch(
+                "wgcf_worker.activities._stop_owner_process",
+                new=AsyncMock(side_effect=stop_owner),
+            ),
+        ):
+            execution = asyncio.create_task(
+                _run_owner_execution(
+                    {"schema_version": 1},
+                    heartbeat_interval_seconds=0.001,
+                    owner_timeout_seconds=0.002,
+                ),
+            )
+            await stop_started.wait()
+            execution.cancel()
+            await asyncio.sleep(0)
+
+            self.assertFalse(execution.done())
+            self.assertFalse(stop_finished.is_set())
+            allow_stop.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await execution
+
+        self.assertTrue(stop_finished.is_set())
+
     async def test_completed_group_leader_still_clears_descendants(self) -> None:
         process = _FakeOwnerProcess()
         process.complete({}, returncode=0)
@@ -360,15 +404,21 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
     async def test_fenced_wrapper_uses_attempt_staging_before_commit(self) -> None:
         result = {"schema_version": 1, "status_code": "ready"}
         observed_root: Path | None = None
+        observed_reference_root: Path | None = None
 
         async def owner_run(
             _envelope: dict[str, object],
             *,
             owner_environment: dict[str, str],
         ) -> dict[str, object]:
-            nonlocal observed_root
+            nonlocal observed_reference_root, observed_root
             observed_root = Path(
                 owner_environment["WGCF_ORCHESTRATION_EVIDENCE_ROOT"],
+            )
+            observed_reference_root = Path(
+                owner_environment[
+                    "WGCF_ORCHESTRATION_ARTIFACT_REFERENCE_ROOT"
+                ],
             )
             (observed_root / "marker").write_text("staged", encoding="utf-8")
             return result
@@ -403,8 +453,22 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
 
             self.assertEqual(actual, result)
             self.assertIsNotNone(observed_root)
+            self.assertIsNotNone(observed_reference_root)
             assert observed_root is not None
+            assert observed_reference_root is not None
             self.assertEqual(observed_root.parent, Path(temp_dir) / "staging")
+            key_digest = sha256(
+                str(valid_request()["idempotency_key"]).encode("utf-8"),
+            ).hexdigest()
+            self.assertEqual(
+                observed_reference_root,
+                Path(temp_dir)
+                / "committed"
+                / key_digest
+                / "runs"
+                / key_digest[:24]
+                / "artifacts",
+            )
             self.assertFalse(observed_root.exists())
             commit_result.assert_called_once()
 

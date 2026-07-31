@@ -18,6 +18,7 @@ from control_fabric_core.orchestration_activities import (
 WORKSPACE_ROOT_ENV = "WGCF_WORKSPACE_ROOT"
 REPO_ROOT_ENV = "WGCF_REPO_ROOT"
 EVIDENCE_ROOT_ENV = "WGCF_ORCHESTRATION_EVIDENCE_ROOT"
+ARTIFACT_REFERENCE_ROOT_ENV = "WGCF_ORCHESTRATION_ARTIFACT_REFERENCE_ROOT"
 _PROTOCOL_SCHEMA_VERSION = 1
 
 
@@ -44,6 +45,11 @@ def execute_owner_envelope(envelope: Mapping[str, Any]) -> dict[str, Any]:
                     EVIDENCE_ROOT_ENV,
                     "/var/lib/wgcf/orchestration/validation-readiness",
                 ),
+            ),
+            artifact_reference_root=(
+                Path(os.environ[ARTIFACT_REFERENCE_ROOT_ENV])
+                if os.environ.get(ARTIFACT_REFERENCE_ROOT_ENV)
+                else None
             ),
             repo_root=Path(
                 os.environ.get(

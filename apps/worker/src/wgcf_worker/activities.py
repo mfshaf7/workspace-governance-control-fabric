@@ -10,6 +10,7 @@ import signal
 import sys
 import tempfile
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ from control_fabric_core.orchestration_activities import (
 
 WORKER_ID_ENV = "WGCF_TEMPORAL_WORKER_ID"
 EVIDENCE_ROOT_ENV = "WGCF_ORCHESTRATION_EVIDENCE_ROOT"
+ARTIFACT_REFERENCE_ROOT_ENV = "WGCF_ORCHESTRATION_ARTIFACT_REFERENCE_ROOT"
 OWNER_EXECUTION_TIMEOUT_SECONDS = 240.0
 OWNER_HEARTBEAT_INTERVAL_SECONDS = 2.0
 OWNER_TERMINATION_GRACE_SECONDS = 5.0
@@ -96,8 +98,13 @@ async def _run_fenced_owner_execution(
     staging_root = Path(
         tempfile.mkdtemp(prefix="owner-attempt-", dir=staging_parent),
     ).resolve()
+    key_digest = sha256(request.idempotency_key.encode("utf-8")).hexdigest()
+    committed_root = evidence_root / "committed" / key_digest
     owner_environment = dict(os.environ)
     owner_environment[EVIDENCE_ROOT_ENV] = str(staging_root)
+    owner_environment[ARTIFACT_REFERENCE_ROOT_ENV] = str(
+        committed_root / "runs" / key_digest[:24] / "artifacts",
+    )
     committed_result = False
     try:
         result = await _run_owner_execution(
@@ -156,11 +163,15 @@ async def _run_owner_execution(
             remaining = deadline - loop.time()
             if remaining <= 0:
                 stop_attempted = True
-                group_fenced = await _stop_owner_process(
-                    process,
-                    termination_grace_seconds,
-                    fence_confirmation_seconds,
+                group_fenced, cancellation_requested = (
+                    await _stop_owner_process_before_acknowledgement(
+                        process,
+                        termination_grace_seconds,
+                        fence_confirmation_seconds,
+                    )
                 )
+                if cancellation_requested:
+                    raise asyncio.CancelledError
                 await _drain_communication(communication)
                 raise TimeoutError("WGCF owner execution exceeded its bounded runtime")
             try:
@@ -169,11 +180,15 @@ async def _run_owner_execution(
                     timeout=min(heartbeat_interval_seconds, remaining),
                 )
                 stop_attempted = True
-                group_fenced = await _stop_owner_process(
-                    process,
-                    termination_grace_seconds,
-                    fence_confirmation_seconds,
+                group_fenced, cancellation_requested = (
+                    await _stop_owner_process_before_acknowledgement(
+                        process,
+                        termination_grace_seconds,
+                        fence_confirmation_seconds,
+                    )
                 )
+                if cancellation_requested:
+                    raise asyncio.CancelledError
                 if not group_fenced:
                     raise OSError(
                         "WGCF owner process group termination was not confirmed",
@@ -184,10 +199,12 @@ async def _run_owner_execution(
     except asyncio.CancelledError:
         if process is not None and not stop_attempted:
             stop_attempted = True
-            group_fenced = await _stop_owner_process(
-                process,
-                termination_grace_seconds,
-                fence_confirmation_seconds,
+            group_fenced, _cancellation_requested = (
+                await _stop_owner_process_before_acknowledgement(
+                    process,
+                    termination_grace_seconds,
+                    fence_confirmation_seconds,
+                )
             )
         if communication is not None:
             await _drain_communication(communication)
@@ -195,11 +212,15 @@ async def _run_owner_execution(
     except BaseException:
         if process is not None and not stop_attempted:
             stop_attempted = True
-            group_fenced = await _stop_owner_process(
-                process,
-                termination_grace_seconds,
-                fence_confirmation_seconds,
+            group_fenced, cancellation_requested = (
+                await _stop_owner_process_before_acknowledgement(
+                    process,
+                    termination_grace_seconds,
+                    fence_confirmation_seconds,
+                )
             )
+            if cancellation_requested:
+                raise asyncio.CancelledError
         if communication is not None:
             await _drain_communication(communication)
         raise
@@ -229,6 +250,31 @@ async def _stop_owner_process(
         process.pid,
         timeout_seconds=fence_confirmation_seconds,
     )
+
+
+async def _stop_owner_process_before_acknowledgement(
+    process: asyncio.subprocess.Process,
+    grace_seconds: float,
+    fence_confirmation_seconds: float,
+) -> tuple[bool, bool]:
+    """Keep bounded process cleanup alive while recording cancellation."""
+
+    cleanup = asyncio.create_task(
+        _stop_owner_process(
+            process,
+            grace_seconds,
+            fence_confirmation_seconds,
+        ),
+    )
+    cancellation_requested = False
+    while True:
+        try:
+            fenced = await asyncio.shield(cleanup)
+            return fenced, cancellation_requested
+        except asyncio.CancelledError:
+            if cleanup.done():
+                return cleanup.result(), True
+            cancellation_requested = True
 
 
 async def _wait_for_process_group_exit(

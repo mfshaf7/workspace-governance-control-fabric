@@ -114,6 +114,37 @@ class ValidationExecutionTests(TestCase):
                 Path(result.receipt.artifact_refs[0].path).read_text(encoding="utf-8"),
             )
 
+    def test_artifact_references_survive_atomic_root_promotion(self) -> None:
+        marker = "PROMOTED-ARTIFACT-OUTPUT"
+        plan = build_validation_plan(
+            minimal_manifest(f"python3 -c \"print('{marker}')\""),
+            "repo:workspace-governance-control-fabric",
+            tier="smoke",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            staging_root = root / "staging" / "attempt-one"
+            committed_root = root / "committed" / "binding-one"
+            result = execute_validation_plan(
+                plan,
+                REPO_ROOT,
+                staging_root / "artifacts",
+                artifact_reference_root=committed_root / "artifacts",
+                now="2026-04-30T00:00:00Z",
+            )
+            referenced_paths = tuple(
+                Path(artifact.path) for artifact in result.receipt.artifact_refs
+            )
+
+            self.assertTrue(all(not path.exists() for path in referenced_paths))
+            self.assertTrue(any((staging_root / "artifacts").rglob("*.log")))
+            committed_root.parent.mkdir(parents=True, exist_ok=True)
+            staging_root.rename(committed_root)
+
+            self.assertTrue(all(path.exists() for path in referenced_paths))
+            self.assertIn(marker, referenced_paths[0].read_text(encoding="utf-8"))
+
     def test_receipt_and_ledger_share_artifact_custody_refs_without_raw_output(self) -> None:
         marker = "RAW-CUSTODY-MARKER"
         plan = build_validation_plan(

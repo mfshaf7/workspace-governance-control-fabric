@@ -162,8 +162,11 @@ adapter heartbeats every two seconds and runs synchronous validation in an
 isolated process group with a four-minute spawn-and-execution limit. Owner
 evidence remains in an attempt-specific staging root until the complete process
 group is confirmed absent; only then does an atomic rename grant canonical
-evidence authority. Cancellation, timeout, or unconfirmed termination leaves
-the attempt quarantined, so a retry cannot overlap canonical evidence writes.
+evidence authority. Receipt artifact references are pre-bound to that committed
+root, so promotion preserves their custody paths and digests. Cancellation
+cannot interrupt the bounded stop-and-confirm task itself. Cancellation,
+timeout, or unconfirmed termination leaves the attempt quarantined, so a retry
+cannot overlap canonical evidence writes.
 Aggregate ordering also requires OOS to schedule the activity with Temporal's
 `WAIT_CANCELLATION_COMPLETED` policy, no heartbeat timeout, and a five-minute
 start-to-close window that outlives WGCF's four-minute limit, five-second TERM

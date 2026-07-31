@@ -259,6 +259,7 @@ def run_catalog_operator_validation_check(
     ledger_path: str | Path,
     manifest_dir: str | Path,
     actor: str = "wgcf-local",
+    artifact_reference_root: str | Path | None = None,
     catalog_path: str | Path | None = None,
     operator_approved: bool = False,
     profile: str = "local-read-only",
@@ -286,6 +287,7 @@ def run_catalog_operator_validation_check(
         repo_root=Path(workspace_root).resolve(),
         artifact_root=artifact_root,
         actor=actor,
+        artifact_reference_root=artifact_reference_root,
     )
     receipt_output = Path(receipt_dir) / f"{_safe_file_stem(execution.receipt.receipt_id)}.json"
     receipt_path = write_control_receipt(receipt_output, execution.receipt)
