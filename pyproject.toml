@@ -29,6 +29,7 @@ worker = [
 test = [
   "anyio>=4.0,<4.10",
   "httpx>=0.27,<0.29",
+  "jsonschema>=4.23,<5",
   "temporalio>=1.30,<2",
 ]
 

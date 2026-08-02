@@ -9,6 +9,8 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
+from jsonschema import Draft202012Validator
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
@@ -40,6 +42,39 @@ from tests.controlled_proof_fixtures import (
 
 
 class ControlledProofContractTests(TestCase):
+    def test_owner_context_schema_accepts_unordered_exact_scenarios(self) -> None:
+        schema = json.loads(
+            (
+                REPO_ROOT / "schemas/controlled-proof-owner-context.schema.json"
+            ).read_text(encoding="utf-8"),
+        )
+        Draft202012Validator.check_schema(schema)
+        record = valid_owner_context()
+        scenarios = record["commissioning_session"]["scenario_executions"]
+        scenarios.reverse()
+
+        self.assertEqual(
+            list(Draft202012Validator(schema).iter_errors(record)),
+            [],
+        )
+
+    def test_owner_context_schema_rejects_duplicate_scenario_ids(self) -> None:
+        schema = json.loads(
+            (
+                REPO_ROOT / "schemas/controlled-proof-owner-context.schema.json"
+            ).read_text(encoding="utf-8"),
+        )
+        record = valid_owner_context()
+        scenarios = record["commissioning_session"]["scenario_executions"]
+        scenarios[-1]["scenario_id"] = scenarios[0]["scenario_id"]
+
+        errors = list(Draft202012Validator(schema).iter_errors(record))
+
+        self.assertTrue(errors)
+        self.assertTrue(
+            any(error.validator == "contains" for error in errors),
+        )
+
     def test_owner_context_binds_consumed_authorization_and_exact_scenarios(
         self,
     ) -> None:

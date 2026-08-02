@@ -74,7 +74,97 @@
           "minItems": 11,
           "maxItems": 11,
           "uniqueItems": true,
-          "items": { "$ref": "#/$defs/scenarioExecution" }
+          "items": { "$ref": "#/$defs/scenarioExecution" },
+          "allOf": [
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "nominal-completion" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "workflow-worker-restart" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "temporal-runtime-restart" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "deterministic-replay" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "duplicate-suppression" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "cancellation" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "unavailable-dependency" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "identity-denial" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "payload-boundary" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "backup-restore" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            },
+            {
+              "contains": {
+                "required": ["scenario_id"],
+                "properties": { "scenario_id": { "const": "exact-baseline-restore" } }
+              },
+              "minContains": 1,
+              "maxContains": 1
+            }
+          ]
         }
       }
     },
