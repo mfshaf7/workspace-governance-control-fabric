@@ -522,56 +522,73 @@ def commit_controlled_proof_owner_receipt(
             )
             return dict(existing)
 
-        receipt_time = _as_utc(
-            recorded_at or datetime.now(timezone.utc),
-            "recorded_at",
-        )
-        if receipt_time < request.started_at:
-            raise ControlledProofAuthorizationError(
-                "controlled-proof receipt cannot predate activity execution",
+        existing_observation = _load_json(observation_path)
+        if existing_observation is not None:
+            observation = _validate_pending_observation(
+                existing_observation,
+                request,
+                owner_result=owner_result,
+                observation_kind=normalized_observation_kind,
+                activity_result=normalized_activity_result,
+                activity_result_path=activity_result_path,
             )
-        if (
-            owner_result == "passed"
-            and receipt_time >= request.owner_context.authorization_expires_at
-        ):
-            raise ControlledProofAuthorizationError(
-                "a passing controlled-proof receipt must be recorded before expiry",
+            receipt_time = _require_timestamp(
+                observation.get("recorded_at"),
+                "owner observation recorded_at",
             )
+        else:
+            receipt_time = _as_utc(
+                recorded_at or datetime.now(timezone.utc),
+                "recorded_at",
+            )
+            if receipt_time < request.started_at:
+                raise ControlledProofAuthorizationError(
+                    "controlled-proof receipt cannot predate activity execution",
+                )
+            if (
+                owner_result == "passed"
+                and receipt_time >= request.owner_context.authorization_expires_at
+            ):
+                raise ControlledProofAuthorizationError(
+                    "a passing controlled-proof receipt must be recorded before expiry",
+                )
+            observation = {
+                "schema_version": CONTROLLED_PROOF_RECEIPT_SCHEMA_VERSION,
+                "owner_repo": CONTROLLED_PROOF_OWNER_REPO,
+                "authorization_id": request.owner_context.authorization_id,
+                "authorization_digest": request.owner_context.authorization_digest,
+                "commissioning_session_id": (
+                    request.owner_context.commissioning_session_id
+                ),
+                "scenario_id": request.scenario.scenario_id,
+                "scenario_execution_id": request.scenario.scenario_execution_id,
+                "activity_id": request.activity_id,
+                "workflow_id": request.workflow_id,
+                "workflow_run_id": request.workflow_run_id,
+                "observation_kind": normalized_observation_kind,
+                "owner_result": owner_result,
+                "process_group_fenced": True,
+                "recorded_at": _format_timestamp(receipt_time),
+            }
+            if normalized_activity_result is not None:
+                observation["activity_result_digest"] = _record_digest(
+                    normalized_activity_result,
+                )
+                observation["activity_status_code"] = _require_identifier(
+                    normalized_activity_result.get("status_code"),
+                    "activity_result.status_code",
+                )
+                _write_or_verify_json(
+                    activity_result_path,
+                    normalized_activity_result,
+                    "controlled-proof activity result",
+                )
+            elif _load_json(activity_result_path) is not None:
+                raise ControlledProofContextMismatch(
+                    "existing controlled-proof activity result has no observation binding",
+                )
+            _write_json_atomic(observation_path, observation)
         timestamp = _format_timestamp(receipt_time)
-        observation = {
-            "schema_version": CONTROLLED_PROOF_RECEIPT_SCHEMA_VERSION,
-            "owner_repo": CONTROLLED_PROOF_OWNER_REPO,
-            "authorization_id": request.owner_context.authorization_id,
-            "authorization_digest": request.owner_context.authorization_digest,
-            "commissioning_session_id": request.owner_context.commissioning_session_id,
-            "scenario_id": request.scenario.scenario_id,
-            "scenario_execution_id": request.scenario.scenario_execution_id,
-            "activity_id": request.activity_id,
-            "workflow_id": request.workflow_id,
-            "workflow_run_id": request.workflow_run_id,
-            "observation_kind": normalized_observation_kind,
-            "owner_result": owner_result,
-            "process_group_fenced": True,
-            "recorded_at": timestamp,
-        }
-        if normalized_activity_result is not None:
-            observation["activity_result_digest"] = _record_digest(
-                normalized_activity_result,
-            )
-            observation["activity_status_code"] = _require_identifier(
-                normalized_activity_result.get("status_code"),
-                "activity_result.status_code",
-            )
-            _write_or_verify_json(
-                activity_result_path,
-                normalized_activity_result,
-                "controlled-proof activity result",
-            )
-        _write_or_verify_json(
-            observation_path,
-            observation,
-            "controlled-proof observation",
-        )
         observation_digest = _record_digest(observation)
         evidence_refs = _owner_receipt_evidence_refs(
             request,
@@ -939,6 +956,94 @@ def _assert_existing_receipt(
         )
 
 
+def _validate_pending_observation(
+    observation: Mapping[str, Any],
+    request: AuthorizedControlledProofRequest,
+    *,
+    owner_result: str,
+    observation_kind: str,
+    activity_result: dict[str, Any] | None,
+    activity_result_path: Path,
+) -> dict[str, Any]:
+    """Validate crash-left observation evidence before completing its receipt."""
+
+    fields = {
+        "schema_version",
+        "owner_repo",
+        "authorization_id",
+        "authorization_digest",
+        "commissioning_session_id",
+        "scenario_id",
+        "scenario_execution_id",
+        "activity_id",
+        "workflow_id",
+        "workflow_run_id",
+        "observation_kind",
+        "owner_result",
+        "process_group_fenced",
+        "recorded_at",
+    }
+    if activity_result is not None:
+        fields.update({"activity_result_digest", "activity_status_code"})
+    _require_exact_fields(observation, fields, "owner observation")
+    expected = {
+        "schema_version": CONTROLLED_PROOF_RECEIPT_SCHEMA_VERSION,
+        "owner_repo": CONTROLLED_PROOF_OWNER_REPO,
+        "authorization_id": request.owner_context.authorization_id,
+        "authorization_digest": request.owner_context.authorization_digest,
+        "commissioning_session_id": request.owner_context.commissioning_session_id,
+        "scenario_id": request.scenario.scenario_id,
+        "scenario_execution_id": request.scenario.scenario_execution_id,
+        "activity_id": request.activity_id,
+        "workflow_id": request.workflow_id,
+        "workflow_run_id": request.workflow_run_id,
+        "observation_kind": observation_kind,
+        "owner_result": owner_result,
+        "process_group_fenced": True,
+    }
+    mismatched = [
+        field for field, value in expected.items() if observation.get(field) != value
+    ]
+    observation_time = _require_timestamp(
+        observation.get("recorded_at"),
+        "owner observation recorded_at",
+    )
+    if observation_time < request.owner_context.commissioning_session_started_at:
+        mismatched.append("recorded_at")
+    if (
+        owner_result == "passed"
+        and observation_time >= request.owner_context.authorization_expires_at
+    ):
+        mismatched.append("recorded_at")
+
+    stored_activity_result = _load_json(activity_result_path)
+    if activity_result is None:
+        if stored_activity_result is not None:
+            mismatched.append("activity_result")
+    elif stored_activity_result is None:
+        mismatched.append("activity_result")
+    else:
+        normalized_stored_result = _normalize_activity_result(
+            stored_activity_result,
+        )
+        if normalized_stored_result != activity_result:
+            mismatched.append("activity_result")
+        if observation.get("activity_result_digest") != _record_digest(
+            activity_result,
+        ):
+            mismatched.append("activity_result_digest")
+        if observation.get("activity_status_code") != activity_result.get(
+            "status_code",
+        ):
+            mismatched.append("activity_status_code")
+    if mismatched:
+        raise ControlledProofContextMismatch(
+            "existing controlled-proof observation does not match: "
+            + ", ".join(sorted(set(mismatched))),
+        )
+    return dict(observation)
+
+
 def _validate_stored_receipt(
     receipt: Mapping[str, Any],
     request: AuthorizedControlledProofRequest,
@@ -986,7 +1091,7 @@ def _validate_stored_receipt(
         receipt.get("recorded_at"),
         "owner receipt recorded_at",
     )
-    if recorded_at < request.started_at:
+    if recorded_at < request.owner_context.commissioning_session_started_at:
         mismatched.append("recorded_at")
     if (
         owner_result == "passed"

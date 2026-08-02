@@ -3,15 +3,17 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
+import control_fabric_core.controlled_proof as controlled_proof
 from control_fabric_core.controlled_proof import (
     CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE,
     CONTROLLED_PROOF_WORKER_ID,
@@ -283,6 +285,92 @@ class ControlledProofContractTests(TestCase):
                     process_group_fenced=True,
                     activity_result=changed_result,
                 )
+
+    def test_owner_receipt_replays_across_a_later_temporal_attempt(self) -> None:
+        request, _context = self._authorized()
+        activity_result = {
+            "status_code": "ready",
+            "receipt_ref": {
+                "receipt_id": "receipt:wgcf:controlled-proof:1",
+                "digest": f"sha256:{'b' * 64}",
+            },
+        }
+        later_arguments = self._authorization_arguments()
+        later_arguments["attempt"] = 2
+        later_arguments["started_at"] = ACTIVITY_STARTED_AT + timedelta(minutes=5)
+        retry_request, _ = self._authorized(arguments=later_arguments)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            receipt = commit_controlled_proof_owner_receipt(
+                request,
+                evidence_root=temp_dir,
+                owner_result="passed",
+                observation_kind="activity-result-recorded",
+                process_group_fenced=True,
+                activity_result=activity_result,
+                recorded_at=datetime(2026, 8, 2, 0, 4, tzinfo=timezone.utc),
+            )
+
+            replay = commit_controlled_proof_owner_receipt(
+                retry_request,
+                evidence_root=temp_dir,
+                owner_result="passed",
+                observation_kind="activity-result-recorded",
+                process_group_fenced=True,
+                activity_result=activity_result,
+            )
+
+            self.assertEqual(replay, receipt)
+
+    def test_owner_receipt_recovers_after_observation_commit_interruption(
+        self,
+    ) -> None:
+        request, _context = self._authorized()
+        activity_result = {
+            "status_code": "ready",
+            "receipt_ref": {
+                "receipt_id": "receipt:wgcf:controlled-proof:1",
+                "digest": f"sha256:{'b' * 64}",
+            },
+        }
+        original_write = controlled_proof._write_json_atomic
+
+        def interrupt_receipt(path, record):
+            if path.parent.name == "receipts":
+                raise OSError("simulated interruption before receipt commit")
+            original_write(path, record)
+
+        later_arguments = self._authorization_arguments()
+        later_arguments["attempt"] = 2
+        later_arguments["started_at"] = ACTIVITY_STARTED_AT + timedelta(minutes=5)
+        retry_request, _ = self._authorized(arguments=later_arguments)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch.object(
+                controlled_proof,
+                "_write_json_atomic",
+                side_effect=interrupt_receipt,
+            ), self.assertRaises(OSError):
+                commit_controlled_proof_owner_receipt(
+                    request,
+                    evidence_root=temp_dir,
+                    owner_result="passed",
+                    observation_kind="activity-result-recorded",
+                    process_group_fenced=True,
+                    activity_result=activity_result,
+                    recorded_at=datetime(2026, 8, 2, 0, 4, tzinfo=timezone.utc),
+                )
+
+            receipt = commit_controlled_proof_owner_receipt(
+                retry_request,
+                evidence_root=temp_dir,
+                owner_result="passed",
+                observation_kind="activity-result-recorded",
+                process_group_fenced=True,
+                activity_result=activity_result,
+            )
+
+            self.assertEqual(receipt["recorded_at"], "2026-08-02T00:04:00.000Z")
 
     def test_owner_receipt_load_rejects_tampered_observation(self) -> None:
         request, _context = self._authorized()
