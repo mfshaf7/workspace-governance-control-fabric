@@ -98,12 +98,12 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
                 info=info,
                 worker_id=worker_id,
             )
+            owner_payload = controlled_request.normal_activity_payload
+            ValidationReadinessActivityRequest.from_payload(owner_payload)
             bind_controlled_proof_request(
                 controlled_request,
                 evidence_root=_controlled_proof_evidence_root(),
             )
-            owner_payload = controlled_request.normal_activity_payload
-            ValidationReadinessActivityRequest.from_payload(owner_payload)
             _raise_expected_controlled_proof_boundary(controlled_request)
         envelope = {
             "schema_version": _OWNER_PROTOCOL_SCHEMA_VERSION,
@@ -247,6 +247,7 @@ def _commit_expected_boundary_receipt(
     request: AuthorizedControlledProofRequest,
     observation_kind: str,
 ) -> None:
+    _assert_controlled_context_remains_current(request)
     commit_controlled_proof_owner_receipt(
         request,
         evidence_root=_controlled_proof_evidence_root(),
@@ -288,6 +289,7 @@ def _assert_controlled_context_remains_current(
 def _commit_controlled_cancellation_receipt(
     request: AuthorizedControlledProofRequest,
 ) -> None:
+    _assert_controlled_context_remains_current(request)
     now = datetime.now(timezone.utc)
     expected = (
         request.scenario.scenario_id == "cancellation"

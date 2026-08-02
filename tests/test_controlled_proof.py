@@ -16,8 +16,10 @@ sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 import control_fabric_core.controlled_proof as controlled_proof
 from control_fabric_core.controlled_proof import (
     CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE,
+    CONTROLLED_PROOF_SCENARIOS,
     CONTROLLED_PROOF_WORKER_ID,
     ControlledProofAuthorizationError,
+    ControlledProofContractError,
     ControlledProofContextMismatch,
     ControlledProofIdentityDenied,
     authorize_controlled_proof_activity_request,
@@ -73,17 +75,40 @@ class ControlledProofContractTests(TestCase):
             with self.assertRaises(ControlledProofAuthorizationError):
                 load_controlled_proof_owner_context(path, expected_digest=digest)
 
-    def test_owner_context_rejects_scenario_order_and_restore_owner_drift(self) -> None:
-        for mutation in ("order", "restore-owner"):
+    def test_owner_context_accepts_scenario_order_and_canonicalizes_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = valid_owner_context()
+            scenarios = record["commissioning_session"]["scenario_executions"]
+            scenarios[0], scenarios[1] = scenarios[1], scenarios[0]
+            path = Path(temp_dir) / "context.json"
+            raw = json.dumps(record, sort_keys=True) + "\n"
+            path.write_text(raw, encoding="utf-8")
+            path.chmod(0o600)
+            digest = sha256(raw.encode()).hexdigest()
+
+            context = load_controlled_proof_owner_context(
+                path,
+                expected_digest=f"sha256:{digest}",
+            )
+
+        self.assertEqual(
+            tuple(scenario.scenario_id for scenario in context.scenario_executions),
+            CONTROLLED_PROOF_SCENARIOS,
+        )
+
+    def test_owner_context_rejects_restore_owner_and_duplicate_scenario_drift(
+        self,
+    ) -> None:
+        for mutation in ("restore-owner", "duplicate-scenario"):
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp_dir:
                 record = valid_owner_context()
                 scenarios = record["commissioning_session"]["scenario_executions"]
-                if mutation == "order":
-                    scenarios[0], scenarios[1] = scenarios[1], scenarios[0]
-                else:
+                if mutation == "restore-owner":
                     scenarios[-1]["required_receipt_owners"].append(
                         "workspace-governance-control-fabric",
                     )
+                else:
+                    scenarios[-1]["scenario_id"] = scenarios[0]["scenario_id"]
                 path = Path(temp_dir) / "context.json"
                 raw = json.dumps(record, sort_keys=True) + "\n"
                 path.write_text(raw, encoding="utf-8")
@@ -92,7 +117,7 @@ class ControlledProofContractTests(TestCase):
 
                 with self.assertRaises(
                     (
-                        ControlledProofContextMismatch,
+                        ControlledProofContractError,
                         ControlledProofAuthorizationError,
                     ),
                 ):
@@ -184,6 +209,31 @@ class ControlledProofContractTests(TestCase):
             second, _ = self._authorized(payload=payload)
             with self.assertRaises(ControlledProofContextMismatch):
                 bind_controlled_proof_request(second, evidence_root=root)
+
+    def test_idempotency_conflict_does_not_poison_an_unbound_scenario(self) -> None:
+        first, _context = self._authorized()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            bind_controlled_proof_request(first, evidence_root=root)
+
+            conflicting_payload = valid_controlled_request(scenario_index=1)
+            conflicting, _ = self._authorized(payload=conflicting_payload)
+            with self.assertRaises(ControlledProofContextMismatch):
+                bind_controlled_proof_request(conflicting, evidence_root=root)
+
+            corrected_payload = valid_controlled_request(
+                scenario_index=1,
+                idempotency_key="activity:controlled-proof:scenario-02:attempt-1",
+            )
+            corrected_payload["run_id"] = "temporal-execution:scenario-02-corrected"
+            corrected_arguments = self._authorization_arguments()
+            corrected_arguments["workflow_run_id"] = corrected_payload["run_id"]
+            corrected, _ = self._authorized(
+                payload=corrected_payload,
+                arguments=corrected_arguments,
+            )
+
+            bind_controlled_proof_request(corrected, evidence_root=root)
 
     def test_scenario_binding_rejects_a_different_workflow_run(self) -> None:
         first, _context = self._authorized()

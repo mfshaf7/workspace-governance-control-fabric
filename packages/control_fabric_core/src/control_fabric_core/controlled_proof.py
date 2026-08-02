@@ -436,6 +436,7 @@ def bind_controlled_proof_request(
     scenario_key = _scenario_binding_key(request)
     scenario_path = root / "scenario-bindings" / f"{scenario_key}.json"
     scenario_lock_path = root / "locks" / f"scenario-{scenario_key}.lock"
+    binding_lock_path = root / "locks" / f"binding-{key_digest}.lock"
     scenario_record = {
         "schema_version": CONTROLLED_PROOF_REQUEST_SCHEMA_VERSION,
         "owner_context_digest": request.owner_context.owner_context_digest,
@@ -445,30 +446,27 @@ def bind_controlled_proof_request(
         "workflow_id": request.workflow_id,
         "workflow_run_id": request.workflow_run_id,
     }
-    with _exclusive_lock(scenario_lock_path):
-        existing_scenario = _load_json(scenario_path)
-        if existing_scenario is not None and existing_scenario != scenario_record:
-            raise ControlledProofContextMismatch(
-                "controlled-proof scenario execution is bound to another workflow run",
-            )
-        if existing_scenario is None:
-            _write_json_atomic(scenario_path, scenario_record)
-
-    lock_path = root / "locks" / f"binding-{key_digest}.lock"
-    record = {
+    binding_record = {
         "schema_version": CONTROLLED_PROOF_REQUEST_SCHEMA_VERSION,
         "idempotency_key_digest": f"sha256:{key_digest}",
         "owner_context_digest": request.owner_context.owner_context_digest,
         "request_digest": request.request_digest,
     }
-    with _exclusive_lock(lock_path):
+    with _exclusive_lock(scenario_lock_path), _exclusive_lock(binding_lock_path):
+        existing_scenario = _load_json(scenario_path)
+        if existing_scenario is not None and existing_scenario != scenario_record:
+            raise ControlledProofContextMismatch(
+                "controlled-proof scenario execution is bound to another workflow run",
+            )
         existing = _load_json(binding_path)
-        if existing is not None and existing != record:
+        if existing is not None and existing != binding_record:
             raise ControlledProofContextMismatch(
                 "controlled-proof idempotency key is bound to another context or request",
             )
+        if existing_scenario is None:
+            _write_json_atomic(scenario_path, scenario_record)
         if existing is None:
-            _write_json_atomic(binding_path, record)
+            _write_json_atomic(binding_path, binding_record)
     return binding_path
 
 
@@ -882,6 +880,7 @@ def _parse_scenario_executions(value: Any) -> tuple[ControlledProofScenarioExecu
             "commissioning session must contain the exact controlled-proof scenario set",
         )
     scenarios: list[ControlledProofScenarioExecution] = []
+    scenario_ids: set[str] = set()
     execution_ids: set[str] = set()
     for index, item in enumerate(value):
         _require_mapping(item, f"scenario_executions[{index}]")
@@ -895,11 +894,13 @@ def _parse_scenario_executions(value: Any) -> tuple[ControlledProofScenarioExecu
             item.get("scenario_id"),
             f"scenario_executions[{index}].scenario_id",
         )
-        _require_equal(
-            scenario_id,
-            CONTROLLED_PROOF_SCENARIOS[index],
-            f"scenario_executions[{index}].scenario_id",
-        )
+        if scenario_id not in CONTROLLED_PROOF_SCENARIOS:
+            raise ControlledProofContractError(
+                "scenario execution contains an unsupported scenario id",
+            )
+        if scenario_id in scenario_ids:
+            raise ControlledProofContractError("scenario ids must be unique")
+        scenario_ids.add(scenario_id)
         execution_id = _require_identifier(
             item.get("scenario_execution_id"),
             f"scenario_executions[{index}].scenario_execution_id",
@@ -925,7 +926,12 @@ def _parse_scenario_executions(value: Any) -> tuple[ControlledProofScenarioExecu
                 required_receipt_owners=owners,
             ),
         )
-    return tuple(scenarios)
+    if scenario_ids != set(CONTROLLED_PROOF_SCENARIOS):
+        raise ControlledProofContractError(
+            "commissioning session must contain the exact controlled-proof scenario set",
+        )
+    by_scenario_id = {scenario.scenario_id: scenario for scenario in scenarios}
+    return tuple(by_scenario_id[scenario_id] for scenario_id in CONTROLLED_PROOF_SCENARIOS)
 
 
 def _assert_existing_receipt(
