@@ -77,6 +77,14 @@ class FoundationTests(TestCase):
 
         self.assertIn("COPY scripts ./scripts", dockerfile)
 
+    def test_worker_image_bakes_provenance_and_provisions_evidence_roots(self) -> None:
+        dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+        self.assertIn("ARG WGCF_SOURCE_REVISION=unverified", dockerfile)
+        self.assertIn("/opt/wgcf/build/source-revision", dockerfile)
+        self.assertIn("/var/lib/wgcf/orchestration/controlled-proof", dockerfile)
+        self.assertIn("/var/lib/wgcf/orchestration/validation-readiness", dockerfile)
+
     def test_human_status_is_compact_and_operator_safe(self) -> None:
         rendered = render_status_human(status_snapshot(REPO_ROOT))
 

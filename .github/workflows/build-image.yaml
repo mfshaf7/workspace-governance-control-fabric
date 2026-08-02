@@ -128,6 +128,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: worker
+          build-args: |
+            WGCF_SOURCE_REVISION=${{ github.sha }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
@@ -150,6 +152,23 @@ jobs:
             echo "worker unexpectedly started without activation evidence" >&2
             exit 1
           fi
+          docker run --rm "${IMAGE_REF}" \
+            wgcf-worker controlled-proof status --repo-root /app \
+            | grep -q "status: controlled-proof-activity-worker-source-ready"
+          docker run --rm \
+            --env EXPECTED_SOURCE_REVISION="${{ github.sha }}" \
+            "${IMAGE_REF}" \
+            sh -ec '
+              test "$(id -u)" = "10001"
+              test "$(cat /opt/wgcf/build/source-revision)" = "${EXPECTED_SOURCE_REVISION}"
+              test "$(stat -c "%u:%a" /opt/wgcf/build/source-revision)" = "0:444"
+              test -w /var/lib/wgcf/orchestration/controlled-proof
+              test -w /var/lib/wgcf/orchestration/validation-readiness
+            '
+          if docker run --rm "${IMAGE_REF}" wgcf-worker controlled-proof run; then
+            echo "controlled-proof worker unexpectedly started without a permit context" >&2
+            exit 1
+          fi
 
       - name: Publish build summary
         run: |
@@ -160,6 +179,7 @@ jobs:
             echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
             echo "- Source SHA: \`${{ github.sha }}\`"
             echo "- Default runtime posture: denied"
+            echo "- Controlled-proof runtime posture: denied"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write release metadata

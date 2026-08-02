@@ -23,10 +23,18 @@ RUN useradd --create-home --uid 10001 wgcf
 
 FROM app-base AS worker
 
+ARG WGCF_SOURCE_REVISION=unverified
+
 RUN apt-get update \
   && apt-get install --no-install-recommends --yes ca-certificates git \
   && rm -rf /var/lib/apt/lists/* \
-  && python -m pip install --no-cache-dir ".[worker]"
+  && python -m pip install --no-cache-dir ".[worker]" \
+  && install -d -m 0755 /opt/wgcf/build \
+  && printf '%s\n' "${WGCF_SOURCE_REVISION}" > /opt/wgcf/build/source-revision \
+  && chmod 0444 /opt/wgcf/build/source-revision \
+  && install -d -o wgcf -g wgcf -m 0750 \
+    /var/lib/wgcf/orchestration/controlled-proof \
+    /var/lib/wgcf/orchestration/validation-readiness
 
 USER wgcf
 

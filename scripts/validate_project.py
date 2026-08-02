@@ -28,6 +28,7 @@ REQUIRED_PATHS = (
     "apps/worker/src/wgcf_worker/main.py",
     "packages/control_fabric_core/README.md",
     "packages/control_fabric_core/src/control_fabric_core/art_readiness.py",
+    "packages/control_fabric_core/src/control_fabric_core/controlled_proof.py",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
@@ -67,6 +68,9 @@ REQUIRED_PATHS = (
     "policies/opa/validation_blocking.rego",
     "schemas/art-evidence-packet.schema.json",
     "schemas/art-readiness-receipt.schema.json",
+    "schemas/controlled-proof-activity-request.schema.json",
+    "schemas/controlled-proof-owner-context.schema.json",
+    "schemas/controlled-proof-owner-receipt.schema.json",
     "schemas/evidence-projection.schema.json",
     "schemas/governance-manifest.schema.json",
     "schemas/ledger-event.schema.json",
@@ -173,6 +177,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         run_operator_validation_check,
         status_snapshot,
         validate_governance_manifest,
+        controlled_proof_worker_status_snapshot,
         worker_status_snapshot,
     )
     from control_fabric_core.db import metadata
@@ -184,11 +189,14 @@ def validate_imports(repo_root: Path) -> list[str]:
 
     snapshot = status_snapshot(repo_root)
     worker_snapshot = worker_status_snapshot(repo_root)
+    controlled_worker_snapshot = controlled_proof_worker_status_snapshot(repo_root)
     errors: list[str] = []
     if not snapshot["ready"]:
         errors.append("status snapshot is not ready")
     if not worker_snapshot["ready"]:
         errors.append("worker status snapshot is not ready")
+    if not controlled_worker_snapshot["ready"]:
+        errors.append("controlled-proof worker status snapshot is not ready")
     bootstrap_contract = bootstrap_validation_contract(repo_root)
     if bootstrap_contract["uses_wgcf_receipt_as_bootstrap_authority"]:
         errors.append("bootstrap validation must not use WGCF receipts as bootstrap authority")
@@ -258,6 +266,14 @@ def validate_imports(repo_root: Path) -> list[str]:
     worker_parsed = worker_parser.parse_args(["status", "--repo-root", str(repo_root)])
     if worker_parsed.command != "status":
         errors.append("wgcf-worker parser did not accept status command")
+    controlled_worker_parsed = worker_parser.parse_args(
+        ["controlled-proof", "status", "--repo-root", str(repo_root)],
+    )
+    if (
+        controlled_worker_parsed.command != "controlled-proof"
+        or controlled_worker_parsed.controlled_command != "status"
+    ):
+        errors.append("wgcf-worker parser did not accept controlled-proof status")
     app = create_app(repo_root)
     if app.title != "Workspace Governance Control Fabric":
         errors.append("FastAPI app title is not the control-fabric title")
@@ -292,6 +308,16 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("worker status must not start a long-running worker")
     if worker_snapshot["activation"]["authorized"]:
         errors.append("worker activation must be denied by default")
+    if controlled_worker_snapshot["activation"]["authorized"]:
+        errors.append("controlled-proof worker activation must be denied by default")
+    if controlled_worker_snapshot["temporal"]["task_queue"] != (
+        "wgcf.controlled-proof.validation-readiness.v1"
+    ):
+        errors.append("controlled-proof worker task queue drifted")
+    if controlled_worker_snapshot["temporal"]["identity"] != (
+        "wgcf-controlled-proof-activity-worker"
+    ):
+        errors.append("controlled-proof worker identity drifted")
     if worker_snapshot["temporal"]["result_status_codes"] != [
         "ready",
         "blocked",

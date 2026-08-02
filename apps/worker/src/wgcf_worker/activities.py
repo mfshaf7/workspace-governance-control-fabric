@@ -10,6 +10,7 @@ import signal
 import sys
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,18 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from control_fabric_core.controlled_proof import (
+    CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE,
+    AuthorizedControlledProofRequest,
+    ControlledProofAuthorizationError,
+    ControlledProofIdentityDenied,
+    ControlledProofPayloadRejected,
+    authorize_controlled_proof_activity_request,
+    bind_controlled_proof_request,
+    commit_controlled_proof_owner_receipt,
+    load_controlled_proof_owner_context,
+    owner_result_for_activity_result,
+)
 from control_fabric_core.orchestration_activities import (
     VALIDATION_READINESS_ACTIVITY_NAME,
     ValidationReadinessActivityRequest,
@@ -25,6 +38,13 @@ from control_fabric_core.orchestration_activities import (
     classify_validation_readiness_exception,
     commit_validation_readiness_staging_result,
     load_committed_validation_readiness_result,
+)
+from control_fabric_core.worker import (
+    CONTROLLED_PROOF_CONTEXT_DIGEST_ENV,
+    CONTROLLED_PROOF_CONTEXT_PATH_ENV,
+    CONTROLLED_PROOF_TEMPORAL_WORKER_ID_ENV,
+    controlled_proof_evidence_root,
+    controlled_proof_image_source_revision,
 )
 
 
@@ -51,19 +71,80 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
     """Run bounded owner work with heartbeat and process-level cancellation."""
 
     info = activity.info()
-    envelope = {
-        "schema_version": _OWNER_PROTOCOL_SCHEMA_VERSION,
-        "payload": payload,
-        "activity_context": {
-            "activity_id": info.activity_id,
-            "attempt": info.attempt,
-            "worker_id": os.environ.get(WORKER_ID_ENV, "wgcf-activity-worker"),
-            "workflow_id": info.workflow_id,
-        },
-    }
+    controlled_request: AuthorizedControlledProofRequest | None = None
     try:
-        return await _run_fenced_owner_execution(envelope)
+        owner_payload = payload
+        controlled = info.task_queue == CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE
+        has_controlled_envelope = "controlled_proof_execution" in payload
+        if controlled != has_controlled_envelope:
+            raise ControlledProofAuthorizationError(
+                "controlled-proof activity envelope does not match the Temporal task queue",
+            )
+        worker_id = os.environ.get(
+            (
+                CONTROLLED_PROOF_TEMPORAL_WORKER_ID_ENV
+                if controlled
+                else WORKER_ID_ENV
+            ),
+            (
+                "wgcf-controlled-proof-activity-worker"
+                if controlled
+                else "wgcf-activity-worker"
+            ),
+        )
+        if controlled:
+            controlled_request = _authorize_controlled_proof_request(
+                payload,
+                info=info,
+                worker_id=worker_id,
+            )
+            owner_payload = controlled_request.normal_activity_payload
+            ValidationReadinessActivityRequest.from_payload(owner_payload)
+            bind_controlled_proof_request(
+                controlled_request,
+                evidence_root=_controlled_proof_evidence_root(),
+            )
+            _raise_expected_controlled_proof_boundary(controlled_request)
+        envelope = {
+            "schema_version": _OWNER_PROTOCOL_SCHEMA_VERSION,
+            "payload": owner_payload,
+            "activity_context": {
+                "activity_id": info.activity_id,
+                "attempt": info.attempt,
+                "worker_id": worker_id,
+                "workflow_id": info.workflow_id,
+            },
+        }
+        result = await _run_fenced_owner_execution(
+            envelope,
+            evidence_root=(
+                _controlled_proof_activity_evidence_root(controlled_request)
+                if controlled_request is not None
+                else None
+            ),
+        )
+        if controlled_request is not None:
+            _assert_controlled_context_remains_current(controlled_request)
+            commit_controlled_proof_owner_receipt(
+                controlled_request,
+                evidence_root=_controlled_proof_evidence_root(),
+                owner_result=owner_result_for_activity_result(
+                    result,
+                    scenario_id=controlled_request.scenario.scenario_id,
+                ),
+                observation_kind="activity-result-recorded",
+                process_group_fenced=True,
+                activity_result=result,
+            )
+        return result
     except asyncio.CancelledError:
+        if controlled_request is not None:
+            try:
+                _commit_controlled_cancellation_receipt(controlled_request)
+            except Exception as exc:
+                raise _application_error(
+                    classify_validation_readiness_exception(exc),
+                ) from None
         raise
     except _OwnerExecutionFailure as failure:
         raise _application_error(failure) from None
@@ -71,8 +152,186 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
         raise _application_error(classify_validation_readiness_exception(exc)) from None
 
 
+def _authorize_controlled_proof_request(
+    payload: dict[str, Any],
+    *,
+    info: Any,
+    worker_id: str,
+) -> AuthorizedControlledProofRequest:
+    context_path = os.environ.get(CONTROLLED_PROOF_CONTEXT_PATH_ENV, "").strip()
+    context_digest = os.environ.get(
+        CONTROLLED_PROOF_CONTEXT_DIGEST_ENV,
+        "",
+    ).strip()
+    if not context_path or not context_digest:
+        raise ControlledProofAuthorizationError(
+            "controlled-proof context path and digest are required",
+        )
+    source_revision = controlled_proof_image_source_revision()
+    owner_context = load_controlled_proof_owner_context(
+        context_path,
+        expected_digest=context_digest,
+    )
+    workflow_id = info.workflow_id
+    workflow_run_id = info.workflow_run_id
+    if not isinstance(workflow_id, str) or not isinstance(workflow_run_id, str):
+        raise ControlledProofAuthorizationError(
+            "controlled-proof activity requires Temporal workflow identity",
+        )
+    return authorize_controlled_proof_activity_request(
+        payload,
+        owner_context=owner_context,
+        activity_id=info.activity_id,
+        attempt=info.attempt,
+        worker_identity=worker_id,
+        temporal_namespace=info.namespace,
+        task_queue=info.task_queue,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        source_revision=source_revision,
+        started_at=info.started_time,
+    )
+
+
+def _raise_expected_controlled_proof_boundary(
+    request: AuthorizedControlledProofRequest,
+) -> None:
+    scenario = request.scenario.scenario_id
+    if scenario == "identity-denial":
+        _prove_identity_denial(request)
+        _commit_expected_boundary_receipt(request, "identity-denial-enforced")
+        raise ControlledProofIdentityDenied(
+            "the authorized identity-denial scenario was enforced",
+        )
+    if scenario == "payload-boundary":
+        _prove_payload_boundary(request)
+        _commit_expected_boundary_receipt(request, "payload-boundary-enforced")
+        raise ControlledProofPayloadRejected(
+            "the authorized payload-boundary scenario was enforced",
+        )
+    if scenario == "unavailable-dependency":
+        _commit_expected_boundary_receipt(
+            request,
+            "dependency-unavailability-simulated",
+        )
+        raise OSError("authorized controlled-proof dependency unavailability")
+
+
+def _prove_identity_denial(request: AuthorizedControlledProofRequest) -> None:
+    try:
+        authorize_controlled_proof_activity_request(
+            request.payload,
+            owner_context=request.owner_context,
+            activity_id=request.activity_id,
+            attempt=request.attempt,
+            worker_identity="wgcf-controlled-proof-unauthorized-probe",
+            temporal_namespace=request.owner_context.temporal_namespace,
+            task_queue=request.owner_context.activity_task_queue,
+            workflow_id=request.workflow_id,
+            workflow_run_id=request.workflow_run_id,
+            source_revision=request.owner_context.wgcf_source_revision,
+            started_at=request.started_at,
+        )
+    except ControlledProofIdentityDenied:
+        return
+    raise RuntimeError("controlled-proof identity probe did not fail closed")
+
+
+def _prove_payload_boundary(request: AuthorizedControlledProofRequest) -> None:
+    expanded = dict(request.normal_activity_payload)
+    expanded["raw_output"] = "denied"
+    try:
+        ValidationReadinessActivityRequest.from_payload(expanded)
+    except ValidationReadinessContractError:
+        return
+    raise RuntimeError("controlled-proof payload probe did not fail closed")
+
+
+def _commit_expected_boundary_receipt(
+    request: AuthorizedControlledProofRequest,
+    observation_kind: str,
+) -> None:
+    _assert_controlled_context_remains_current(request)
+    commit_controlled_proof_owner_receipt(
+        request,
+        evidence_root=_controlled_proof_evidence_root(),
+        owner_result="passed",
+        observation_kind=observation_kind,
+        process_group_fenced=True,
+    )
+
+
+def _assert_controlled_context_remains_current(
+    request: AuthorizedControlledProofRequest,
+) -> None:
+    context_path = os.environ.get(CONTROLLED_PROOF_CONTEXT_PATH_ENV, "").strip()
+    context_digest = os.environ.get(
+        CONTROLLED_PROOF_CONTEXT_DIGEST_ENV,
+        "",
+    ).strip()
+    current = load_controlled_proof_owner_context(
+        context_path,
+        expected_digest=context_digest,
+    )
+    if current != request.owner_context:
+        raise ControlledProofAuthorizationError(
+            "controlled-proof owner context changed during activity execution",
+        )
+    if controlled_proof_image_source_revision() != current.wgcf_source_revision:
+        raise ControlledProofAuthorizationError(
+            "controlled-proof worker image provenance changed during execution",
+        )
+    if datetime.now(timezone.utc) >= current.authorization_expires_at:
+        commit_controlled_proof_owner_receipt(
+            request,
+            evidence_root=_controlled_proof_evidence_root(),
+            owner_result="failed",
+            observation_kind="authorization-expired-before-result",
+            process_group_fenced=True,
+        )
+        raise ControlledProofAuthorizationError(
+            "controlled-proof authorization expired before result commit",
+        )
+
+
+def _commit_controlled_cancellation_receipt(
+    request: AuthorizedControlledProofRequest,
+) -> None:
+    _assert_controlled_context_remains_current(request)
+    now = datetime.now(timezone.utc)
+    expected = (
+        request.scenario.scenario_id == "cancellation"
+        and now < request.owner_context.authorization_expires_at
+    )
+    commit_controlled_proof_owner_receipt(
+        request,
+        evidence_root=_controlled_proof_evidence_root(),
+        owner_result="passed" if expected else "cancelled",
+        observation_kind=(
+            "activity-cancellation-fenced"
+            if expected
+            else "unexpected-activity-cancellation"
+        ),
+        process_group_fenced=True,
+        recorded_at=now,
+    )
+
+
+def _controlled_proof_evidence_root() -> Path:
+    return controlled_proof_evidence_root()
+
+
+def _controlled_proof_activity_evidence_root(
+    request: AuthorizedControlledProofRequest,
+) -> Path:
+    context_key = request.owner_context.owner_context_digest.removeprefix("sha256:")
+    return _controlled_proof_evidence_root() / "activity-executions" / context_key
+
+
 async def _run_fenced_owner_execution(
     envelope: dict[str, Any],
+    *,
+    evidence_root: Path | None = None,
 ) -> dict[str, Any]:
     payload = envelope["payload"]
     request = ValidationReadinessActivityRequest.from_payload(payload)
@@ -80,11 +339,14 @@ async def _run_fenced_owner_execution(
         raise ValidationReadinessContractError(
             "workflow_id must match the Temporal execution context",
         )
-    evidence_root = Path(
-        os.environ.get(
-            EVIDENCE_ROOT_ENV,
-            "/var/lib/wgcf/orchestration/validation-readiness",
-        ),
+    evidence_root = (
+        evidence_root
+        or Path(
+            os.environ.get(
+                EVIDENCE_ROOT_ENV,
+                "/var/lib/wgcf/orchestration/validation-readiness",
+            ),
+        )
     ).resolve()
     committed = load_committed_validation_readiness_result(
         payload,
@@ -172,6 +434,10 @@ async def _run_owner_execution(
                 )
                 if cancellation_requested:
                     raise asyncio.CancelledError
+                if not group_fenced:
+                    raise OSError(
+                        "WGCF owner process group termination was not confirmed",
+                    )
                 await _drain_communication(communication)
                 raise TimeoutError("WGCF owner execution exceeded its bounded runtime")
             try:
@@ -208,6 +474,10 @@ async def _run_owner_execution(
             )
         if communication is not None:
             await _drain_communication(communication)
+        if process is not None and not group_fenced:
+            raise OSError(
+                "WGCF owner process group termination was not confirmed",
+            )
         raise
     except BaseException:
         if process is not None and not stop_attempted:
