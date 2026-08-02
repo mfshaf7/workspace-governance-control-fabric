@@ -6,13 +6,14 @@ import os
 import signal
 import sys
 import tempfile
+from dataclasses import replace
 from hashlib import sha256
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, Mock, patch
 
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,23 +60,30 @@ def valid_request() -> dict[str, object]:
     }
 
 
-def activity_info() -> SimpleNamespace:
-    return SimpleNamespace(
+def activity_info():
+    return replace(
+        ActivityEnvironment.default_info(),
         activity_id="activity:validation-readiness",
         attempt=1,
+        namespace="default",
         task_queue="wgcf.validation-readiness.v1",
         workflow_id="workflow:validation-readiness-698",
+        workflow_namespace="default",
+        workflow_run_id="temporal-execution:validation-readiness-698",
+        started_time=ACTIVITY_STARTED_AT,
     )
 
 
-def controlled_activity_info() -> SimpleNamespace:
-    return SimpleNamespace(
+def controlled_activity_info():
+    return replace(
+        ActivityEnvironment.default_info(),
         activity_id="activity:validation-readiness",
         attempt=1,
-        workflow_id="workflow:controlled-proof-698-01",
-        workflow_run_id="temporal-execution:controlled-proof-698-01",
         namespace="default",
         task_queue="wgcf.controlled-proof.validation-readiness.v1",
+        workflow_id="workflow:controlled-proof-698-01",
+        workflow_namespace="default",
+        workflow_run_id="temporal-execution:controlled-proof-698-01",
         started_time=ACTIVITY_STARTED_AT,
     )
 
@@ -164,6 +172,13 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
             self.assertEqual(
                 envelope["payload"]["caller_id"],
                 "operator-orchestration-service",
+            )
+            self.assertEqual(
+                run_owner.await_args.kwargs["evidence_root"],
+                root
+                / "evidence"
+                / "activity-executions"
+                / context_digest.removeprefix("sha256:"),
             )
             receipts = list((root / "evidence" / "receipts").glob("*.json"))
             self.assertEqual(len(receipts), 1)
@@ -325,7 +340,18 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
             context_path, context_digest = write_owner_context(root)
             environment = controlled_worker_env(context_path, context_digest)
 
-            async def revoke_context(_envelope):
+            async def revoke_context(
+                _envelope: dict[str, object],
+                *,
+                evidence_root: Path,
+            ) -> None:
+                self.assertEqual(
+                    evidence_root,
+                    root
+                    / "evidence"
+                    / "activity-executions"
+                    / context_digest.removeprefix("sha256:"),
+                )
                 context_path.unlink()
                 raise asyncio.CancelledError
 
@@ -763,6 +789,73 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
             )
             self.assertFalse(observed_root.exists())
             commit_result.assert_called_once()
+
+    async def test_controlled_execution_cannot_reuse_an_ordinary_cached_result(
+        self,
+    ) -> None:
+        ordinary_result = {"schema_version": 1, "status_code": "blocked"}
+        controlled_result = {"schema_version": 1, "status_code": "ready"}
+        envelope = {
+            "payload": valid_request(),
+            "activity_context": {
+                "workflow_id": "workflow:validation-readiness-698",
+            },
+        }
+
+        with tempfile.TemporaryDirectory(prefix="wgcf-worker-cache-") as temp_dir:
+            ordinary_root = (Path(temp_dir) / "ordinary").resolve()
+            controlled_root = (Path(temp_dir) / "controlled").resolve()
+
+            def load_result(
+                _payload: dict[str, object],
+                *,
+                evidence_root: Path,
+            ) -> dict[str, object] | None:
+                if evidence_root == ordinary_root:
+                    return ordinary_result
+                self.assertEqual(evidence_root, controlled_root)
+                return None
+
+            with (
+                patch.dict(
+                    os.environ,
+                    {"WGCF_ORCHESTRATION_EVIDENCE_ROOT": str(ordinary_root)},
+                ),
+                patch(
+                    "wgcf_worker.activities.load_committed_validation_readiness_result",
+                    side_effect=load_result,
+                ) as load_committed,
+                patch(
+                    "wgcf_worker.activities._run_owner_execution",
+                    new=AsyncMock(return_value=controlled_result),
+                ) as run_owner,
+                patch(
+                    "wgcf_worker.activities.commit_validation_readiness_staging_result",
+                    return_value=controlled_result,
+                ) as commit_result,
+            ):
+                ordinary = await _run_fenced_owner_execution(envelope)
+                controlled = await _run_fenced_owner_execution(
+                    envelope,
+                    evidence_root=controlled_root,
+                )
+
+            self.assertEqual(ordinary, ordinary_result)
+            self.assertEqual(controlled, controlled_result)
+            self.assertEqual(load_committed.call_count, 2)
+            run_owner.assert_awaited_once()
+            self.assertEqual(
+                Path(
+                    run_owner.await_args.kwargs["owner_environment"][
+                        "WGCF_ORCHESTRATION_EVIDENCE_ROOT"
+                    ],
+                ).parent,
+                controlled_root / "staging",
+            )
+            self.assertEqual(
+                commit_result.call_args.kwargs["evidence_root"],
+                controlled_root,
+            )
 
     async def test_committed_result_cannot_bypass_workflow_binding(self) -> None:
         with patch(

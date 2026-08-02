@@ -115,7 +115,14 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
                 "workflow_id": info.workflow_id,
             },
         }
-        result = await _run_fenced_owner_execution(envelope)
+        result = await _run_fenced_owner_execution(
+            envelope,
+            evidence_root=(
+                _controlled_proof_activity_evidence_root(controlled_request)
+                if controlled_request is not None
+                else None
+            ),
+        )
         if controlled_request is not None:
             _assert_controlled_context_remains_current(controlled_request)
             commit_controlled_proof_owner_receipt(
@@ -318,8 +325,17 @@ def _controlled_proof_evidence_root() -> Path:
     ).resolve()
 
 
+def _controlled_proof_activity_evidence_root(
+    request: AuthorizedControlledProofRequest,
+) -> Path:
+    context_key = request.owner_context.owner_context_digest.removeprefix("sha256:")
+    return _controlled_proof_evidence_root() / "activity-executions" / context_key
+
+
 async def _run_fenced_owner_execution(
     envelope: dict[str, Any],
+    *,
+    evidence_root: Path | None = None,
 ) -> dict[str, Any]:
     payload = envelope["payload"]
     request = ValidationReadinessActivityRequest.from_payload(payload)
@@ -327,11 +343,14 @@ async def _run_fenced_owner_execution(
         raise ValidationReadinessContractError(
             "workflow_id must match the Temporal execution context",
         )
-    evidence_root = Path(
-        os.environ.get(
-            EVIDENCE_ROOT_ENV,
-            "/var/lib/wgcf/orchestration/validation-readiness",
-        ),
+    evidence_root = (
+        evidence_root
+        or Path(
+            os.environ.get(
+                EVIDENCE_ROOT_ENV,
+                "/var/lib/wgcf/orchestration/validation-readiness",
+            ),
+        )
     ).resolve()
     committed = load_committed_validation_readiness_result(
         payload,
