@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/wgcf/controlled-proof-activity-request.schema.json",
+  "title": "WGCF Controlled Proof Activity Request",
+  "description": "Strict OOS-to-WGCF request for one permit-bound commissioning scenario execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "definition_id",
+    "definition_version",
+    "run_id",
+    "workflow_id",
+    "source_ref",
+    "source_version",
+    "validation_scope",
+    "readiness_target",
+    "profile",
+    "tier",
+    "correlation_id",
+    "causation_id",
+    "idempotency_key",
+    "caller_id",
+    "operator_id",
+    "controlled_proof_execution"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "definition_id": { "const": "validation-readiness-run" },
+    "definition_version": { "const": 1 },
+    "run_id": { "$ref": "#/$defs/identifier" },
+    "workflow_id": { "$ref": "#/$defs/identifier" },
+    "source_ref": { "$ref": "#/$defs/identifier" },
+    "source_version": { "$ref": "#/$defs/identifier" },
+    "validation_scope": { "const": "component:workspace-governance" },
+    "readiness_target": { "const": "repo:workspace-governance-control-fabric" },
+    "profile": { "const": "local-read-only" },
+    "tier": { "const": "smoke" },
+    "correlation_id": { "$ref": "#/$defs/identifier" },
+    "causation_id": { "$ref": "#/$defs/identifier" },
+    "idempotency_key": { "$ref": "#/$defs/identifier" },
+    "caller_id": { "const": "operator-orchestration-service-controlled-proof" },
+    "operator_id": { "$ref": "#/$defs/identifier" },
+    "controlled_proof_execution": { "$ref": "#/$defs/execution" }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,255}$"
+    },
+    "uri": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 512,
+      "pattern": "^[a-z][a-z0-9+.-]*://[^\\s]+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "receiptOwners": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "platform-engineering",
+          "operator-orchestration-service",
+          "workspace-governance-control-fabric"
+        ]
+      }
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authorization_consumed_at",
+        "authorization_digest",
+        "authorization_expires_at",
+        "authorization_id",
+        "canonical_claims_digest",
+        "commissioning_session_id",
+        "commissioning_session_started_at",
+        "context_digest",
+        "context_id",
+        "environment",
+        "oos_source_revision",
+        "profile_lifecycle",
+        "required_receipt_owners",
+        "scenario_execution_id",
+        "scenario_id",
+        "wgcf_source_revision"
+      ],
+      "properties": {
+        "authorization_consumed_at": { "$ref": "#/$defs/timestamp" },
+        "authorization_digest": { "$ref": "#/$defs/digest" },
+        "authorization_expires_at": { "$ref": "#/$defs/timestamp" },
+        "authorization_id": { "$ref": "#/$defs/uri" },
+        "canonical_claims_digest": { "$ref": "#/$defs/digest" },
+        "commissioning_session_id": { "$ref": "#/$defs/identifier" },
+        "commissioning_session_started_at": { "$ref": "#/$defs/timestamp" },
+        "context_digest": { "$ref": "#/$defs/digest" },
+        "context_id": { "$ref": "#/$defs/uri" },
+        "environment": { "const": "dev-integration" },
+        "oos_source_revision": { "$ref": "#/$defs/revision" },
+        "profile_lifecycle": { "const": "build-admitted" },
+        "required_receipt_owners": { "$ref": "#/$defs/receiptOwners" },
+        "scenario_execution_id": { "$ref": "#/$defs/identifier" },
+        "scenario_id": {
+          "enum": [
+            "nominal-completion",
+            "workflow-worker-restart",
+            "temporal-runtime-restart",
+            "deterministic-replay",
+            "duplicate-suppression",
+            "cancellation",
+            "unavailable-dependency",
+            "identity-denial",
+            "payload-boundary",
+            "backup-restore",
+            "exact-baseline-restore"
+          ]
+        },
+        "wgcf_source_revision": { "$ref": "#/$defs/revision" }
+      }
+    }
+  }
+}

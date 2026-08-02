@@ -22,6 +22,12 @@ sys.path.insert(0, str(REPO_ROOT / "apps/worker/src"))
 from control_fabric_core.orchestration_activities import (
     ValidationReadinessContractError,
 )
+from tests.controlled_proof_fixtures import (
+    ACTIVITY_STARTED_AT,
+    controlled_worker_env,
+    valid_controlled_request,
+    write_owner_context,
+)
 from wgcf_worker.activities import (
     _OwnerExecutionFailure,
     _process_group_exists,
@@ -61,7 +67,177 @@ def activity_info() -> SimpleNamespace:
     )
 
 
+def controlled_activity_info() -> SimpleNamespace:
+    return SimpleNamespace(
+        activity_id="activity:validation-readiness",
+        attempt=1,
+        workflow_id="workflow:controlled-proof-698-01",
+        workflow_run_id="temporal-execution:controlled-proof-698-01",
+        namespace="default",
+        task_queue="wgcf.controlled-proof.validation-readiness.v1",
+        started_time=ACTIVITY_STARTED_AT,
+    )
+
+
 class WorkerActivityTests(IsolatedAsyncioTestCase):
+    async def test_controlled_nominal_execution_keeps_result_compact_and_writes_receipt(
+        self,
+    ) -> None:
+        result = {
+            "status_code": "ready",
+            "receipt_ref": {
+                "receipt_id": "receipt:wgcf:controlled-proof:1",
+                "digest": f"sha256:{'b' * 64}",
+            },
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            run_owner = AsyncMock(return_value=result)
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+                patch(
+                    "wgcf_worker.activities._run_fenced_owner_execution",
+                    new=run_owner,
+                ),
+            ):
+                actual = await validation_readiness_activity(
+                    valid_controlled_request(),
+                )
+
+            self.assertEqual(actual, result)
+            envelope = run_owner.await_args.args[0]
+            self.assertNotIn(
+                "controlled_proof_execution",
+                envelope["payload"],
+            )
+            self.assertEqual(
+                envelope["payload"]["caller_id"],
+                "operator-orchestration-service",
+            )
+            receipts = list((root / "evidence" / "receipts").glob("*.json"))
+            self.assertEqual(len(receipts), 1)
+            receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
+            self.assertEqual(receipt["owner_result"], "passed")
+
+    async def test_controlled_negative_identity_scenario_has_exact_failure_and_receipt(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+                patch(
+                    "wgcf_worker.activities._run_fenced_owner_execution",
+                    new=AsyncMock(),
+                ) as run_owner,
+            ):
+                with self.assertRaises(ApplicationError) as raised:
+                    await validation_readiness_activity(
+                        valid_controlled_request(scenario_index=7),
+                    )
+
+            self.assertEqual(
+                raised.exception.type,
+                "WGCF_CONTROLLED_PROOF_IDENTITY_DENIED",
+            )
+            self.assertTrue(raised.exception.non_retryable)
+            run_owner.assert_not_awaited()
+            receipt_path = next((root / "evidence" / "receipts").glob("*.json"))
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertEqual(receipt["owner_result"], "passed")
+
+    async def test_controlled_negative_scenario_cannot_bypass_normal_payload_contract(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            payload = valid_controlled_request(scenario_index=7)
+            payload["tier"] = "expanded"
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+            ):
+                with self.assertRaises(ApplicationError) as raised:
+                    await validation_readiness_activity(payload)
+
+            self.assertEqual(raised.exception.type, "WGCF_CONTRACT_REJECTED")
+            receipt_root = root / "evidence" / "receipts"
+            self.assertFalse(receipt_root.exists())
+
+    async def test_controlled_context_mismatch_is_non_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            payload = valid_controlled_request()
+            payload["controlled_proof_execution"]["context_digest"] = (
+                f"sha256:{'f' * 64}"
+            )
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+            ):
+                with self.assertRaises(ApplicationError) as raised:
+                    await validation_readiness_activity(payload)
+
+            self.assertEqual(
+                raised.exception.type,
+                "WGCF_CONTROLLED_PROOF_CONTEXT_MISMATCH",
+            )
+            self.assertTrue(raised.exception.non_retryable)
+
+    async def test_controlled_cancellation_records_only_after_fenced_execution(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+                patch(
+                    "wgcf_worker.activities._run_fenced_owner_execution",
+                    new=AsyncMock(side_effect=asyncio.CancelledError()),
+                ),
+            ):
+                with self.assertRaises(asyncio.CancelledError):
+                    await validation_readiness_activity(
+                        valid_controlled_request(scenario_index=5),
+                    )
+
+            receipt_path = next((root / "evidence" / "receipts").glob("*.json"))
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            self.assertEqual(receipt["owner_result"], "passed")
+            observation_path = next(
+                (root / "evidence" / "observations").glob("*.json"),
+            )
+            observation = json.loads(observation_path.read_text(encoding="utf-8"))
+            self.assertTrue(observation["process_group_fenced"])
+
     async def test_contract_rejection_is_non_retryable_and_suppresses_detail(
         self,
     ) -> None:
@@ -226,12 +402,13 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         stop_started = asyncio.Event()
         stopped = asyncio.Event()
 
-        async def stop_owner(*_args: object) -> None:
+        async def stop_owner(*_args: object) -> bool:
             self.assertFalse(stopped.is_set())
             stop_started.set()
             await allow_stop.wait()
             process.complete({"ignored": True}, returncode=-15)
             stopped.set()
+            return True
 
         with (
             patch(
@@ -268,9 +445,10 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
         process = _FakeOwnerProcess()
         stopped = asyncio.Event()
 
-        async def stop_owner(*_args: object) -> None:
+        async def stop_owner(*_args: object) -> bool:
             process.complete({"ignored": True}, returncode=-15)
             stopped.set()
+            return True
 
         with (
             patch(

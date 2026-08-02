@@ -30,6 +30,15 @@ Current source:
 - replaces exception details with stable public error types and messages
 - refuses `wgcf-worker run` until explicit activation and Security review
   evidence are present
+- exposes a separate `wgcf-worker controlled-proof status` boundary for one
+  Platform-issued, digest-pinned commissioning context
+- polls the controlled path only on
+  `wgcf.controlled-proof.validation-readiness.v1` as
+  `wgcf-controlled-proof-activity-worker`
+- rejects expired, replaced, cross-session, wrong-source, wrong-namespace,
+  wrong-queue, and wrong-identity requests before owner execution
+- stores a separate reference-only WGCF owner receipt without changing the
+  normal compact activity result consumed by OOS
 
 Run locally after installing dependencies:
 
@@ -39,3 +48,18 @@ PYTHONPATH=packages/control_fabric_core/src:apps/worker/src python3 -m wgcf_work
 
 `wgcf-worker run` is intentionally fail-closed by default. Source readiness is
 not runtime activation, governed-stage admission, or production authority.
+
+The commissioning worker is also fail-closed by default:
+
+```bash
+PYTHONPATH=packages/control_fabric_core/src:apps/worker/src \
+  python3 -m wgcf_worker controlled-proof status --repo-root .
+```
+
+`controlled-proof run` requires explicit enablement, execution authorization,
+an exact raw-byte owner-context digest, the reviewed WGCF source revision, and
+Temporal address, namespace, queue, and identity values that match the mounted
+context. The worker rechecks that context while polling and before committing a
+successful receipt. Platform Engineering remains responsible for generating
+and mounting the permit-derived context; this source does not issue a permit or
+activate the build-admitted Temporal profile.

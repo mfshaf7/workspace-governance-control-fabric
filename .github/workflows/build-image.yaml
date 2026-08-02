@@ -150,6 +150,13 @@ jobs:
             echo "worker unexpectedly started without activation evidence" >&2
             exit 1
           fi
+          docker run --rm "${IMAGE_REF}" \
+            wgcf-worker controlled-proof status --repo-root /app \
+            | grep -q "status: controlled-proof-activity-worker-source-ready"
+          if docker run --rm "${IMAGE_REF}" wgcf-worker controlled-proof run; then
+            echo "controlled-proof worker unexpectedly started without a permit context" >&2
+            exit 1
+          fi
 
       - name: Publish build summary
         run: |
@@ -160,6 +167,7 @@ jobs:
             echo "- Digest: \`${{ steps.build.outputs.digest }}\`"
             echo "- Source SHA: \`${{ github.sha }}\`"
             echo "- Default runtime posture: denied"
+            echo "- Controlled-proof runtime posture: denied"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Write release metadata

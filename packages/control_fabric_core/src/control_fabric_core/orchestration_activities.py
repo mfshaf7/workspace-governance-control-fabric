@@ -18,6 +18,13 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+from .controlled_proof import (
+    ControlledProofAuthorizationError,
+    ControlledProofContractError,
+    ControlledProofContextMismatch,
+    ControlledProofIdentityDenied,
+    ControlledProofPayloadRejected,
+)
 from .operator_surfaces import (
     run_catalog_operator_validation_check,
     run_operator_readiness_evaluation,
@@ -341,6 +348,41 @@ def classify_validation_readiness_exception(
 ) -> ValidationReadinessFailureClassification:
     """Map failures to stable Temporal semantics without exposing raw details."""
 
+    if isinstance(error, ControlledProofIdentityDenied):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTROLLED_PROOF_IDENTITY_DENIED",
+            public_message="WGCF denied the controlled-proof runtime identity",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, ControlledProofPayloadRejected):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTROLLED_PROOF_PAYLOAD_REJECTED",
+            public_message="WGCF rejected the controlled-proof payload boundary probe",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, ControlledProofContextMismatch):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTROLLED_PROOF_CONTEXT_MISMATCH",
+            public_message="WGCF rejected a controlled-proof context mismatch",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, ControlledProofAuthorizationError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTROLLED_PROOF_AUTHORIZATION_REJECTED",
+            public_message="WGCF rejected the controlled-proof authorization",
+            retryable=False,
+            status_code="blocked",
+        )
+    if isinstance(error, ControlledProofContractError):
+        return ValidationReadinessFailureClassification(
+            error_type="WGCF_CONTRACT_REJECTED",
+            public_message="WGCF rejected the bounded activity contract",
+            retryable=False,
+            status_code="blocked",
+        )
     if isinstance(error, ValidationReadinessIdempotencyConflict):
         return ValidationReadinessFailureClassification(
             error_type="WGCF_IDEMPOTENCY_CONFLICT",

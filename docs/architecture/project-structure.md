@@ -35,12 +35,17 @@ not decide which validations are required. Scoped validation planning remains a
 separate ART feature so the planner can consume workspace-governance contracts
 instead of hardcoding validation policy into storage.
 
-The worker is intentionally not queue-neutral: it registers only
-`wgcf.validation-readiness.evaluate` on `wgcf.validation-readiness.v1`.
+The worker is intentionally not queue-neutral. The normal worker registers only
+`wgcf.validation-readiness.evaluate` on `wgcf.validation-readiness.v1`. A
+separate, default-denied commissioning worker registers the same bounded owner
+activity on `wgcf.controlled-proof.validation-readiness.v1`; it can start only
+from an exact permit-derived WGCF owner context and cannot consume the normal
+queue.
 Operator Orchestration Service owns the aggregate workflow. The core library
 owns strict payload validation, idempotent activity execution, local validation
-and readiness composition, and compact evidence projection. Runtime activation
-remains a separate platform and Security decision.
+and readiness composition, controlled request binding, reference-only WGCF
+owner receipts, and compact evidence projection. Runtime activation remains a
+separate Platform and Security decision.
 
 The implementation must continue to consume the authority contract from
 `workspace-governance/contracts/governance-control-fabric-operator-surface.yaml`

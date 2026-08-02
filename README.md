@@ -92,7 +92,9 @@ That surface is constrained by the workspace-owned contract in
   committed location so promotion does not invalidate receipt custody, and
   refuses runtime startup until explicit activation gates pass. CI publishes it
   as a separate worker image so validator tooling does not expand the API image
-  runtime surface.
+  runtime surface. The same image also exposes a separate, default-denied
+  controlled-proof command that is pinned to a distinct identity and queue and
+  requires a permit-derived owner context before it can connect.
 - `dev-integration/profiles/governance-control-fabric/` owns the local-k3s
   dev-integration lane for the API runtime and PostgreSQL metadata store. It
   deploys the published WGCF API image and local PostgreSQL through the shared
@@ -117,6 +119,11 @@ That surface is constrained by the workspace-owned contract in
   define the compact proof and append-only event shapes emitted by local
   validation execution. Raw validator output belongs in referenced artifacts,
   not in receipts or ART notes.
+- `schemas/controlled-proof-owner-context.schema.json`,
+  `schemas/controlled-proof-activity-request.schema.json`, and
+  `schemas/controlled-proof-owner-receipt.schema.json` define WGCF's strict
+  commissioning input and reference-only receipt boundary. They do not issue a
+  permit or activate a runtime.
 - `schemas/policy-decision.schema.json` and `policies/opa/` define the first
   policy decision record and OPA/Rego policy surface. Runtime code consumes
   authority refs and receipts; upstream policy truth stays in
@@ -188,6 +195,7 @@ PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli readiness --repo-root . --target operator-surface:wgcf-cli --profile local-read-only
 PYTHONPATH=packages/control_fabric_core/src:apps/api/src:apps/cli/src .venv/bin/python -m wgcf_cli lifecycle plan --repo-root .
 PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker status --repo-root .
+PYTHONPATH=packages/control_fabric_core/src:apps/worker/src .venv/bin/python -m wgcf_worker controlled-proof status --repo-root .
 ```
 
 The scaffold validator also verifies that the static governance manifest schema

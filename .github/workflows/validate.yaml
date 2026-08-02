@@ -73,3 +73,10 @@ jobs:
             echo "worker unexpectedly started without activation evidence" >&2
             exit 1
           fi
+          docker run --rm wgcf-worker:ci \
+            wgcf-worker controlled-proof status --repo-root /app \
+            | grep -q "status: controlled-proof-activity-worker-source-ready"
+          if docker run --rm wgcf-worker:ci wgcf-worker controlled-proof run; then
+            echo "controlled-proof worker unexpectedly started without a permit context" >&2
+            exit 1
+          fi

@@ -186,6 +186,45 @@ execution is explicitly authorized, and a fresh Security activation review
 reference is supplied. A successful `status` command is source-readiness
 evidence only.
 
+### Controlled commissioning proof
+
+The first-runtime commissioning path is deliberately separate from normal
+worker activation:
+
+```bash
+wgcf-worker controlled-proof status --repo-root .
+```
+
+This command is connection-free. It reports whether the controlled worker
+source exists and whether an exact permit-derived owner context would authorize
+startup. `wgcf-worker controlled-proof run` is denied unless all of these agree:
+
+- `WGCF_CONTROLLED_PROOF_ENABLED=true`
+- `WGCF_CONTROLLED_PROOF_EXECUTION_AUTHORIZED=true`
+- raw context file and `WGCF_CONTROLLED_PROOF_CONTEXT_DIGEST`
+- `WGCF_CONTROLLED_PROOF_SOURCE_REVISION`
+- controlled Temporal address, namespace, task queue, and worker identity
+- unexpired authorization and commissioning-session bindings in the context
+
+The controlled worker polls only
+`wgcf.controlled-proof.validation-readiness.v1`. It accepts only OOS activity
+requests whose authorization, session, scenario execution, operator, source,
+Temporal metadata, and required WGCF receipt ownership match the mounted
+context. Reuse of an idempotency key across a different context or request is a
+non-retryable mismatch.
+
+WGCF executes the existing bounded validation/readiness owner path and leaves
+its normal compact activity result unchanged. Separately, it records one
+reference-only owner receipt under the controlled evidence root. The receipt
+binds the permit, approvals, consumption evidence, session, scenario, actual
+activity id, and bounded observation/result digests. It is not activation,
+promotion, or post-run Security acceptance.
+
+The controlled worker revalidates its context while polling and before a
+successful receipt commit. Cancellation is acknowledged only after the owner
+process group is confirmed absent. Context revocation, expiry, identity drift,
+queue drift, source drift, or unconfirmed process termination fail closed.
+
 ## Dev-Integration API Access
 
 The first operator-access path is the `governance-control-fabric`

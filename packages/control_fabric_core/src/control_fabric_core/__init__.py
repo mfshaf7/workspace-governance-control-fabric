@@ -181,7 +181,11 @@ from .validation_execution import (
     execute_validation_plan,
     write_control_receipt,
 )
-from .worker import worker_status_snapshot
+from .worker import (
+    controlled_proof_worker_activation_status,
+    controlled_proof_worker_status_snapshot,
+    worker_status_snapshot,
+)
 
 __all__ = [
     "AUTHORITY_CONTRACT_REF",
@@ -330,6 +334,8 @@ __all__ = [
     "validate_governance_manifest",
     "validation_execution_metrics",
     "validation_target_scope_candidates",
+    "controlled_proof_worker_activation_status",
+    "controlled_proof_worker_status_snapshot",
     "worker_status_snapshot",
     "write_control_receipt",
 ]
