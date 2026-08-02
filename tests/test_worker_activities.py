@@ -63,6 +63,7 @@ def activity_info() -> SimpleNamespace:
     return SimpleNamespace(
         activity_id="activity:validation-readiness",
         attempt=1,
+        task_queue="wgcf.validation-readiness.v1",
         workflow_id="workflow:validation-readiness-698",
     )
 
@@ -80,6 +81,50 @@ def controlled_activity_info() -> SimpleNamespace:
 
 
 class WorkerActivityTests(IsolatedAsyncioTestCase):
+    async def test_controlled_queue_rejects_an_ordinary_payload(self) -> None:
+        run_owner = AsyncMock()
+        with (
+            patch(
+                "wgcf_worker.activities.activity.info",
+                return_value=controlled_activity_info(),
+            ),
+            patch(
+                "wgcf_worker.activities._run_fenced_owner_execution",
+                new=run_owner,
+            ),
+        ):
+            with self.assertRaises(ApplicationError) as raised:
+                await validation_readiness_activity(valid_request())
+
+        self.assertEqual(
+            raised.exception.type,
+            "WGCF_CONTROLLED_PROOF_AUTHORIZATION_REJECTED",
+        )
+        self.assertTrue(raised.exception.non_retryable)
+        run_owner.assert_not_awaited()
+
+    async def test_normal_queue_rejects_a_controlled_envelope(self) -> None:
+        run_owner = AsyncMock()
+        with (
+            patch(
+                "wgcf_worker.activities.activity.info",
+                return_value=activity_info(),
+            ),
+            patch(
+                "wgcf_worker.activities._run_fenced_owner_execution",
+                new=run_owner,
+            ),
+        ):
+            with self.assertRaises(ApplicationError) as raised:
+                await validation_readiness_activity(valid_controlled_request())
+
+        self.assertEqual(
+            raised.exception.type,
+            "WGCF_CONTROLLED_PROOF_AUTHORIZATION_REJECTED",
+        )
+        self.assertTrue(raised.exception.non_retryable)
+        run_owner.assert_not_awaited()
+
     async def test_controlled_nominal_execution_keeps_result_compact_and_writes_receipt(
         self,
     ) -> None:

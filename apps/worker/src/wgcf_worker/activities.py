@@ -19,6 +19,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from control_fabric_core.controlled_proof import (
+    CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE,
     AuthorizedControlledProofRequest,
     ControlledProofAuthorizationError,
     ControlledProofIdentityDenied,
@@ -73,7 +74,12 @@ async def validation_readiness_activity(payload: dict[str, Any]) -> dict[str, An
     controlled_request: AuthorizedControlledProofRequest | None = None
     try:
         owner_payload = payload
-        controlled = "controlled_proof_execution" in payload
+        controlled = info.task_queue == CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE
+        has_controlled_envelope = "controlled_proof_execution" in payload
+        if controlled != has_controlled_envelope:
+            raise ControlledProofAuthorizationError(
+                "controlled-proof activity envelope does not match the Temporal task queue",
+            )
         worker_id = os.environ.get(
             (
                 CONTROLLED_PROOF_TEMPORAL_WORKER_ID_ENV
