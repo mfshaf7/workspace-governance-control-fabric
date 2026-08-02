@@ -111,6 +111,16 @@ def write_owner_context(root: Path) -> tuple[Path, str]:
     return path, f"sha256:{sha256(raw.encode('utf-8')).hexdigest()}"
 
 
+def write_image_source_revision(
+    root: Path,
+    revision: str = WGCF_REVISION,
+) -> Path:
+    path = root / "image-source-revision"
+    path.write_text(f"{revision}\n", encoding="utf-8")
+    path.chmod(0o444)
+    return path
+
+
 def valid_controlled_request(
     *,
     scenario_index: int = 0,
@@ -169,15 +179,14 @@ def valid_controlled_request(
 
 
 def controlled_worker_env(context_path: Path, context_digest: str) -> dict[str, str]:
+    evidence_root = context_path.parent / "evidence"
+    evidence_root.mkdir(mode=0o700, exist_ok=True)
     return {
         "WGCF_CONTROLLED_PROOF_ENABLED": "true",
         "WGCF_CONTROLLED_PROOF_EXECUTION_AUTHORIZED": "true",
         "WGCF_CONTROLLED_PROOF_CONTEXT_PATH": str(context_path),
         "WGCF_CONTROLLED_PROOF_CONTEXT_DIGEST": context_digest,
-        "WGCF_CONTROLLED_PROOF_SOURCE_REVISION": WGCF_REVISION,
-        "WGCF_CONTROLLED_PROOF_EVIDENCE_ROOT": str(
-            context_path.parent / "evidence",
-        ),
+        "WGCF_CONTROLLED_PROOF_EVIDENCE_ROOT": str(evidence_root),
         "WGCF_CONTROLLED_PROOF_TEMPORAL_ADDRESS": (
             "temporal-frontend.temporal.svc:7233"
         ),

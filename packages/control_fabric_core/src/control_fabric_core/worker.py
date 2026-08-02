@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import re
+import stat
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from os import environ
@@ -48,8 +51,13 @@ CONTROLLED_PROOF_EXECUTION_AUTHORIZED_ENV = (
 )
 CONTROLLED_PROOF_CONTEXT_PATH_ENV = "WGCF_CONTROLLED_PROOF_CONTEXT_PATH"
 CONTROLLED_PROOF_CONTEXT_DIGEST_ENV = "WGCF_CONTROLLED_PROOF_CONTEXT_DIGEST"
-CONTROLLED_PROOF_SOURCE_REVISION_ENV = "WGCF_CONTROLLED_PROOF_SOURCE_REVISION"
 CONTROLLED_PROOF_EVIDENCE_ROOT_ENV = "WGCF_CONTROLLED_PROOF_EVIDENCE_ROOT"
+CONTROLLED_PROOF_IMAGE_SOURCE_REVISION_PATH = Path(
+    "/opt/wgcf/build/source-revision",
+)
+DEFAULT_CONTROLLED_PROOF_EVIDENCE_ROOT = Path(
+    "/var/lib/wgcf/orchestration/controlled-proof",
+)
 CONTROLLED_PROOF_TEMPORAL_NAMESPACE_ENV = (
     "WGCF_CONTROLLED_PROOF_TEMPORAL_NAMESPACE"
 )
@@ -60,6 +68,7 @@ CONTROLLED_PROOF_TEMPORAL_ADDRESS_ENV = "WGCF_CONTROLLED_PROOF_TEMPORAL_ADDRESS"
 CONTROLLED_PROOF_TEMPORAL_WORKER_ID_ENV = (
     "WGCF_CONTROLLED_PROOF_TEMPORAL_WORKER_ID"
 )
+_SOURCE_REVISION_PATTERN = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 
 @dataclass(frozen=True)
@@ -162,6 +171,52 @@ def controlled_proof_worker_settings() -> WorkerSettings:
     )
 
 
+def controlled_proof_image_source_revision(
+    source_revision_path: str | Path = CONTROLLED_PROOF_IMAGE_SOURCE_REVISION_PATH,
+) -> str:
+    """Read the immutable source revision baked into the worker image."""
+
+    path = Path(source_revision_path)
+    try:
+        path_stat = path.lstat()
+        raw = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ControlledProofContractError(
+            "the worker image source provenance is unavailable",
+        ) from exc
+    if not stat.S_ISREG(path_stat.st_mode) or path.is_symlink():
+        raise ControlledProofContractError(
+            "the worker image source provenance must be a regular file",
+        )
+    if path_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        raise ControlledProofContractError(
+            "the worker image source provenance must not be group or world writable",
+        )
+    if path_stat.st_size not in {40, 41, 64, 65}:
+        raise ControlledProofContractError(
+            "the worker image source provenance is not a full source revision",
+        )
+    revision = raw.removesuffix("\n")
+    if raw not in {revision, f"{revision}\n"} or not _SOURCE_REVISION_PATTERN.fullmatch(
+        revision,
+    ):
+        raise ControlledProofContractError(
+            "the worker image source provenance is not a full source revision",
+        )
+    return revision
+
+
+def controlled_proof_evidence_root() -> Path:
+    """Resolve the WGCF-owned evidence root for controlled proof execution."""
+
+    return Path(
+        environ.get(
+            CONTROLLED_PROOF_EVIDENCE_ROOT_ENV,
+            str(DEFAULT_CONTROLLED_PROOF_EVIDENCE_ROOT),
+        ),
+    ).resolve()
+
+
 def worker_activation_status() -> dict[str, Any]:
     """Return the explicit gates required before a worker may connect."""
 
@@ -198,6 +253,7 @@ def worker_activation_status() -> dict[str, Any]:
 def controlled_proof_worker_activation_status(
     *,
     now: datetime | None = None,
+    source_revision_path: str | Path = CONTROLLED_PROOF_IMAGE_SOURCE_REVISION_PATH,
 ) -> dict[str, Any]:
     """Evaluate the permit-derived gates for the isolated proof worker."""
 
@@ -205,7 +261,8 @@ def controlled_proof_worker_activation_status(
     execution_authorized = _env_true(CONTROLLED_PROOF_EXECUTION_AUTHORIZED_ENV)
     context_path = environ.get(CONTROLLED_PROOF_CONTEXT_PATH_ENV, "").strip()
     context_digest = environ.get(CONTROLLED_PROOF_CONTEXT_DIGEST_ENV, "").strip()
-    source_revision = environ.get(CONTROLLED_PROOF_SOURCE_REVISION_ENV, "").strip()
+    evidence_root = controlled_proof_evidence_root()
+    source_revision: str | None = None
     settings = controlled_proof_worker_settings()
     blockers: list[str] = []
     context: ControlledProofOwnerContext | None = None
@@ -220,8 +277,17 @@ def controlled_proof_worker_activation_status(
         blockers.append(f"{CONTROLLED_PROOF_CONTEXT_PATH_ENV} is required")
     if not context_digest:
         blockers.append(f"{CONTROLLED_PROOF_CONTEXT_DIGEST_ENV} is required")
-    if not source_revision:
-        blockers.append(f"{CONTROLLED_PROOF_SOURCE_REVISION_ENV} is required")
+    try:
+        source_revision = controlled_proof_image_source_revision(
+            source_revision_path,
+        )
+    except ControlledProofContractError:
+        blockers.append("the worker image source provenance is invalid")
+    if not evidence_root.is_dir() or not os.access(
+        evidence_root,
+        os.W_OK | os.X_OK,
+    ):
+        blockers.append("the controlled-proof evidence root is not writable")
     if settings.task_queue != CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE:
         blockers.append(
             f"{CONTROLLED_PROOF_TEMPORAL_TASK_QUEUE_ENV} must be "
@@ -256,7 +322,9 @@ def controlled_proof_worker_activation_status(
         if settings.identity != context.worker_identity:
             blockers.append("the worker identity does not match the owner context")
         if source_revision and source_revision != context.wgcf_source_revision:
-            blockers.append("the WGCF source revision does not match the owner context")
+            blockers.append(
+                "the worker image source revision does not match the owner context",
+            )
 
     return {
         "authorized": not blockers,
@@ -265,6 +333,7 @@ def controlled_proof_worker_activation_status(
         "owner_context_id": context.owner_context_id if context else None,
         "owner_context_digest": context.owner_context_digest if context else None,
         "authorization_id": context.authorization_id if context else None,
+        "image_source_revision": source_revision,
         "commissioning_session_id": (
             context.commissioning_session_id if context else None
         ),

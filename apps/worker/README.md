@@ -57,9 +57,14 @@ PYTHONPATH=packages/control_fabric_core/src:apps/worker/src \
 ```
 
 `controlled-proof run` requires explicit enablement, execution authorization,
-an exact raw-byte owner-context digest, the reviewed WGCF source revision, and
-Temporal address, namespace, queue, and identity values that match the mounted
-context. The worker rechecks that context while polling and before committing a
-successful receipt. Platform Engineering remains responsible for generating
-and mounting the permit-derived context; this source does not issue a permit or
-activate the build-admitted Temporal profile.
+an exact raw-byte owner-context digest, a worker-image source revision that
+matches the context, a writable controlled-evidence root, and Temporal address,
+namespace, queue, and identity values that match the mounted context. The source
+revision is baked into `/opt/wgcf/build/source-revision`; a deployment variable
+cannot replace it. The image provisions the default evidence root, but a real
+commissioning run must mount durable storage there or set
+`WGCF_CONTROLLED_PROOF_EVIDENCE_ROOT` to another durable writable mount. The
+worker rechecks the context and image provenance while polling and before
+committing a successful receipt. Platform Engineering remains responsible for
+generating and mounting the permit-derived context and evidence storage; this
+source does not issue a permit or activate the build-admitted Temporal profile.

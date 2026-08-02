@@ -25,6 +25,7 @@ from control_fabric_core.orchestration_activities import (
 )
 from tests.controlled_proof_fixtures import (
     ACTIVITY_STARTED_AT,
+    WGCF_REVISION,
     controlled_worker_env,
     valid_controlled_request,
     write_owner_context,
@@ -89,6 +90,14 @@ def controlled_activity_info():
 
 
 class WorkerActivityTests(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        provenance = patch(
+            "wgcf_worker.activities.controlled_proof_image_source_revision",
+            return_value=WGCF_REVISION,
+        )
+        provenance.start()
+        self.addCleanup(provenance.stop)
+
     async def test_controlled_queue_rejects_an_ordinary_payload(self) -> None:
         run_owner = AsyncMock()
         with (
@@ -184,6 +193,33 @@ class WorkerActivityTests(IsolatedAsyncioTestCase):
             self.assertEqual(len(receipts), 1)
             receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
             self.assertEqual(receipt["owner_result"], "passed")
+
+    async def test_controlled_execution_rejects_mismatched_image_provenance(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            context_path, context_digest = write_owner_context(root)
+            environment = controlled_worker_env(context_path, context_digest)
+            with (
+                patch.dict(os.environ, environment, clear=False),
+                patch(
+                    "wgcf_worker.activities.activity.info",
+                    return_value=controlled_activity_info(),
+                ),
+                patch(
+                    "wgcf_worker.activities.controlled_proof_image_source_revision",
+                    return_value="e" * 40,
+                ),
+            ):
+                with self.assertRaises(ApplicationError) as raised:
+                    await validation_readiness_activity(valid_controlled_request())
+
+        self.assertEqual(
+            raised.exception.type,
+            "WGCF_CONTROLLED_PROOF_CONTEXT_MISMATCH",
+        )
+        self.assertTrue(raised.exception.non_retryable)
 
     async def test_controlled_negative_identity_scenario_has_exact_failure_and_receipt(
         self,

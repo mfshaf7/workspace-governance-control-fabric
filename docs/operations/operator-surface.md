@@ -202,7 +202,9 @@ startup. `wgcf-worker controlled-proof run` is denied unless all of these agree:
 - `WGCF_CONTROLLED_PROOF_ENABLED=true`
 - `WGCF_CONTROLLED_PROOF_EXECUTION_AUTHORIZED=true`
 - raw context file and `WGCF_CONTROLLED_PROOF_CONTEXT_DIGEST`
-- `WGCF_CONTROLLED_PROOF_SOURCE_REVISION`
+- source revision baked into the worker image and matching the owner context
+- writable durable evidence storage at the default controlled-evidence root or
+  `WGCF_CONTROLLED_PROOF_EVIDENCE_ROOT`
 - controlled Temporal address, namespace, task queue, and worker identity
 - unexpired authorization and commissioning-session bindings in the context
 
@@ -220,10 +222,13 @@ binds the permit, approvals, consumption evidence, session, scenario, actual
 activity id, and bounded observation/result digests. It is not activation,
 promotion, or post-run Security acceptance.
 
-The controlled worker revalidates its context while polling and before a
-successful receipt commit. Cancellation is acknowledged only after the owner
-process group is confirmed absent. Context revocation, expiry, identity drift,
-queue drift, source drift, or unconfirmed process termination fail closed.
+The controlled worker reads source identity only from the root-owned
+`/opt/wgcf/build/source-revision` image file; deployment environment cannot
+override it. It revalidates its context and image provenance while polling and
+before a successful receipt commit. Cancellation is acknowledged only after the
+owner process group is confirmed absent. Context revocation, expiry, identity
+drift, queue drift, source drift, an unusable evidence root, or unconfirmed
+process termination fail closed.
 
 ## Dev-Integration API Access
 

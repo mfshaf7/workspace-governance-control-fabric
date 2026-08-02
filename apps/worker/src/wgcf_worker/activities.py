@@ -42,9 +42,9 @@ from control_fabric_core.orchestration_activities import (
 from control_fabric_core.worker import (
     CONTROLLED_PROOF_CONTEXT_DIGEST_ENV,
     CONTROLLED_PROOF_CONTEXT_PATH_ENV,
-    CONTROLLED_PROOF_EVIDENCE_ROOT_ENV,
-    CONTROLLED_PROOF_SOURCE_REVISION_ENV,
     CONTROLLED_PROOF_TEMPORAL_WORKER_ID_ENV,
+    controlled_proof_evidence_root,
+    controlled_proof_image_source_revision,
 )
 
 
@@ -163,14 +163,11 @@ def _authorize_controlled_proof_request(
         CONTROLLED_PROOF_CONTEXT_DIGEST_ENV,
         "",
     ).strip()
-    source_revision = os.environ.get(
-        CONTROLLED_PROOF_SOURCE_REVISION_ENV,
-        "",
-    ).strip()
-    if not context_path or not context_digest or not source_revision:
+    if not context_path or not context_digest:
         raise ControlledProofAuthorizationError(
-            "controlled-proof context path, digest, and source revision are required",
+            "controlled-proof context path and digest are required",
         )
+    source_revision = controlled_proof_image_source_revision()
     owner_context = load_controlled_proof_owner_context(
         context_path,
         expected_digest=context_digest,
@@ -280,6 +277,10 @@ def _assert_controlled_context_remains_current(
         raise ControlledProofAuthorizationError(
             "controlled-proof owner context changed during activity execution",
         )
+    if controlled_proof_image_source_revision() != current.wgcf_source_revision:
+        raise ControlledProofAuthorizationError(
+            "controlled-proof worker image provenance changed during execution",
+        )
     if datetime.now(timezone.utc) >= current.authorization_expires_at:
         commit_controlled_proof_owner_receipt(
             request,
@@ -317,12 +318,7 @@ def _commit_controlled_cancellation_receipt(
 
 
 def _controlled_proof_evidence_root() -> Path:
-    return Path(
-        os.environ.get(
-            CONTROLLED_PROOF_EVIDENCE_ROOT_ENV,
-            "/var/lib/wgcf/orchestration/controlled-proof",
-        ),
-    ).resolve()
+    return controlled_proof_evidence_root()
 
 
 def _controlled_proof_activity_evidence_root(

@@ -45,8 +45,13 @@ jobs:
       - name: Build API and activity-worker targets
         run: |
           set -euo pipefail
+          source_revision="$(git rev-parse HEAD)"
           docker build --target api --tag wgcf-api:ci .
-          docker build --target worker --tag wgcf-worker:ci .
+          docker build \
+            --build-arg WGCF_SOURCE_REVISION="${source_revision}" \
+            --target worker \
+            --tag wgcf-worker:ci \
+            .
 
       - name: Smoke test API target
         run: |
@@ -76,6 +81,17 @@ jobs:
           docker run --rm wgcf-worker:ci \
             wgcf-worker controlled-proof status --repo-root /app \
             | grep -q "status: controlled-proof-activity-worker-source-ready"
+          source_revision="$(git rev-parse HEAD)"
+          docker run --rm \
+            --env EXPECTED_SOURCE_REVISION="${source_revision}" \
+            wgcf-worker:ci \
+            sh -ec '
+              test "$(id -u)" = "10001"
+              test "$(cat /opt/wgcf/build/source-revision)" = "${EXPECTED_SOURCE_REVISION}"
+              test "$(stat -c "%u:%a" /opt/wgcf/build/source-revision)" = "0:444"
+              test -w /var/lib/wgcf/orchestration/controlled-proof
+              test -w /var/lib/wgcf/orchestration/validation-readiness
+            '
           if docker run --rm wgcf-worker:ci wgcf-worker controlled-proof run; then
             echo "controlled-proof worker unexpectedly started without a permit context" >&2
             exit 1
