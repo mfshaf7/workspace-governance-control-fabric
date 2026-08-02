@@ -343,7 +343,6 @@ def authorize_controlled_proof_activity_request(
         "canonical_claims_digest": owner_context.canonical_claims_digest,
         "commissioning_session_id": owner_context.commissioning_session_id,
         "scenario_id": scenario.scenario_id,
-        "required_receipt_owners": list(scenario.required_receipt_owners),
         "profile_lifecycle": "build-admitted",
         "environment": "dev-integration",
         "oos_source_revision": owner_context.oos_source_revision,
@@ -354,6 +353,8 @@ def authorize_controlled_proof_activity_request(
         for field, required in expected.items()
         if execution.get(field) != required
     ]
+    if requested_owners != scenario.required_receipt_owners:
+        mismatched.append("required_receipt_owners")
     if mismatched:
         raise ControlledProofContextMismatch(
             "controlled-proof execution does not match the mounted owner context: "
@@ -1411,7 +1412,10 @@ def _require_receipt_owners(value: Any, field: str) -> tuple[str, ...]:
         raise ControlledProofContractError(f"{field} contains an unsupported owner")
     if len(set(owners)) != len(owners):
         raise ControlledProofContractError(f"{field} must contain unique owners")
-    return owners
+    owner_set = set(owners)
+    return tuple(
+        owner for owner in CONTROLLED_PROOF_RECEIPT_OWNERS if owner in owner_set
+    )
 
 
 def _record_digest(record: Mapping[str, Any]) -> str:

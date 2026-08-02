@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 import control_fabric_core.controlled_proof as controlled_proof
 from control_fabric_core.controlled_proof import (
     CONTROLLED_PROOF_ACTIVITY_TASK_QUEUE,
+    CONTROLLED_PROOF_RECEIPT_OWNERS,
     CONTROLLED_PROOF_SCENARIOS,
     CONTROLLED_PROOF_WORKER_ID,
     ControlledProofAuthorizationError,
@@ -94,6 +95,33 @@ class ControlledProofContractTests(TestCase):
         self.assertEqual(
             tuple(scenario.scenario_id for scenario in context.scenario_executions),
             CONTROLLED_PROOF_SCENARIOS,
+        )
+
+    def test_receipt_owner_order_is_unordered_and_canonicalized(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = valid_owner_context()
+            scenario = record["commissioning_session"]["scenario_executions"][0]
+            scenario["required_receipt_owners"].reverse()
+            path = Path(temp_dir) / "context.json"
+            raw = json.dumps(record, sort_keys=True) + "\n"
+            path.write_text(raw, encoding="utf-8")
+            path.chmod(0o600)
+            context = load_controlled_proof_owner_context(
+                path,
+                expected_digest=f"sha256:{sha256(raw.encode()).hexdigest()}",
+            )
+
+        payload = valid_controlled_request()
+        payload["controlled_proof_execution"]["required_receipt_owners"].reverse()
+        request = authorize_controlled_proof_activity_request(
+            payload,
+            owner_context=context,
+            **self._authorization_arguments(),
+        )
+
+        self.assertEqual(
+            request.scenario.required_receipt_owners,
+            CONTROLLED_PROOF_RECEIPT_OWNERS,
         )
 
     def test_owner_context_rejects_restore_owner_and_duplicate_scenario_drift(
