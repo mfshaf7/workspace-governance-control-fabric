@@ -373,7 +373,7 @@ import pathlib
 import sys
 
 sys.path.insert(0, sys.argv[4])
-from verify_landed_source import read_source_file, require_landed_commit
+from verify_landed_source import read_landed_source_file
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -398,8 +398,12 @@ repo_root = pathlib.Path(repo_paths.get(expected_repo, workspace_root / expected
 review_path = repo_root / expected_path
 if not (repo_root / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
-require_landed_commit(repo_root, expected_repo, source_commit)
-review_body = read_source_file(repo_root, source_commit, expected_path)
+review_body = read_landed_source_file(
+    repo_root,
+    expected_repo,
+    source_commit,
+    expected_path,
+)
 actual_digest = hashlib.sha256(review_body).hexdigest()
 if actual_digest != expected_digest:
     raise SystemExit("WGCF evidence storage Security review commit does not match its pinned digest")
@@ -421,7 +425,7 @@ import sys
 import yaml
 
 sys.path.insert(0, sys.argv[4])
-from verify_landed_source import read_source_file, require_landed_commit
+from verify_landed_source import read_landed_source_file
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -478,8 +482,12 @@ if not isinstance(authority_commit, str) or len(authority_commit) != 40:
     raise SystemExit("WGCF evidence storage authority has no immutable source commit")
 if not isinstance(authority_digest, str) or len(authority_digest) != 64:
     raise SystemExit("WGCF evidence storage authority has no content digest")
-require_landed_commit(governance_repo, expected_authority_repo, authority_commit)
-registry_body = read_source_file(governance_repo, authority_commit, expected_authority_path)
+registry_body = read_landed_source_file(
+    governance_repo,
+    expected_authority_repo,
+    authority_commit,
+    expected_authority_path,
+)
 if hashlib.sha256(registry_body).hexdigest() != authority_digest:
     raise SystemExit("WGCF evidence storage authority commit does not match its pinned digest")
 registry = yaml.safe_load(registry_body) or {}
@@ -516,8 +524,12 @@ try:
     acceptance_relpath = acceptance_path.relative_to(platform_repo).as_posix()
 except ValueError as error:
     raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
-require_landed_commit(platform_repo, "platform-engineering", source_commit)
-acceptance_body = read_source_file(platform_repo, source_commit, acceptance_relpath)
+acceptance_body = read_landed_source_file(
+    platform_repo,
+    "platform-engineering",
+    source_commit,
+    acceptance_relpath,
+)
 actual_digest = hashlib.sha256(acceptance_body).hexdigest()
 if actual_digest != expected_digest:
     raise SystemExit("WGCF evidence storage Platform acceptance commit does not match its pinned digest")

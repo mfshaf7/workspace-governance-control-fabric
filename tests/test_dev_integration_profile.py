@@ -264,6 +264,8 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("GIT_CONFIG_COUNT", env)
         self.assertNotIn("GIT_CONFIG_KEY_0", env)
         self.assertNotIn("GIT_CONFIG_VALUE_0", env)
+        self.assertEqual(env["GIT_CONFIG_GLOBAL"], "/dev/null")
+        self.assertEqual(env["GIT_CONFIG_NOSYSTEM"], "1")
         self.assertEqual(env["GIT_GRAFT_FILE"], "/dev/null")
         self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
         self.assertEqual(env["GIT_SSH_VARIANT"], "ssh")
@@ -298,6 +300,7 @@ class DevIntegrationProfileTests(TestCase):
                 text=True,
                 capture_output=True,
             ).stdout.strip()
+            self.configure_published_origin(repo_root, "authority-test")
 
             authority_path.write_text("forged\n", encoding="utf-8")
             subprocess.run(["git", "-C", str(repo_root), "add", "authority.txt"], check=True)
@@ -316,14 +319,19 @@ class DevIntegrationProfileTests(TestCase):
                 check=True,
             )
 
-            self.assertEqual(
-                LANDED_SOURCE_MODULE.read_source_file(
-                    repo_root,
-                    approved_commit,
-                    "authority.txt",
-                ),
-                b"approved\n",
-            )
+            with (
+                patch.object(LANDED_SOURCE_MODULE, "GIT_EXECUTABLE", "git"),
+                patch.dict(os.environ, self.git_transport_environment(Path(temp_dir))),
+            ):
+                self.assertEqual(
+                    LANDED_SOURCE_MODULE.read_landed_source_file(
+                        repo_root,
+                        "authority-test",
+                        approved_commit,
+                        "authority.txt",
+                    ),
+                    b"approved\n",
+                )
 
     def test_landed_source_ancestry_ignores_legacy_grafts(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wgcf-landed-source-graft-") as temp_dir:
@@ -350,6 +358,7 @@ class DevIntegrationProfileTests(TestCase):
                 text=True,
                 capture_output=True,
             ).stdout.strip()
+            self.configure_published_origin(repo_root, "authority-test")
 
             subprocess.run(
                 ["git", "-C", str(repo_root), "checkout", "--orphan", "fabricated"],
@@ -391,15 +400,18 @@ class DevIntegrationProfileTests(TestCase):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            trusted = subprocess.run(
-                ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", fabricated_commit, landed_commit],
-                check=False,
-                env=LANDED_SOURCE_MODULE._git_environment(),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
             self.assertEqual(grafted.returncode, 0)
-            self.assertNotEqual(trusted.returncode, 0)
+            with (
+                patch.object(LANDED_SOURCE_MODULE, "GIT_EXECUTABLE", "git"),
+                patch.dict(os.environ, self.git_transport_environment(Path(temp_dir))),
+                self.assertRaisesRegex(SystemExit, "not landed on origin/main"),
+            ):
+                LANDED_SOURCE_MODULE.read_landed_source_file(
+                    repo_root,
+                    "authority-test",
+                    fabricated_commit,
+                    "authority.txt",
+                )
 
     def profile_scripts_with_local_git_transport(self, temp_root: Path) -> Path:
         profile_root = temp_root / ".test-profile"
