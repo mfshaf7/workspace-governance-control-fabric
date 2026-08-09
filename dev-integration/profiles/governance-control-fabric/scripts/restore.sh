@@ -17,7 +17,12 @@ if [[ -z "${backup_path}" ]]; then
 fi
 trap 'delete_storage_transfer_pod; cleanup_storage_backup_staging; cleanup_storage_restore_input' EXIT
 snapshot_backup_for_restore "${backup_path}"
-validate_backup_for_restore "${STORAGE_RESTORE_INPUT_ARCHIVE}"
+open_storage_restore_input
+validate_backup_for_restore \
+  "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" \
+  "${STORAGE_RESTORE_VALIDATED_MANIFEST}"
+verify_storage_isolation
+verify_storage_network_enforcement
 pre_restore_path="${BACKUPS_DIR}/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
 pre_restore_state="$(probe_live_receipt_version)"
 case "${pre_restore_state}" in
@@ -35,11 +40,14 @@ case "${pre_restore_state}" in
     exit 1
     ;;
 esac
-restore_evidence_storage "${STORAGE_RESTORE_INPUT_ARCHIVE}"
+restore_evidence_storage \
+  "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" \
+  "${STORAGE_RESTORE_VALIDATED_MANIFEST}"
 verify_storage_isolation
+verify_storage_network_enforcement
 refresh_storage_receipt_isolation
 verify_storage_seed receipt
-write_restore_receipt "${STORAGE_RESTORE_INPUT_ARCHIVE}" "${pre_restore_path}" \
+write_restore_receipt "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" "${pre_restore_path}" \
   "${backup_path}" "${pre_restore_state}"
 cleanup_storage_restore_input
 trap - EXIT

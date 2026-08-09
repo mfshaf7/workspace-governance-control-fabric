@@ -10,6 +10,10 @@ STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
 STORAGE_BACKUP_PUBLISHED_MANIFEST=""
 STORAGE_RESTORE_INPUT_DIR=""
 STORAGE_RESTORE_INPUT_ARCHIVE=""
+STORAGE_RESTORE_ARCHIVE_FD=""
+STORAGE_RESTORE_MANIFEST_FD=""
+STORAGE_RESTORE_VALIDATED_ARCHIVE=""
+STORAGE_RESTORE_VALIDATED_MANIFEST=""
 STORAGE_CREDENTIAL_ROTATION_DETECTED="false"
 STORAGE_RETIRED_ROOT_USER=""
 STORAGE_RETIRED_ROOT_PASSWORD=""
@@ -39,6 +43,12 @@ cleanup_storage_backup_staging() {
 }
 
 cleanup_storage_restore_input() {
+  if [[ -n "${STORAGE_RESTORE_ARCHIVE_FD:-}" ]]; then
+    exec {STORAGE_RESTORE_ARCHIVE_FD}<&-
+  fi
+  if [[ -n "${STORAGE_RESTORE_MANIFEST_FD:-}" ]]; then
+    exec {STORAGE_RESTORE_MANIFEST_FD}<&-
+  fi
   if [[ -n "${STORAGE_RESTORE_INPUT_DIR:-}" \
     && "${STORAGE_RESTORE_INPUT_DIR}" == "${STATE_ROOT}"/restore-input.* \
     && -d "${STORAGE_RESTORE_INPUT_DIR}" ]]; then
@@ -46,6 +56,10 @@ cleanup_storage_restore_input() {
   fi
   STORAGE_RESTORE_INPUT_DIR=""
   STORAGE_RESTORE_INPUT_ARCHIVE=""
+  STORAGE_RESTORE_ARCHIVE_FD=""
+  STORAGE_RESTORE_MANIFEST_FD=""
+  STORAGE_RESTORE_VALIDATED_ARCHIVE=""
+  STORAGE_RESTORE_VALIDATED_MANIFEST=""
 }
 
 cleanup_storage_credential_retirement() {
@@ -1125,13 +1139,20 @@ refresh_storage_receipt_isolation() {
   staged_path="$(mktemp "${STORAGE_RECEIPT_FILE}.XXXXXX.tmp")"
   chmod 600 "${staged_path}"
   if ! python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_ISOLATION_FILE}" \
-    "${staged_path}" <<'PY'
+    "${STORAGE_NETWORK_ENFORCEMENT_FILE}" "${staged_path}" <<'PY'
 import json
 import pathlib
 import sys
 
 receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 isolation = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+network_proof = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").splitlines()
+if set(network_proof) != {
+    "maintenance_storage_connectivity=allowed",
+    "unauthorized_storage_connectivity=denied",
+    "api_storage_connectivity=allowed-by-version-read",
+}:
+    raise SystemExit("storage network-enforcement proof is incomplete")
 if isolation.get("oos_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OOS credential")
 if isolation.get("openproject_credential_issued") is not False:
@@ -1140,7 +1161,12 @@ receipt["root_credential_exposed_to_api"] = False
 receipt["oos_credential_issued"] = False
 receipt["openproject_credential_issued"] = False
 receipt["credential_isolation_verified_at"] = isolation.get("verified_at")
-pathlib.Path(sys.argv[3]).write_text(
+receipt["network_enforcement"] = {
+    "api_allowed": True,
+    "maintenance_allowed": True,
+    "unauthorized_pod_denied": True,
+}
+pathlib.Path(sys.argv[4]).write_text(
     json.dumps(receipt, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
@@ -1797,10 +1823,12 @@ archive_storage_backups() {
 
 validate_backup_for_restore() {
   local backup_path="$1"
-  python3 - "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
+  local manifest_path="${2:-${backup_path}.manifest.json}"
+  python3 - "${backup_path}" "${manifest_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
     "${COMPONENT_NAME}" "${STORAGE_APP_SECRET}" \
-    "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" <<'PY'
+    "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" \
+    "${PROFILE_ROOT}/scripts/lib" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -1809,14 +1837,19 @@ import tarfile
 from urllib.parse import quote
 
 backup = pathlib.Path(sys.argv[1]).resolve()
-allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[2:4]]
+manifest_path = pathlib.Path(sys.argv[2]).resolve()
+allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[3:5]]
+sys.path.insert(0, sys.argv[12])
+from verify_storage_versioning import validate_storage_receipt
+
 if not backup.is_file():
     raise SystemExit(f"restore backup does not exist: {backup}")
 if not any(root == backup or root in backup.parents for root in allowed_roots):
     raise SystemExit("restore backup must stay under the operator profile state or reset archive")
-manifest_path = pathlib.Path(f"{backup}.manifest.json")
 if not manifest_path.is_file():
     raise SystemExit(f"restore backup manifest is missing: {manifest_path}")
+if not any(root == manifest_path or root in manifest_path.parents for root in allowed_roots):
+    raise SystemExit("restore manifest must stay under the operator profile state or reset archive")
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 if manifest.get("schema_version") != 2:
     raise SystemExit("restore backup must use the version-bound schema")
@@ -1825,11 +1858,11 @@ if manifest.get("archive_sha256") != hashlib.sha256(backup.read_bytes()).hexdige
 recorded_backup_path = manifest.get("backup_path")
 if not isinstance(recorded_backup_path, str) or not pathlib.Path(recorded_backup_path).is_absolute():
     raise SystemExit("restore backup manifest has invalid original-path provenance")
-if manifest.get("profile_id") != sys.argv[4]:
+if manifest.get("profile_id") != sys.argv[5]:
     raise SystemExit("restore backup belongs to a different profile")
-if manifest.get("kubernetes_namespace") != sys.argv[5]:
+if manifest.get("kubernetes_namespace") != sys.argv[6]:
     raise SystemExit("restore backup belongs to a different Kubernetes namespace")
-if manifest.get("bucket") != sys.argv[6]:
+if manifest.get("bucket") != sys.argv[7]:
     raise SystemExit("restore backup belongs to a different bucket")
 if manifest.get("credentials_included") is not False:
     raise SystemExit("restore backup may not contain credentials")
@@ -1839,8 +1872,8 @@ if manifest.get("restore_requires_receipt_rebinding") is not True:
     raise SystemExit("restore manifest does not require receipt rebinding")
 expected = {}
 object_keys = set()
-seed_key = sys.argv[9]
-seed_digest = sys.argv[10]
+seed_key = sys.argv[10]
+seed_digest = sys.argv[11]
 seed_object_seen = False
 for item in manifest.get("objects") or []:
     object_key = item.get("object_key")
@@ -1974,30 +2007,29 @@ for receipt_name, binding in receipt_bindings.items():
     object_key = binding["object_key"]
     prior_version_id = binding["prior_object_version_id"]
     expected_ref = (
-        f"wgcf-storage://{sys.argv[4]}/{sys.argv[6]}/{object_key}"
+        f"wgcf-storage://{sys.argv[5]}/{sys.argv[7]}/{object_key}"
         f"?versionId={quote(prior_version_id, safe='-_.~')}"
     )
-    expected_receipt = {
-        "schema_version": 2,
-        "receipt_type": "dev-integration-storage",
-        "profile_id": sys.argv[4],
-        "kubernetes_namespace": sys.argv[5],
-        "bucket": sys.argv[6],
-        "object_key": object_key,
-        "object_version_id": prior_version_id,
-        "content_sha256": binding["content_sha256"],
-        "storage_ref": expected_ref,
-        "service_identity_ref": (
-            f"kubernetes://{sys.argv[5]}/serviceaccount/{sys.argv[7]}"
-        ),
-        "application_secret_ref": (
-            f"kubernetes://{sys.argv[5]}/secret/{sys.argv[8]}"
-        ),
-    }
     if binding["prior_storage_ref"] != expected_ref:
         raise SystemExit(f"restore manifest has an invalid prior storage reference: {receipt_name}")
-    if any(receipt.get(key) != value for key, value in expected_receipt.items()):
-        raise SystemExit(f"restore receipt does not match its backup binding: {receipt_name}")
+    validate_storage_receipt(
+        receipt,
+        active_scope={
+            "profile_id": sys.argv[5],
+            "kubernetes_namespace": sys.argv[6],
+            "bucket": sys.argv[7],
+            "service_identity_ref": (
+                f"kubernetes://{sys.argv[6]}/serviceaccount/{sys.argv[8]}"
+            ),
+            "application_secret_ref": (
+                f"kubernetes://{sys.argv[6]}/secret/{sys.argv[9]}"
+            ),
+        },
+        object_key=object_key,
+        version_id=prior_version_id,
+        content_digest=binding["content_sha256"],
+        receipt_name=receipt_name,
+    )
 PY
 }
 
@@ -2052,8 +2084,20 @@ copy_regular_file(
 PY
 }
 
+open_storage_restore_input() {
+  if [[ -z "${STORAGE_RESTORE_INPUT_ARCHIVE:-}" ]]; then
+    echo "Restore input snapshot is not prepared" >&2
+    return 1
+  fi
+  exec {STORAGE_RESTORE_ARCHIVE_FD}<"${STORAGE_RESTORE_INPUT_ARCHIVE}"
+  exec {STORAGE_RESTORE_MANIFEST_FD}<"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json"
+  STORAGE_RESTORE_VALIDATED_ARCHIVE="/proc/self/fd/${STORAGE_RESTORE_ARCHIVE_FD}"
+  STORAGE_RESTORE_VALIDATED_MANIFEST="/proc/self/fd/${STORAGE_RESTORE_MANIFEST_FD}"
+}
+
 restore_evidence_storage() {
   local backup_path="$1"
+  local manifest_path="$2"
   local verification_archive="${STATE_ROOT}/restore-verification.tar.gz"
   wait_for_storage_ready
   create_storage_transfer_pod root
@@ -2061,7 +2105,7 @@ restore_evidence_storage() {
     'cat >/transfer/restore.tar.gz; rm -rf /transfer/restore /transfer/verify; mkdir -p /transfer/restore /transfer/verify; tar -C /transfer/restore -xzf /transfer/restore.tar.gz; mkdir -p /transfer/restore/rebound-receipts; chgrp -R 10001 /transfer/restore /transfer/verify; chmod -R g+rwX /transfer/restore /transfer/verify' \
     <"${backup_path}"
   kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c archive -- /bin/sh -ec \
-    'cat >/transfer/restore-manifest.json' <"${backup_path}.manifest.json"
+    'cat >/transfer/restore-manifest.json' <"${manifest_path}"
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
     /bin/sh -ec 'touch /transfer/receipt-rebindings.json; chgrp 10001 /transfer/receipt-rebindings.json; chmod g+rw /transfer/receipt-rebindings.json'
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
@@ -2083,7 +2127,7 @@ restore_evidence_storage() {
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
     tar -C /transfer/verify -czf - . >"${verification_archive}"
   delete_storage_transfer_pod
-  python3 - "${backup_path}.manifest.json" "${verification_archive}" <<'PY'
+  python3 - "${manifest_path}" "${verification_archive}" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -2122,8 +2166,10 @@ write_restore_receipt() {
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 import pathlib
 import sys
+import tempfile
 
 backup = pathlib.Path(sys.argv[2]).resolve()
 pre_restore_value = sys.argv[3]
@@ -2158,9 +2204,32 @@ payload = {
     "receipt_rebindings": rebindings["receipt_rebindings"],
     "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
 }
-pathlib.Path(sys.argv[1]).write_text(
-    json.dumps(payload, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
+target = pathlib.Path(sys.argv[1])
+target.parent.mkdir(parents=True, exist_ok=True)
+fd, staged_name = tempfile.mkstemp(
+    prefix=f"{target.name}.",
+    suffix=".tmp",
+    dir=target.parent,
 )
+staged = pathlib.Path(staged_name)
+try:
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        json.dump(payload, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    validated = json.loads(staged.read_text(encoding="utf-8"))
+    if validated != payload:
+        raise SystemExit("staged restore receipt does not match its validated payload")
+    os.replace(staged, target)
+    directory_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+except BaseException:
+    staged.unlink(missing_ok=True)
+    raise
 PY
 }

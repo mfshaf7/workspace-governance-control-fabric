@@ -37,6 +37,59 @@ VERSIONING_MODULE = importlib.util.module_from_spec(VERSIONING_SPEC)
 VERSIONING_SPEC.loader.exec_module(VERSIONING_MODULE)
 
 
+def valid_storage_receipt(
+    namespace: str,
+    object_key: str,
+    body: bytes,
+    version_id: str,
+) -> dict:
+    digest = hashlib.sha256(body).hexdigest()
+    storage_ref = (
+        "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/"
+        f"{object_key}?versionId={version_id}"
+    )
+    return {
+        "schema_version": 2,
+        "receipt_type": "dev-integration-storage",
+        "profile_id": "governance-control-fabric",
+        "kubernetes_namespace": namespace,
+        "bucket": "wgcf-delivery-art-evidence",
+        "object_key": object_key,
+        "object_version_id": version_id,
+        "content_sha256": digest,
+        "storage_ref": storage_ref,
+        "service_identity_ref": (
+            f"kubernetes://{namespace}/"
+            "serviceaccount/workspace-governance-control-fabric-api"
+        ),
+        "application_secret_ref": (
+            f"kubernetes://{namespace}/secret/"
+            "workspace-governance-control-fabric-object-storage-api"
+        ),
+        "root_credential_exposed_to_api": False,
+        "oos_credential_issued": False,
+        "openproject_credential_issued": False,
+        "network_exposure": "namespace-local-network-policy",
+        "credential_isolation_verified_at": "2026-08-09T00:00:00Z",
+        "network_enforcement": {
+            "api_allowed": True,
+            "maintenance_allowed": True,
+            "unauthorized_pod_denied": True,
+        },
+        "object_versioning": "enabled",
+        "version_preservation": {
+            "same_key_overwrite_proved": True,
+            "accepted_version_preserved": True,
+            "overwrite_version_id": "overwrite-version",
+            "restored_version_id": "restored-version",
+        },
+        "transport_encryption": "not-governed-dev-integration-http",
+        "at_rest_encryption": "not-governed-local-path-pvc",
+        "governed_stage_or_prod_claim": False,
+        "verified_at": "2026-08-09T00:00:00Z",
+    }
+
+
 def write_valid_storage_backup(backup: Path, namespace: str) -> Path:
     object_key = "profile-proof/evidence-custody-v1.json"
     body = (
@@ -49,25 +102,7 @@ def write_valid_storage_backup(backup: Path, namespace: str) -> Path:
         "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/"
         f"{object_key}?versionId={prior_version_id}"
     )
-    receipt = {
-        "schema_version": 2,
-        "receipt_type": "dev-integration-storage",
-        "profile_id": "governance-control-fabric",
-        "kubernetes_namespace": namespace,
-        "bucket": "wgcf-delivery-art-evidence",
-        "object_key": object_key,
-        "object_version_id": prior_version_id,
-        "content_sha256": digest,
-        "storage_ref": prior_storage_ref,
-        "service_identity_ref": (
-            f"kubernetes://{namespace}/"
-            "serviceaccount/workspace-governance-control-fabric-api"
-        ),
-        "application_secret_ref": (
-            f"kubernetes://{namespace}/secret/"
-            "workspace-governance-control-fabric-object-storage-api"
-        ),
-    }
+    receipt = valid_storage_receipt(namespace, object_key, body, prior_version_id)
     receipt_body = json.dumps(receipt).encode()
     backup.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(backup, "w:gz") as bundle:
@@ -496,11 +531,26 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("create_storage_transfer_pod root", empty_store_probe)
         self.assertLess(
             restore_source.index("snapshot_backup_for_restore"),
+            restore_source.index("open_storage_restore_input"),
+        )
+        self.assertLess(
+            restore_source.index("open_storage_restore_input"),
             restore_source.index("validate_backup_for_restore"),
         )
         self.assertIn(
-            'restore_evidence_storage "${STORAGE_RESTORE_INPUT_ARCHIVE}"',
+            '"${STORAGE_RESTORE_VALIDATED_ARCHIVE}"',
             restore_source,
+        )
+        restore_index = restore_source.index("restore_evidence_storage")
+        self.assertLess(restore_source.index("verify_storage_isolation"), restore_index)
+        self.assertLess(
+            restore_source.index("verify_storage_network_enforcement"),
+            restore_index,
+        )
+        self.assertGreater(restore_source.rindex("verify_storage_isolation"), restore_index)
+        self.assertGreater(
+            restore_source.rindex("verify_storage_network_enforcement"),
+            restore_index,
         )
         self.assertLess(
             restore_source.index("verify_storage_seed receipt"),
@@ -797,25 +847,12 @@ class DevIntegrationProfileTests(TestCase):
                 "wgcf-delivery-art-evidence/profile-proof/evidence.json"
                 "?versionId=old-version"
             )
-            receipt = {
-                "schema_version": 2,
-                "receipt_type": "dev-integration-storage",
-                "profile_id": "governance-control-fabric",
-                "kubernetes_namespace": "devint-governance-control-fabric-test",
-                "bucket": "wgcf-delivery-art-evidence",
-                "object_key": "profile-proof/evidence.json",
-                "object_version_id": "old-version",
-                "content_sha256": expected_digest,
-                "storage_ref": old_ref,
-                "service_identity_ref": (
-                    "kubernetes://devint-governance-control-fabric-test/"
-                    "serviceaccount/workspace-governance-control-fabric-api"
-                ),
-                "application_secret_ref": (
-                    "kubernetes://devint-governance-control-fabric-test/secret/"
-                    "workspace-governance-control-fabric-object-storage-api"
-                ),
-            }
+            receipt = valid_storage_receipt(
+                "devint-governance-control-fabric-test",
+                "profile-proof/evidence.json",
+                accepted_body,
+                "old-version",
+            )
             (package_root / "receipt-records/storage-receipt.json").write_text(
                 json.dumps(receipt),
                 encoding="utf-8",
@@ -845,6 +882,24 @@ class DevIntegrationProfileTests(TestCase):
                 "service_identity_ref": receipt["service_identity_ref"],
                 "application_secret_ref": receipt["application_secret_ref"],
             }
+            receipt["governed_stage_or_prod_claim"] = True
+            receipt["fabricated_claim"] = "must-not-survive"
+            (package_root / "receipt-records/storage-receipt.json").write_text(
+                json.dumps(receipt),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "invalid fixed claims"):
+                VERSIONING_MODULE.rebind_receipts(
+                    storage,
+                    package_root,
+                    manifest,
+                    active_scope,
+                )
+            receipt["governed_stage_or_prod_claim"] = False
+            (package_root / "receipt-records/storage-receipt.json").write_text(
+                json.dumps(receipt),
+                encoding="utf-8",
+            )
             result = VERSIONING_MODULE.rebind_receipts(
                 storage,
                 package_root,
@@ -871,6 +926,8 @@ class DevIntegrationProfileTests(TestCase):
                 rebound_receipt["restore_supersession"]["prior_storage_ref"],
                 old_ref,
             )
+            self.assertFalse(rebound_receipt["governed_stage_or_prod_claim"])
+            self.assertNotIn("fabricated_claim", rebound_receipt)
 
             wrong_scope = {**active_scope, "profile_id": "wrong-profile"}
             with self.assertRaisesRegex(SystemExit, "active storage scope"):
@@ -892,29 +949,12 @@ class DevIntegrationProfileTests(TestCase):
                 b'{"artifact_class":"architecture_packet","profile":'
                 b'"governance-control-fabric","proof":"dev-integration-storage-v1"}\n'
             )
-            receipt = {
-                "schema_version": 2,
-                "receipt_type": "dev-integration-storage",
-                "profile_id": "governance-control-fabric",
-                "kubernetes_namespace": "devint-governance-control-fabric-test",
-                "bucket": "wgcf-delivery-art-evidence",
-                "object_key": object_key,
-                "object_version_id": "version-before-backup",
-                "content_sha256": hashlib.sha256(body).hexdigest(),
-                "storage_ref": (
-                    "wgcf-storage://governance-control-fabric/"
-                    "wgcf-delivery-art-evidence/"
-                    f"{object_key}?versionId=version-before-backup"
-                ),
-                "service_identity_ref": (
-                    "kubernetes://devint-governance-control-fabric-test/"
-                    "serviceaccount/workspace-governance-control-fabric-api"
-                ),
-                "application_secret_ref": (
-                    "kubernetes://devint-governance-control-fabric-test/secret/"
-                    "workspace-governance-control-fabric-object-storage-api"
-                ),
-            }
+            receipt = valid_storage_receipt(
+                "devint-governance-control-fabric-test",
+                object_key,
+                body,
+                "version-before-backup",
+            )
             receipt_body = json.dumps(receipt).encode()
             with tarfile.open(backup, "w:gz") as bundle:
                 for name, content in (
@@ -1004,6 +1044,44 @@ class DevIntegrationProfileTests(TestCase):
             )
             backup.write_bytes(original_archive)
             manifest_path.write_bytes(original_manifest)
+            descriptor_bound = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    (
+                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        f"snapshot_backup_for_restore {backup}; "
+                        "open_storage_restore_input; "
+                        "validate_backup_for_restore "
+                        '"${STORAGE_RESTORE_VALIDATED_ARCHIVE}" '
+                        '"${STORAGE_RESTORE_VALIDATED_MANIFEST}"; '
+                        'mv "${STORAGE_RESTORE_INPUT_ARCHIVE}" '
+                        '"${STORAGE_RESTORE_INPUT_ARCHIVE}.replaced"; '
+                        'printf tampered >"${STORAGE_RESTORE_INPUT_ARCHIVE}"; '
+                        'mv "${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json" '
+                        '"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json.replaced"; '
+                        'printf "{}\\n" >"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json"; '
+                        'sha256sum "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" '
+                        '"${STORAGE_RESTORE_VALIDATED_MANIFEST}"'
+                    ),
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(descriptor_bound.returncode, 0, descriptor_bound.stderr)
+            descriptor_digests = [
+                line.split()[0] for line in descriptor_bound.stdout.splitlines()
+            ]
+            self.assertEqual(
+                descriptor_digests,
+                [
+                    hashlib.sha256(original_archive).hexdigest(),
+                    hashlib.sha256(original_manifest).hexdigest(),
+                ],
+            )
             valid = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
@@ -1633,6 +1711,10 @@ class DevIntegrationProfileTests(TestCase):
             storage_source.count('mv -f -- "${staged_path}" "${STORAGE_RECEIPT_FILE}"'),
             2,
         )
+        self.assertIn("tempfile.mkstemp(", storage_source)
+        self.assertIn("os.fsync(stream.fileno())", storage_source)
+        self.assertIn("os.replace(staged, target)", storage_source)
+        self.assertIn("os.fsync(directory_fd)", storage_source)
 
     def test_smoke_gate_rejects_pending_credential_retirement(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

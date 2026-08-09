@@ -316,6 +316,88 @@ def _storage_ref(profile_id: str, bucket: str, object_key: str, version_id: str)
     )
 
 
+def validate_storage_receipt(
+    receipt: dict,
+    *,
+    active_scope: dict[str, str],
+    object_key: str,
+    version_id: str,
+    content_digest: str,
+    receipt_name: str,
+) -> None:
+    expected = {
+        "schema_version": 2,
+        "receipt_type": "dev-integration-storage",
+        "profile_id": active_scope["profile_id"],
+        "kubernetes_namespace": active_scope["kubernetes_namespace"],
+        "bucket": active_scope["bucket"],
+        "object_key": object_key,
+        "object_version_id": version_id,
+        "content_sha256": content_digest,
+        "storage_ref": _storage_ref(
+            active_scope["profile_id"],
+            active_scope["bucket"],
+            object_key,
+            version_id,
+        ),
+        "service_identity_ref": active_scope["service_identity_ref"],
+        "application_secret_ref": active_scope["application_secret_ref"],
+        "root_credential_exposed_to_api": False,
+        "oos_credential_issued": False,
+        "openproject_credential_issued": False,
+        "network_exposure": "namespace-local-network-policy",
+        "object_versioning": "enabled",
+        "transport_encryption": "not-governed-dev-integration-http",
+        "at_rest_encryption": "not-governed-local-path-pvc",
+        "governed_stage_or_prod_claim": False,
+    }
+    if any(receipt.get(key) != value for key, value in expected.items()):
+        raise SystemExit(f"restore receipt has invalid fixed claims: {receipt_name}")
+    if receipt.get("network_enforcement") != {
+        "api_allowed": True,
+        "maintenance_allowed": True,
+        "unauthorized_pod_denied": True,
+    }:
+        raise SystemExit(f"restore receipt has invalid network claims: {receipt_name}")
+    for field in ("credential_isolation_verified_at", "verified_at"):
+        if not isinstance(receipt.get(field), str) or not receipt[field]:
+            raise SystemExit(f"restore receipt has invalid {field}: {receipt_name}")
+    version_preservation = receipt.get("version_preservation")
+    if (
+        not isinstance(version_preservation, dict)
+        or version_preservation.get("accepted_version_preserved") is not True
+    ):
+        raise SystemExit(f"restore receipt has invalid version preservation: {receipt_name}")
+    if version_preservation.get("same_key_overwrite_proved") is True:
+        required_version_fields = ("overwrite_version_id", "restored_version_id")
+    elif version_preservation.get("restore_rebound") is True:
+        required_version_fields = (
+            "rebound_object_version_id",
+            "restored_current_version_id",
+        )
+    else:
+        raise SystemExit(f"restore receipt has unsupported version proof: {receipt_name}")
+    if not all(
+        isinstance(version_preservation.get(field), str)
+        and version_preservation[field]
+        for field in required_version_fields
+    ):
+        raise SystemExit(f"restore receipt has incomplete version proof: {receipt_name}")
+    rotation = receipt.get("credential_rotation")
+    if rotation is not None:
+        denial_fields = (
+            "retired_root_credential_authentication_denied",
+            "retired_application_credential_authentication_denied",
+        )
+        if (
+            not isinstance(rotation, dict)
+            or rotation.get("rotation_detected") is not True
+            or any(rotation.get(field) not in {None, True} for field in denial_fields)
+            or not any(rotation.get(field) is True for field in denial_fields)
+        ):
+            raise SystemExit(f"restore receipt has invalid credential rotation: {receipt_name}")
+
+
 def assert_credentials_denied(client: S3Client, object_key: str) -> dict:
     try:
         client.get(object_key)
@@ -392,23 +474,16 @@ def rebind_receipts(
             object_key,
             prior_version_id,
         )
-        expected_receipt_fields = {
-            "schema_version": 2,
-            "receipt_type": "dev-integration-storage",
-            "profile_id": active_scope["profile_id"],
-            "kubernetes_namespace": active_scope["kubernetes_namespace"],
-            "bucket": active_scope["bucket"],
-            "object_key": object_key,
-            "object_version_id": prior_version_id,
-            "content_sha256": expected_digest,
-            "storage_ref": expected_prior_ref,
-            "service_identity_ref": active_scope["service_identity_ref"],
-            "application_secret_ref": active_scope["application_secret_ref"],
-        }
         if binding.get("prior_storage_ref") != expected_prior_ref:
             raise SystemExit(f"restore manifest prior reference is invalid: {receipt_name}")
-        if any(receipt.get(key) != value for key, value in expected_receipt_fields.items()):
-            raise SystemExit(f"receipt record does not match its backup binding: {receipt_name}")
+        validate_storage_receipt(
+            receipt,
+            active_scope=active_scope,
+            object_key=object_key,
+            version_id=prior_version_id,
+            content_digest=expected_digest,
+            receipt_name=receipt_name,
+        )
 
         rebound_version_id = _require_version_id(
             client.put(object_key, bound_body),
@@ -443,17 +518,43 @@ def rebind_receipts(
             object_key,
             rebound_version_id,
         )
-        receipt["object_version_id"] = rebound_version_id
-        receipt["storage_ref"] = new_storage_ref
-        receipt["verified_at"] = rebound_at
-        prior_version_preservation = receipt.pop("version_preservation", None)
-        if prior_version_preservation is not None:
-            receipt["pre_restore_version_preservation"] = prior_version_preservation
-        receipt["version_preservation"] = {
-            "accepted_version_preserved": True,
-            "restore_rebound": True,
-            "rebound_object_version_id": rebound_version_id,
-            "restored_current_version_id": current_version_id,
+        prior_version_preservation = receipt["version_preservation"]
+        receipt = {
+            "schema_version": 2,
+            "receipt_type": "dev-integration-storage",
+            "profile_id": active_scope["profile_id"],
+            "kubernetes_namespace": active_scope["kubernetes_namespace"],
+            "bucket": active_scope["bucket"],
+            "object_key": object_key,
+            "object_version_id": rebound_version_id,
+            "content_sha256": expected_digest,
+            "storage_ref": new_storage_ref,
+            "service_identity_ref": active_scope["service_identity_ref"],
+            "application_secret_ref": active_scope["application_secret_ref"],
+            "root_credential_exposed_to_api": False,
+            "oos_credential_issued": False,
+            "openproject_credential_issued": False,
+            "network_exposure": "namespace-local-network-policy",
+            "credential_isolation_verified_at": receipt[
+                "credential_isolation_verified_at"
+            ],
+            "network_enforcement": {
+                "api_allowed": True,
+                "maintenance_allowed": True,
+                "unauthorized_pod_denied": True,
+            },
+            "object_versioning": "enabled",
+            "pre_restore_version_preservation": prior_version_preservation,
+            "version_preservation": {
+                "accepted_version_preserved": True,
+                "restore_rebound": True,
+                "rebound_object_version_id": rebound_version_id,
+                "restored_current_version_id": current_version_id,
+            },
+            "transport_encryption": "not-governed-dev-integration-http",
+            "at_rest_encryption": "not-governed-local-path-pvc",
+            "governed_stage_or_prod_claim": False,
+            "verified_at": rebound_at,
         }
         receipt["restore_supersession"] = {
             "prior_object_version_id": prior_version_id,
