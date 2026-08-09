@@ -21,7 +21,7 @@ request_json "${GRAPH_QUERY_FILE}" get "/v1/graph/query?scope=repo:workspace-gov
 request_json "${VALIDATION_PLAN_FILE}" post-plan >/dev/null
 request_json "${RECEIPTS_FILE}" get /v1/receipts >/dev/null
 write_access_file
-verify_storage_seed
+verify_storage_seed receipt
 verify_storage_isolation
 verify_storage_network_proof
 

@@ -38,6 +38,7 @@ require_storage_security_review() {
 import hashlib
 import json
 import pathlib
+import subprocess
 import sys
 
 profile = json.loads(sys.argv[1])
@@ -59,11 +60,20 @@ if not isinstance(source_commit, str) or len(source_commit) != 40:
 if not isinstance(expected_digest, str) or len(expected_digest) != 64:
     raise SystemExit("WGCF evidence storage Security review has no content digest")
 review_path = workspace_root / expected_repo / expected_path
-if not review_path.is_file():
-    raise SystemExit(f"WGCF evidence storage Security review is unavailable: {review_path}")
-actual_digest = hashlib.sha256(review_path.read_bytes()).hexdigest()
+repo_root = workspace_root / expected_repo
+if not (repo_root / ".git").exists():
+    raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
+result = subprocess.run(
+    ["git", "-C", str(repo_root), "show", f"{source_commit}:{expected_path}"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    check=False,
+)
+if result.returncode != 0:
+    raise SystemExit("WGCF evidence storage Security review is unavailable at its pinned commit")
+actual_digest = hashlib.sha256(result.stdout).hexdigest()
 if actual_digest != expected_digest:
-    raise SystemExit("WGCF evidence storage Security review content does not match its pinned digest")
+    raise SystemExit("WGCF evidence storage Security review commit does not match its pinned digest")
 PY
 }
 
@@ -460,27 +470,57 @@ EOF
 }
 
 prove_storage_version_preservation() {
+  local accepted_version_id=""
+  if [[ -f "${STORAGE_RECEIPT_FILE}" ]]; then
+    accepted_version_id="$(python3 - "${STORAGE_RECEIPT_FILE}" <<'PY'
+import json
+import pathlib
+import sys
+
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+version_id = receipt.get("object_version_id")
+if isinstance(version_id, str) and version_id and version_id != "null":
+    print(version_id)
+PY
+)"
+  fi
   kubectl_cmd -n "${NAMESPACE}" exec -i "deployment/${API_DEPLOYMENT}" -- \
     python - preserve-overwrite "$(storage_seed_digest)" "${STORAGE_SEED_KEY}" \
+    "${accepted_version_id}" \
     <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py" \
     >"${STORAGE_VERSION_PROOF_FILE}"
 }
 
 verify_storage_seed() {
-  if [[ ! -f "${STORAGE_VERSION_PROOF_FILE}" ]]; then
-    echo "Storage version-preservation proof is missing; run the profile up action" >&2
+  local binding_source="${1:-proof}"
+  local binding_file=""
+  case "${binding_source}" in
+    proof)
+      binding_file="${STORAGE_VERSION_PROOF_FILE}"
+      ;;
+    receipt)
+      binding_file="${STORAGE_RECEIPT_FILE}"
+      ;;
+    *)
+      echo "Unknown storage verification binding source: ${binding_source}" >&2
+      return 2
+      ;;
+  esac
+  if [[ ! -f "${binding_file}" ]]; then
+    echo "Storage ${binding_source} binding is missing; run the profile up action" >&2
     return 1
   fi
   local accepted_version_id
-  accepted_version_id="$(python3 - "${STORAGE_VERSION_PROOF_FILE}" <<'PY'
+  accepted_version_id="$(python3 - "${binding_file}" "${binding_source}" <<'PY'
 import json
 import pathlib
 import sys
 
 proof = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
-version_id = proof.get("accepted_version_id")
+field = "accepted_version_id" if sys.argv[2] == "proof" else "object_version_id"
+version_id = proof.get(field)
 if not isinstance(version_id, str) or not version_id or version_id == "null":
-    raise SystemExit("storage version-preservation proof has no accepted version ID")
+    raise SystemExit(f"storage {sys.argv[2]} binding has no accepted version ID")
 print(version_id)
 PY
 )"
@@ -495,7 +535,8 @@ write_storage_receipt() {
   python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_VERIFICATION_FILE}" \
     "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
-    "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
+    "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" \
+    "${STORAGE_ISOLATION_FILE}" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
@@ -504,7 +545,12 @@ from urllib.parse import quote
 
 verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 proof = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+receipt_path = pathlib.Path(sys.argv[1])
+prior_receipt = None
+if receipt_path.is_file():
+    prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
 network_proof = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").splitlines()
+isolation = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
 expected_network_proof = {
     "maintenance_storage_connectivity=allowed",
     "unauthorized_storage_connectivity=denied",
@@ -512,6 +558,10 @@ expected_network_proof = {
 }
 if set(network_proof) != expected_network_proof:
     raise SystemExit("storage network-enforcement proof is incomplete")
+if isolation.get("oos_credential_issued") is not False:
+    raise SystemExit("storage isolation proof issued an OOS credential")
+if isolation.get("openproject_credential_issued") is not False:
+    raise SystemExit("storage isolation proof issued an OpenProject credential")
 expected_digest = sys.argv[9]
 accepted_version_id = proof.get("accepted_version_id")
 if verification.get("accepted_sha256") != expected_digest:
@@ -542,6 +592,7 @@ payload = {
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
     "network_exposure": "namespace-local-network-policy",
+    "credential_isolation_verified_at": isolation.get("verified_at"),
     "network_enforcement": {
         "api_allowed": True,
         "maintenance_allowed": True,
@@ -559,8 +610,40 @@ payload = {
     "governed_stage_or_prod_claim": False,
     "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
 }
-pathlib.Path(sys.argv[1]).write_text(
+if (
+    isinstance(prior_receipt, dict)
+    and prior_receipt.get("object_version_id") == accepted_version_id
+    and prior_receipt.get("content_sha256") == expected_digest
+):
+    for field in ("restore_supersession", "pre_restore_version_preservation"):
+        if field in prior_receipt:
+            payload[field] = prior_receipt[field]
+receipt_path.write_text(
     json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+refresh_storage_receipt_isolation() {
+  python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_ISOLATION_FILE}" <<'PY'
+import json
+import pathlib
+import sys
+
+receipt_path = pathlib.Path(sys.argv[1])
+receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+isolation = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+if isolation.get("oos_credential_issued") is not False:
+    raise SystemExit("storage isolation proof issued an OOS credential")
+if isolation.get("openproject_credential_issued") is not False:
+    raise SystemExit("storage isolation proof issued an OpenProject credential")
+receipt["root_credential_exposed_to_api"] = False
+receipt["oos_credential_issued"] = False
+receipt["openproject_credential_issued"] = False
+receipt["credential_isolation_verified_at"] = isolation.get("verified_at")
+receipt_path.write_text(
+    json.dumps(receipt, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
 PY
@@ -569,16 +652,28 @@ PY
 verify_storage_isolation() {
   local pods_file="${STATE_ROOT}/storage-isolation-pods.json"
   local network_policy_file="${STATE_ROOT}/storage-isolation-network-policy.json"
+  local deployment_file="${STATE_ROOT}/storage-isolation-api-deployment.json"
+  local replica_sets_file="${STATE_ROOT}/storage-isolation-api-replica-sets.json"
+  local stateful_set_file="${STATE_ROOT}/storage-isolation-stateful-set.json"
+  local jobs_file="${STATE_ROOT}/storage-isolation-jobs.json"
   kubectl_cmd -n "${NAMESPACE}" get pods -o json >"${pods_file}"
   kubectl_cmd -n "${NAMESPACE}" get networkpolicy \
     "${STORAGE_STATEFULSET}-ingress" -o json >"${network_policy_file}"
+  kubectl_cmd -n "${NAMESPACE}" get deployment "${API_DEPLOYMENT}" -o json \
+    >"${deployment_file}"
+  kubectl_cmd -n "${NAMESPACE}" get replicasets -o json >"${replica_sets_file}"
+  kubectl_cmd -n "${NAMESPACE}" get statefulset "${STORAGE_STATEFULSET}" -o json \
+    >"${stateful_set_file}"
+  kubectl_cmd -n "${NAMESPACE}" get jobs -o json >"${jobs_file}"
   python3 "${PROFILE_ROOT}/scripts/lib/verify_storage_isolation.py" \
     "${STORAGE_ISOLATION_FILE}" "${pods_file}" \
-    "${network_policy_file}" "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
-    "${STORAGE_PROVISION_JOB}" "${STORAGE_TRANSFER_POD}" "${COMPONENT_NAME}" \
+    "${network_policy_file}" "${deployment_file}" "${replica_sets_file}" \
+    "${stateful_set_file}" "${jobs_file}" "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
+    "${STORAGE_PROVISION_JOB}" "${COMPONENT_NAME}" \
     "${STORAGE_SERVICE_ACCOUNT}" "${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}" \
     "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" "${APP_LABEL}" "${PROFILE_ID}"
-  rm -f "${pods_file}" "${network_policy_file}"
+  rm -f "${pods_file}" "${network_policy_file}" "${deployment_file}" \
+    "${replica_sets_file}" "${stateful_set_file}" "${jobs_file}"
 }
 
 verify_storage_network_enforcement() {
@@ -739,6 +834,8 @@ metadata:
 spec:
   serviceAccountName: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
   restartPolicy: Never
+  securityContext:
+    fsGroup: 10001
   containers:
     - name: transfer
       image: ${STORAGE_CLIENT_IMAGE}
@@ -773,6 +870,37 @@ spec:
       volumeMounts:
         - name: transfer
           mountPath: /transfer
+    - name: rebind
+      image: ${API_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - sleep 3600
+      env:
+        - name: WGCF_EVIDENCE_STORAGE_ENDPOINT
+          value: ${STORAGE_ENDPOINT}
+        - name: WGCF_EVIDENCE_STORAGE_BUCKET
+          value: ${STORAGE_BUCKET}
+        - name: WGCF_EVIDENCE_STORAGE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${STORAGE_APP_SECRET}
+              key: access-key
+        - name: WGCF_EVIDENCE_STORAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${STORAGE_APP_SECRET}
+              key: secret-key
+      volumeMounts:
+        - name: transfer
+          mountPath: /transfer
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
   volumes:
     - name: transfer
       emptyDir: {}
@@ -784,6 +912,72 @@ EOF
 delete_storage_transfer_pod() {
   kubectl_cmd -n "${NAMESPACE}" delete pod "${STORAGE_TRANSFER_POD}" \
     --ignore-not-found=true --wait=true >/dev/null 2>&1 || true
+}
+
+validate_backup_output_path() {
+  local backup_path="$1"
+  python3 - "${backup_path}" "${BACKUPS_DIR}" <<'PY'
+import pathlib
+import sys
+
+backup = pathlib.Path(sys.argv[1])
+backup_root = pathlib.Path(sys.argv[2]).resolve()
+if not backup.is_absolute():
+    raise SystemExit("WGCF evidence backup path must be absolute")
+resolved_parent = backup.parent.resolve()
+if resolved_parent != backup_root:
+    raise SystemExit("WGCF evidence backups must be written directly under the profile backups directory")
+if not backup.name.endswith(".tar.gz"):
+    raise SystemExit("WGCF evidence backup path must end with .tar.gz")
+if backup.is_symlink():
+    raise SystemExit("WGCF evidence backup path may not be a symbolic link")
+print(backup_root / backup.name)
+PY
+}
+
+stage_receipt_bound_evidence() {
+  local -a receipt_fields=()
+  if [[ ! -f "${STORAGE_RECEIPT_FILE}" ]]; then
+    echo "Storage receipt is missing; run the profile up action before backup" >&2
+    return 1
+  fi
+  mapfile -t receipt_fields < <(python3 - "${STORAGE_RECEIPT_FILE}" <<'PY'
+import json
+import pathlib
+import sys
+
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+required = ["object_key", "object_version_id", "content_sha256"]
+for field in required:
+    value = receipt.get(field)
+    if not isinstance(value, str) or not value or "\n" in value:
+        raise SystemExit(f"storage receipt has invalid {field}")
+if receipt.get("schema_version") != 2 or receipt.get("receipt_type") != "dev-integration-storage":
+    raise SystemExit("storage receipt is not a version-bound WGCF receipt")
+for field in required:
+    print(receipt[field])
+PY
+  )
+  if [[ "${#receipt_fields[@]}" -ne 3 ]]; then
+    echo "Storage receipt fields could not be staged" >&2
+    return 1
+  fi
+  local object_key="${receipt_fields[0]}"
+  local version_id="${receipt_fields[1]}"
+  local expected_digest="${receipt_fields[2]}"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    mkdir -p /transfer/package/receipt-bound /transfer/package/receipt-records
+  kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    /bin/sh -ec 'cat > /transfer/package/receipt-records/storage-receipt.json' \
+    <"${STORAGE_RECEIPT_FILE}"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- \
+    /bin/sh -ec \
+    'mc alias set storage "$1" "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc cp --quiet --version-id "$2" "$3" "$4"' \
+    sh "${STORAGE_ENDPOINT}" "${version_id}" "storage/${STORAGE_BUCKET}/${object_key}" \
+    /transfer/package/receipt-bound/storage-receipt.bin
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    /bin/sh -ec 'test "$(sha256sum "$1" | cut -d " " -f 1)" = "$2"' \
+    sh /transfer/package/receipt-bound/storage-receipt.bin "${expected_digest}"
 }
 
 write_backup_manifest() {
@@ -799,32 +993,76 @@ import sys
 import tarfile
 
 archive = pathlib.Path(sys.argv[1]).resolve()
-objects = []
+members = {}
 with tarfile.open(archive, "r:gz") as bundle:
     for member in sorted(bundle.getmembers(), key=lambda item: item.name):
         if not member.isfile():
             continue
+        name = member.name.removeprefix("./")
+        path = pathlib.PurePosixPath(name)
+        if path.is_absolute() or ".." in path.parts or name in members:
+            raise SystemExit(f"backup contains an unsafe or duplicate member: {name}")
         source = bundle.extractfile(member)
         if source is None:
-            raise SystemExit(f"backup member cannot be read: {member.name}")
-        body = source.read()
-        objects.append({
-            "object_key": member.name.removeprefix("./"),
+            raise SystemExit(f"backup member cannot be read: {name}")
+        members[name] = source.read()
+
+objects = []
+for name, body in sorted(members.items()):
+    if not name.startswith("current/"):
+        continue
+    object_key = name.removeprefix("current/")
+    object_path = pathlib.PurePosixPath(object_key)
+    if not object_key or object_path.is_absolute() or ".." in object_path.parts:
+        raise SystemExit(f"backup contains an unsafe object key: {object_key}")
+    objects.append({
+            "object_key": object_key,
+            "archive_path": name,
             "sha256": hashlib.sha256(body).hexdigest(),
             "size": len(body),
         })
 if not objects:
     raise SystemExit("storage backup contains no objects")
+
+receipt_name = "storage-receipt"
+receipt_archive_path = "receipt-records/storage-receipt.json"
+body_archive_path = "receipt-bound/storage-receipt.bin"
+if receipt_archive_path not in members or body_archive_path not in members:
+    raise SystemExit("storage backup does not contain receipt-bound evidence")
+receipt_record = json.loads(members[receipt_archive_path].decode())
+object_key = receipt_record.get("object_key")
+current = next((item for item in objects if item["object_key"] == object_key), None)
+if current is None:
+    raise SystemExit("receipt-bound object has no current backup member")
+bound_digest = hashlib.sha256(members[body_archive_path]).hexdigest()
+if bound_digest != receipt_record.get("content_sha256"):
+    raise SystemExit("receipt-bound backup bytes do not match their receipt")
+receipt_bindings = [{
+    "receipt_name": receipt_name,
+    "receipt_archive_path": receipt_archive_path,
+    "body_archive_path": body_archive_path,
+    "current_archive_path": current["archive_path"],
+    "object_key": object_key,
+    "prior_object_version_id": receipt_record.get("object_version_id"),
+    "prior_storage_ref": receipt_record.get("storage_ref"),
+    "content_sha256": bound_digest,
+    "body_size": len(members[body_archive_path]),
+    "receipt_record_sha256": hashlib.sha256(members[receipt_archive_path]).hexdigest(),
+    "receipt_record_size": len(members[receipt_archive_path]),
+}]
 archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 manifest = {
-    "schema_version": 1,
+    "schema_version": 2,
     "profile_id": sys.argv[3],
     "kubernetes_namespace": sys.argv[4],
     "bucket": sys.argv[5],
     "backup_path": str(archive),
     "archive_sha256": archive_digest,
     "objects": objects,
+    "receipt_bindings": receipt_bindings,
+    "version_ids_preserved": False,
+    "restore_requires_receipt_rebinding": True,
     "credentials_included": False,
     "created_at": created_at,
 }
@@ -833,7 +1071,7 @@ pathlib.Path(f"{archive}.manifest.json").write_text(
     encoding="utf-8",
 )
 receipt = {
-    "schema_version": 1,
+    "schema_version": 2,
     "receipt_type": "dev-integration-storage-backup",
     "profile_id": sys.argv[3],
     "kubernetes_namespace": sys.argv[4],
@@ -841,7 +1079,13 @@ receipt = {
     "backup_path": str(archive),
     "archive_sha256": archive_digest,
     "object_count": len(objects),
-    "content_addresses": [item["sha256"] for item in objects],
+    "receipt_binding_count": len(receipt_bindings),
+    "content_addresses": sorted({
+        *[item["sha256"] for item in objects],
+        *[item["content_sha256"] for item in receipt_bindings],
+    }),
+    "version_ids_preserved": False,
+    "restore_requires_receipt_rebinding": True,
     "credentials_included": False,
     "completed_at": created_at,
 }
@@ -855,13 +1099,15 @@ PY
 backup_evidence_storage() {
   local backup_path="$1"
   local receipt_path="$2"
+  backup_path="$(validate_backup_output_path "${backup_path}")"
   wait_for_storage_ready
-  mkdir -p "$(dirname "${backup_path}")"
+  mkdir -p "${BACKUPS_DIR}"
   create_storage_transfer_pod application
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
-    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; rm -rf /transfer/objects; mkdir -p /transfer/objects; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/objects >/dev/null'
+    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; rm -rf /transfer/package; mkdir -p /transfer/package/current; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/package/current >/dev/null'
+  stage_receipt_bound_evidence
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
-    tar -C /transfer/objects -czf - . >"${backup_path}"
+    tar -C /transfer/package -czf - . >"${backup_path}"
   delete_storage_transfer_pod
   write_backup_manifest "${backup_path}" "${receipt_path}"
 }
@@ -912,6 +1158,8 @@ manifest_path = pathlib.Path(f"{backup}.manifest.json")
 if not manifest_path.is_file():
     raise SystemExit(f"restore backup manifest is missing: {manifest_path}")
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if manifest.get("schema_version") != 2:
+    raise SystemExit("restore backup must use the version-bound schema")
 if manifest.get("archive_sha256") != hashlib.sha256(backup.read_bytes()).hexdigest():
     raise SystemExit("restore backup digest does not match its manifest")
 recorded_backup_path = manifest.get("backup_path")
@@ -925,32 +1173,62 @@ if manifest.get("bucket") != sys.argv[6]:
     raise SystemExit("restore backup belongs to a different bucket")
 if manifest.get("credentials_included") is not False:
     raise SystemExit("restore backup may not contain credentials")
+if manifest.get("version_ids_preserved") is not False:
+    raise SystemExit("restore manifest has an invalid version-preservation claim")
+if manifest.get("restore_requires_receipt_rebinding") is not True:
+    raise SystemExit("restore manifest does not require receipt rebinding")
 expected = {}
 for item in manifest.get("objects") or []:
     object_key = item.get("object_key")
+    archive_path = item.get("archive_path")
     digest = item.get("sha256")
     size = item.get("size")
     if not isinstance(object_key, str) or not object_key or object_key in expected:
         raise SystemExit("restore manifest contains an invalid or duplicate object key")
+    if archive_path != f"current/{object_key}":
+        raise SystemExit(f"restore manifest contains an invalid current object path: {object_key}")
     if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
         raise SystemExit(f"restore manifest contains invalid object evidence: {object_key}")
-    expected[object_key] = (digest, size)
+    expected[archive_path] = (digest, size)
 if not expected:
     raise SystemExit("restore manifest contains no objects")
+
+receipt_names = set()
+for binding in manifest.get("receipt_bindings") or []:
+    receipt_name = binding.get("receipt_name")
+    object_key = binding.get("object_key")
+    if not isinstance(receipt_name, str) or not receipt_name or receipt_name in receipt_names:
+        raise SystemExit("restore manifest contains an invalid or duplicate receipt binding")
+    receipt_names.add(receipt_name)
+    if binding.get("current_archive_path") != f"current/{object_key}":
+        raise SystemExit(f"restore manifest receipt binding has no current object: {receipt_name}")
+    body_path = binding.get("body_archive_path")
+    receipt_path = binding.get("receipt_archive_path")
+    if body_path != f"receipt-bound/{receipt_name}.bin":
+        raise SystemExit(f"restore manifest contains an invalid bound body path: {receipt_name}")
+    if receipt_path != f"receipt-records/{receipt_name}.json":
+        raise SystemExit(f"restore manifest contains an invalid receipt path: {receipt_name}")
+    expected[body_path] = (binding.get("content_sha256"), binding.get("body_size"))
+    expected[receipt_path] = (
+        binding.get("receipt_record_sha256"),
+        binding.get("receipt_record_size"),
+    )
+if not receipt_names:
+    raise SystemExit("restore manifest contains no receipt-bound evidence")
 actual = {}
 with tarfile.open(backup, "r:gz") as bundle:
     for member in bundle.getmembers():
         if not member.isfile():
             continue
-        object_key = member.name.removeprefix("./")
-        object_path = pathlib.PurePosixPath(object_key)
-        if object_path.is_absolute() or ".." in object_path.parts or object_key in actual:
-            raise SystemExit(f"restore archive contains an unsafe or duplicate object key: {object_key}")
+        archive_path = member.name.removeprefix("./")
+        member_path = pathlib.PurePosixPath(archive_path)
+        if member_path.is_absolute() or ".." in member_path.parts or archive_path in actual:
+            raise SystemExit(f"restore archive contains an unsafe or duplicate path: {archive_path}")
         source = bundle.extractfile(member)
         if source is None:
-            raise SystemExit(f"restore archive member cannot be read: {object_key}")
+            raise SystemExit(f"restore archive member cannot be read: {archive_path}")
         body = source.read()
-        actual[object_key] = (hashlib.sha256(body).hexdigest(), len(body))
+        actual[archive_path] = (hashlib.sha256(body).hexdigest(), len(body))
 if actual != expected:
     raise SystemExit("restore archive objects do not match the signed manifest evidence")
 PY
@@ -962,10 +1240,24 @@ restore_evidence_storage() {
   wait_for_storage_ready
   create_storage_transfer_pod root
   kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c archive -- /bin/sh -ec \
-    'cat >/transfer/restore.tar.gz; rm -rf /transfer/restore /transfer/verify; mkdir -p /transfer/restore /transfer/verify; tar -C /transfer/restore -xzf /transfer/restore.tar.gz' \
+    'cat >/transfer/restore.tar.gz; rm -rf /transfer/restore /transfer/verify; mkdir -p /transfer/restore /transfer/verify; tar -C /transfer/restore -xzf /transfer/restore.tar.gz; mkdir -p /transfer/restore/rebound-receipts; chgrp -R 10001 /transfer/restore /transfer/verify; chmod -R g+rwX /transfer/restore /transfer/verify' \
     <"${backup_path}"
+  kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c archive -- /bin/sh -ec \
+    'cat >/transfer/restore-manifest.json' <"${backup_path}.manifest.json"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    /bin/sh -ec 'touch /transfer/receipt-rebindings.json; chgrp 10001 /transfer/receipt-rebindings.json; chmod g+rw /transfer/receipt-rebindings.json'
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
-    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc mirror --overwrite --remove /transfer/restore storage/'"'${STORAGE_BUCKET}'"' >/dev/null; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/verify >/dev/null'
+    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc mirror --overwrite --remove /transfer/restore/current storage/'"'${STORAGE_BUCKET}'"' >/dev/null'
+  kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
+    python - rebind /transfer/restore /transfer/restore-manifest.json \
+    /transfer/receipt-rebindings.json \
+    <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
+    cat /transfer/receipt-rebindings.json >"${STORAGE_RECEIPT_REBINDING_FILE}"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
+    cat /transfer/restore/rebound-receipts/storage-receipt.json >"${STORAGE_RECEIPT_FILE}"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
+    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/verify >/dev/null'
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
     tar -C /transfer/verify -czf - . >"${verification_archive}"
   delete_storage_transfer_pod
@@ -1001,7 +1293,8 @@ write_restore_receipt() {
   local backup_path="$1"
   local pre_restore_path="$2"
   python3 - "${STORAGE_RESTORE_RECEIPT_FILE}" "${backup_path}" \
-    "${pre_restore_path}" "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+    "${pre_restore_path}" "${STORAGE_RECEIPT_REBINDING_FILE}" \
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -1010,17 +1303,23 @@ import sys
 
 backup = pathlib.Path(sys.argv[2]).resolve()
 pre_restore = pathlib.Path(sys.argv[3]).resolve()
+rebindings = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+if rebindings.get("receipt_identity_rebound") is not True:
+    raise SystemExit("restore receipt rebinding proof is incomplete")
 payload = {
-    "schema_version": 1,
+    "schema_version": 2,
     "receipt_type": "dev-integration-storage-restore",
-    "profile_id": sys.argv[4],
-    "kubernetes_namespace": sys.argv[5],
-    "bucket": sys.argv[6],
+    "profile_id": sys.argv[5],
+    "kubernetes_namespace": sys.argv[6],
+    "bucket": sys.argv[7],
     "restored_from": str(backup),
     "restored_archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
     "pre_restore_backup": str(pre_restore),
     "pre_restore_archive_sha256": hashlib.sha256(pre_restore.read_bytes()).hexdigest(),
     "content_addresses_preserved": True,
+    "version_ids_preserved": False,
+    "receipt_identity_rebound": True,
+    "receipt_rebindings": rebindings["receipt_rebindings"],
     "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
 }
 pathlib.Path(sys.argv[1]).write_text(

@@ -20,9 +20,10 @@ trap delete_storage_transfer_pod EXIT
 pre_restore_path="${BACKUPS_DIR}/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
 backup_evidence_storage "${pre_restore_path}" "${pre_restore_path}.receipt.json"
 restore_evidence_storage "${backup_path}"
+verify_storage_isolation
+refresh_storage_receipt_isolation
 write_restore_receipt "${backup_path}" "${pre_restore_path}"
-verify_storage_seed
-write_storage_receipt
+verify_storage_seed receipt
 trap - EXIT
 
 printf 'WGCF evidence restore completed from %s\n' "${backup_path}"

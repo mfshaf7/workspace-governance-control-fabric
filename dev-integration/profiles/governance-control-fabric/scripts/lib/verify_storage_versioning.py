@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import json
 import os
+from pathlib import Path
 import sys
 from urllib.error import HTTPError
 from urllib.parse import quote, urlsplit
@@ -134,10 +135,22 @@ def _require_version_id(version_id: str, label: str) -> str:
     return version_id
 
 
-def preserve_overwrite(client: S3Client, object_key: str, expected_digest: str) -> dict:
-    accepted_body, accepted_version_id = client.get(object_key)
+def preserve_overwrite(
+    client: S3Client,
+    object_key: str,
+    expected_digest: str,
+    accepted_version_id: str | None = None,
+) -> dict:
+    requested_version_id = accepted_version_id or None
+    accepted_body, response_version_id = client.get(
+        object_key,
+        version_id=requested_version_id,
+    )
+    accepted_version_id = response_version_id
     if _digest(accepted_body) != expected_digest:
         raise SystemExit("accepted evidence digest does not match the profile contract")
+    if requested_version_id is not None and accepted_version_id != requested_version_id:
+        raise SystemExit("existing receipt resolved a different accepted object version")
     accepted_version_materialized = not accepted_version_id or accepted_version_id == "null"
     if accepted_version_materialized:
         accepted_version_id = client.put(object_key, accepted_body)
@@ -247,13 +260,151 @@ def verify(
     }
 
 
+def _safe_package_path(package_root: Path, relative_path: str) -> Path:
+    candidate = (package_root / relative_path).resolve()
+    if package_root != candidate and package_root not in candidate.parents:
+        raise SystemExit(f"backup package path escapes its root: {relative_path}")
+    if not candidate.is_file():
+        raise SystemExit(f"backup package member is missing: {relative_path}")
+    return candidate
+
+
+def _storage_ref(profile_id: str, bucket: str, object_key: str, version_id: str) -> str:
+    return (
+        f"wgcf-storage://{profile_id}/{bucket}/{object_key}"
+        f"?versionId={_quote(version_id)}"
+    )
+
+
+def rebind_receipts(client: S3Client, package_root: Path, manifest: dict) -> dict:
+    package_root = package_root.resolve()
+    bindings = manifest.get("receipt_bindings")
+    if not isinstance(bindings, list) or not bindings:
+        raise SystemExit("restore manifest has no receipt-bound evidence")
+    if manifest.get("bucket") != client.bucket:
+        raise SystemExit("restore manifest bucket does not match the storage client")
+
+    rebound_root = package_root / "rebound-receipts"
+    rebound_root.mkdir(parents=True, exist_ok=True)
+    mappings = []
+    for binding in bindings:
+        receipt_name = binding.get("receipt_name")
+        object_key = binding.get("object_key")
+        expected_digest = binding.get("content_sha256")
+        prior_version_id = binding.get("prior_object_version_id")
+        if not all(
+            isinstance(value, str) and value
+            for value in (receipt_name, object_key, expected_digest, prior_version_id)
+        ):
+            raise SystemExit("restore manifest contains an invalid receipt binding")
+        if "/" in receipt_name or receipt_name in {".", ".."}:
+            raise SystemExit("restore manifest contains an unsafe receipt name")
+        body_path = _safe_package_path(package_root, binding["body_archive_path"])
+        receipt_path = _safe_package_path(package_root, binding["receipt_archive_path"])
+        current_path = _safe_package_path(package_root, binding["current_archive_path"])
+        bound_body = body_path.read_bytes()
+        current_body = current_path.read_bytes()
+        if _digest(bound_body) != expected_digest:
+            raise SystemExit(f"receipt-bound backup digest mismatch: {receipt_name}")
+
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        expected_receipt_fields = {
+            "object_key": object_key,
+            "object_version_id": prior_version_id,
+            "content_sha256": expected_digest,
+        }
+        if any(receipt.get(key) != value for key, value in expected_receipt_fields.items()):
+            raise SystemExit(f"receipt record does not match its backup binding: {receipt_name}")
+
+        rebound_version_id = _require_version_id(
+            client.put(object_key, bound_body),
+            f"receipt rebinding for {receipt_name}",
+        )
+        rebound_body, returned_version_id = client.get(
+            object_key,
+            version_id=rebound_version_id,
+        )
+        if returned_version_id != rebound_version_id or _digest(rebound_body) != expected_digest:
+            raise SystemExit(f"receipt rebinding verification failed: {receipt_name}")
+
+        current_version_id = _require_version_id(
+            client.put(object_key, current_body),
+            f"current object restore for {receipt_name}",
+        )
+        restored_current, returned_current_version_id = client.get(object_key)
+        if (
+            returned_current_version_id != current_version_id
+            or restored_current != current_body
+        ):
+            raise SystemExit(f"current object restore verification failed: {receipt_name}")
+
+        rebound_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace(
+            "+00:00",
+            "Z",
+        )
+        prior_storage_ref = receipt.get("storage_ref")
+        new_storage_ref = _storage_ref(
+            receipt["profile_id"],
+            receipt["bucket"],
+            object_key,
+            rebound_version_id,
+        )
+        receipt["object_version_id"] = rebound_version_id
+        receipt["storage_ref"] = new_storage_ref
+        receipt["verified_at"] = rebound_at
+        prior_version_preservation = receipt.pop("version_preservation", None)
+        if prior_version_preservation is not None:
+            receipt["pre_restore_version_preservation"] = prior_version_preservation
+        receipt["version_preservation"] = {
+            "accepted_version_preserved": True,
+            "restore_rebound": True,
+            "rebound_object_version_id": rebound_version_id,
+            "restored_current_version_id": current_version_id,
+        }
+        receipt["restore_supersession"] = {
+            "prior_object_version_id": prior_version_id,
+            "prior_storage_ref": prior_storage_ref,
+            "rebound_object_version_id": rebound_version_id,
+            "rebound_storage_ref": new_storage_ref,
+            "restored_current_version_id": current_version_id,
+            "content_sha256": expected_digest,
+            "superseded_at": rebound_at,
+        }
+        rebound_path = rebound_root / f"{receipt_name}.json"
+        rebound_path.write_text(
+            json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        mappings.append(receipt["restore_supersession"] | {"receipt_name": receipt_name})
+
+    return {
+        "schema_version": 1,
+        "bucket": client.bucket,
+        "version_ids_preserved": False,
+        "receipt_identity_rebound": True,
+        "receipt_rebindings": mappings,
+    }
+
+
 def main() -> int:
     if len(sys.argv) not in {4, 5}:
         raise SystemExit(
             "usage: verify_storage_versioning.py "
-            "preserve-overwrite|verify EXPECTED_SHA256 OBJECT_KEY [VERSION_ID]"
+            "preserve-overwrite|verify EXPECTED_SHA256 OBJECT_KEY [VERSION_ID], or "
+            "rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
         )
     mode = sys.argv[1]
+    if mode == "rebind" and len(sys.argv) == 5:
+        if "MINIO_ROOT_USER" in os.environ or "MINIO_ROOT_PASSWORD" in os.environ:
+            raise SystemExit("root storage credentials must not be exposed to the verifier")
+        package_root = Path(sys.argv[2])
+        manifest = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
+        result = rebind_receipts(S3Client(), package_root, manifest)
+        Path(sys.argv[4]).write_text(
+            json.dumps(result, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return 0
     expected_digest = sys.argv[2]
     object_key = sys.argv[3]
     if len(expected_digest) != 64:
@@ -262,8 +413,13 @@ def main() -> int:
         raise SystemExit("root storage credentials must not be exposed to the verifier")
 
     client = S3Client()
-    if mode == "preserve-overwrite" and len(sys.argv) == 4:
-        result = preserve_overwrite(client, object_key, expected_digest)
+    if mode == "preserve-overwrite" and len(sys.argv) in {4, 5}:
+        result = preserve_overwrite(
+            client,
+            object_key,
+            expected_digest,
+            sys.argv[4] if len(sys.argv) == 5 else None,
+        )
     elif mode == "verify" and len(sys.argv) == 5:
         result = verify(client, object_key, expected_digest, sys.argv[4])
     else:

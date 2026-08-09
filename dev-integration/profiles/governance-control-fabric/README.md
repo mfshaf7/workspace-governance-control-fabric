@@ -108,11 +108,20 @@ Use the shared platform runner:
 `CONFIRM=restore-wgcf-evidence` plus `DEVINT_BACKUP_FILE` pointing to a backup
 inside the operator-scoped profile state or reset archive.
 
+New backups are written directly under the profile `backups/` directory so
+confirmed reset can archive every recoverable bundle. A backup includes the
+current object set, the exact bytes of every receipt-bound version, and the
+receipt record that names that version. Object-store version IDs are
+server-assigned and therefore are not claimed to survive destructive storage
+rebuilds.
+
 Before clearing profile state, confirmed reset moves existing evidence backup
 bundles and manifests into the operator-scoped reset archive. Restore validates
-the current allowed location, archive digest, and every object record; the
-original absolute backup path remains provenance rather than recovery
-authority.
+the current allowed location, archive digest, every current object, and every
+receipt-bound version before mutation. It then creates a new immutable version,
+reissues the local receipt to that version, records an old-to-new supersession
+map, and restores the backed-up current object. The original absolute backup
+path remains provenance rather than recovery authority.
 
 `up`, `smoke`, `down`, `backup`, `restore`, and `reset` refuse to run when the
 workspace authority registry or its referenced Platform acceptance record is
@@ -152,7 +161,7 @@ The governed `stage` handoff is not ready until it proves:
 - profile-scoped evidence storage availability
 - storage credential and network isolation
 - version-bound content digest and storage receipt verification
-- content-address-preserving backup and restore
+- content-address-preserving backup and receipt-rebinding restore
 - explicit retention and deletion boundary
 - governed encryption identity and Security approval
 

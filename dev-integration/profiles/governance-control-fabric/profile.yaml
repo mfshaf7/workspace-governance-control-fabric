@@ -33,13 +33,17 @@ authority:
     profile_id: governance-control-fabric
     platform_acceptance_ref: repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md
     required_actions:
+      - up
+      - smoke
+      - down
+      - reset
       - backup
       - restore
     required_stage_checks:
       - profile-scoped evidence storage availability
       - storage credential and network isolation
       - version-bound content digest and storage receipt verification
-      - content-address-preserving backup and restore
+      - content-address-preserving backup and receipt-rebinding restore
       - explicit retention and deletion boundary
 testing:
   smoke:
@@ -89,6 +93,6 @@ stage_handoff:
     - profile-scoped evidence storage availability
     - storage credential and network isolation
     - version-bound content digest and storage receipt verification
-    - content-address-preserving backup and restore
+    - content-address-preserving backup and receipt-rebinding restore
     - explicit retention and deletion boundary
     - governed encryption identity and Security approval

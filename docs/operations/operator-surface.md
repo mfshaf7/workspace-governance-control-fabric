@@ -144,10 +144,13 @@ make devint-reset PROFILE=governance-control-fabric \
 make devint-promote-check PROFILE=governance-control-fabric
 ```
 
-`down` preserves PostgreSQL and object-storage PVCs. `backup` records object
-digests without credentials. `restore` validates the archive and every object
-against its manifest before mutation, captures a pre-restore backup, and then
-proves restored content addresses. `reset` is destructive and fails closed
+`down` preserves PostgreSQL and object-storage PVCs. `backup` records current
+objects and exact receipt-bound bytes without credentials, and writes only
+under the reset-archived profile backup directory. `restore` validates the
+archive and every object against its manifest before mutation, captures a
+pre-restore backup, creates new server-assigned object versions, rebinds each
+receipt to its new immutable version with an explicit supersession map, and
+then proves restored content addresses. `reset` is destructive and fails closed
 without the exact confirmation above. Before clearing profile state, confirmed
 reset preserves existing backup bundles and manifests in the operator-scoped
 reset archive so the documented restore path remains usable.

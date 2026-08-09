@@ -42,35 +42,79 @@ def collect_secret_refs(pod: dict[str, Any]) -> set[str]:
 def classify_pod(
     pod: dict[str, Any],
     *,
-    api_name: str,
-    storage_name: str,
-    provision_name: str,
-    transfer_name: str,
+    api_replica_sets: set[tuple[str, str]],
+    storage_controller: tuple[str, str],
+    provision_controller: tuple[str, str],
     api_service_account: str,
     storage_service_account: str,
     maintenance_service_account: str,
 ) -> str | None:
     metadata = pod.get("metadata") or {}
     spec = pod.get("spec") or {}
-    name = metadata.get("name", "")
     labels = metadata.get("labels") or {}
     component = labels.get("app.kubernetes.io/component")
     service_account = spec.get("serviceAccountName")
     owners = {
-        (owner.get("kind"), owner.get("name"))
+        (owner.get("name"), owner.get("uid"))
         for owner in metadata.get("ownerReferences") or []
+        if owner.get("controller") is True
     }
-    if component == "api" and service_account == api_service_account and name.startswith(f"{api_name}-"):
+    if (
+        component == "api"
+        and service_account == api_service_account
+        and bool(owners.intersection(api_replica_sets))
+    ):
         return "api"
     if component == "object-storage" and service_account == storage_service_account:
-        if ("StatefulSet", storage_name) in owners:
+        if storage_controller in owners:
             return "storage"
     if component == "object-storage-maintenance" and service_account == maintenance_service_account:
-        if ("Job", provision_name) in owners:
+        if provision_controller in owners:
             return "provision"
-        if name == transfer_name and not owners:
-            return "transfer"
     return None
+
+
+def controller_identity(controller: dict[str, Any], *, kind: str, name: str) -> tuple[str, str]:
+    metadata = controller.get("metadata") or {}
+    if controller.get("kind") != kind or metadata.get("name") != name:
+        raise ValueError(f"expected {kind} controller {name} is unavailable")
+    uid = metadata.get("uid")
+    if not isinstance(uid, str) or not uid:
+        raise ValueError(f"{kind} controller {name} has no UID")
+    return name, uid
+
+
+def api_replica_set_identities(
+    replica_sets: list[dict[str, Any]],
+    deployment: dict[str, Any],
+    *,
+    api_name: str,
+) -> set[tuple[str, str]]:
+    deployment_identity = controller_identity(deployment, kind="Deployment", name=api_name)
+    identities: set[tuple[str, str]] = set()
+    for replica_set in replica_sets:
+        metadata = replica_set.get("metadata") or {}
+        owners = {
+            (owner.get("name"), owner.get("uid"))
+            for owner in metadata.get("ownerReferences") or []
+            if owner.get("kind") == "Deployment" and owner.get("controller") is True
+        }
+        if deployment_identity not in owners:
+            continue
+        name = metadata.get("name")
+        uid = metadata.get("uid")
+        if isinstance(name, str) and name and isinstance(uid, str) and uid:
+            identities.add((name, uid))
+    if not identities:
+        raise ValueError(f"Deployment {api_name} has no owned ReplicaSet")
+    return identities
+
+
+def job_identity(jobs: list[dict[str, Any]], *, name: str) -> tuple[str, str]:
+    matches = [job for job in jobs if (job.get("metadata") or {}).get("name") == name]
+    if len(matches) != 1:
+        raise ValueError(f"expected Job controller {name} is unavailable")
+    return controller_identity(matches[0], kind="Job", name=name)
 
 
 def validate_network_policy(
@@ -117,11 +161,14 @@ def validate_network_policy(
 def verify_isolation(
     pods: list[dict[str, Any]],
     network_policy: dict[str, Any],
+    deployment: dict[str, Any],
+    replica_sets: list[dict[str, Any]],
+    stateful_set: dict[str, Any],
+    jobs: list[dict[str, Any]],
     *,
     api_name: str,
     storage_name: str,
     provision_name: str,
-    transfer_name: str,
     api_service_account: str,
     storage_service_account: str,
     maintenance_service_account: str,
@@ -130,6 +177,17 @@ def verify_isolation(
     app_label: str,
     profile_id: str,
 ) -> dict[str, Any]:
+    api_controllers = api_replica_set_identities(
+        replica_sets,
+        deployment,
+        api_name=api_name,
+    )
+    storage_controller = controller_identity(
+        stateful_set,
+        kind="StatefulSet",
+        name=storage_name,
+    )
+    provision_controller = job_identity(jobs, name=provision_name)
     pod_refs = {
         (pod.get("metadata") or {}).get("name", ""): collect_secret_refs(pod)
         for pod in pods
@@ -137,10 +195,9 @@ def verify_isolation(
     pod_roles = {
         (pod.get("metadata") or {}).get("name", ""): classify_pod(
             pod,
-            api_name=api_name,
-            storage_name=storage_name,
-            provision_name=provision_name,
-            transfer_name=transfer_name,
+            api_replica_sets=api_controllers,
+            storage_controller=storage_controller,
+            provision_controller=provision_controller,
             api_service_account=api_service_account,
             storage_service_account=storage_service_account,
             maintenance_service_account=maintenance_service_account,
@@ -150,10 +207,10 @@ def verify_isolation(
     app_holders = sorted(name for name, refs in pod_refs.items() if app_secret in refs)
     root_holders = sorted(name for name, refs in pod_refs.items() if root_secret in refs)
     unexpected_app = [
-        name for name in app_holders if pod_roles.get(name) not in {"api", "provision", "transfer"}
+        name for name in app_holders if pod_roles.get(name) not in {"api", "provision"}
     ]
     unexpected_root = [
-        name for name in root_holders if pod_roles.get(name) not in {"storage", "provision", "transfer"}
+        name for name in root_holders if pod_roles.get(name) not in {"storage", "provision"}
     ]
     if unexpected_app:
         raise ValueError(f"application storage credential leaked to pods: {unexpected_app}")
@@ -187,23 +244,34 @@ def verify_isolation(
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 14:
+    if len(argv) != 17:
         raise SystemExit("expected output, pod, policy, workload, credential, and profile arguments")
-    output_path, pods_path, policy_path = map(Path, argv[:3])
+    (
+        output_path,
+        pods_path,
+        policy_path,
+        deployment_path,
+        replica_sets_path,
+        stateful_set_path,
+        jobs_path,
+    ) = map(Path, argv[:7])
     payload = verify_isolation(
         json.loads(pods_path.read_text(encoding="utf-8"))["items"],
         json.loads(policy_path.read_text(encoding="utf-8")),
-        api_name=argv[3],
-        storage_name=argv[4],
-        provision_name=argv[5],
-        transfer_name=argv[6],
-        api_service_account=argv[7],
-        storage_service_account=argv[8],
-        maintenance_service_account=argv[9],
-        app_secret=argv[10],
-        root_secret=argv[11],
-        app_label=argv[12],
-        profile_id=argv[13],
+        json.loads(deployment_path.read_text(encoding="utf-8")),
+        json.loads(replica_sets_path.read_text(encoding="utf-8"))["items"],
+        json.loads(stateful_set_path.read_text(encoding="utf-8")),
+        json.loads(jobs_path.read_text(encoding="utf-8"))["items"],
+        api_name=argv[7],
+        storage_name=argv[8],
+        provision_name=argv[9],
+        api_service_account=argv[10],
+        storage_service_account=argv[11],
+        maintenance_service_account=argv[12],
+        app_secret=argv[13],
+        root_secret=argv[14],
+        app_label=argv[15],
+        profile_id=argv[16],
     )
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0

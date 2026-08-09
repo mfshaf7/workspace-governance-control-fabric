@@ -99,7 +99,7 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("backup", profile["commands"])
         self.assertIn("restore", profile["commands"])
         self.assertIn(
-            "content-address-preserving backup and restore",
+            "content-address-preserving backup and receipt-rebinding restore",
             profile["stage_handoff"]["required_checks"],
         )
         self.assertEqual(
@@ -119,7 +119,7 @@ class DevIntegrationProfileTests(TestCase):
         )
         self.assertEqual(
             profile["authority"]["activation_contract"]["required_actions"],
-            ["backup", "restore"],
+            ["up", "smoke", "down", "reset", "backup", "restore"],
         )
         self.assertFalse((SCRIPTS_ROOT / "_proposed-profile.sh").exists())
 
@@ -352,6 +352,91 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(proof["restored_version_id"], "version-3")
         self.assertEqual(storage.get("ignored", version_id="version-1")[0], body)
 
+    def test_existing_receipt_version_remains_stable_across_reconciliation(self) -> None:
+        body = b'{"evidence":"accepted"}'
+        expected_digest = hashlib.sha256(body).hexdigest()
+        storage = FakeVersionedStorage(body)
+        storage.put("ignored", b'{"evidence":"new-current"}')
+
+        proof = VERSIONING_MODULE.preserve_overwrite(
+            storage,
+            "profile-proof/evidence-custody-v1.json",
+            expected_digest,
+            "version-1",
+        )
+
+        self.assertEqual(proof["accepted_version_id"], "version-1")
+        self.assertEqual(storage.get("ignored", version_id="version-1")[0], body)
+        self.assertEqual(storage.get("ignored")[0], body)
+
+    def test_restore_rebinds_receipt_identity_and_restores_current_object(self) -> None:
+        accepted_body = b'{"evidence":"accepted"}'
+        current_body = b'{"evidence":"current"}'
+        expected_digest = hashlib.sha256(accepted_body).hexdigest()
+        storage = FakeVersionedStorage(b"pre-restore")
+        with tempfile.TemporaryDirectory(prefix="wgcf-rebind-") as temp_dir:
+            package_root = Path(temp_dir)
+            (package_root / "current/profile-proof").mkdir(parents=True)
+            (package_root / "receipt-bound").mkdir()
+            (package_root / "receipt-records").mkdir()
+            (package_root / "current/profile-proof/evidence.json").write_bytes(current_body)
+            (package_root / "receipt-bound/storage-receipt.bin").write_bytes(accepted_body)
+            old_ref = (
+                "wgcf-storage://governance-control-fabric/"
+                "wgcf-delivery-art-evidence/profile-proof/evidence.json"
+                "?versionId=old-version"
+            )
+            receipt = {
+                "schema_version": 2,
+                "receipt_type": "dev-integration-storage",
+                "profile_id": "governance-control-fabric",
+                "bucket": "wgcf-delivery-art-evidence",
+                "object_key": "profile-proof/evidence.json",
+                "object_version_id": "old-version",
+                "content_sha256": expected_digest,
+                "storage_ref": old_ref,
+            }
+            (package_root / "receipt-records/storage-receipt.json").write_text(
+                json.dumps(receipt),
+                encoding="utf-8",
+            )
+            manifest = {
+                "bucket": "wgcf-delivery-art-evidence",
+                "receipt_bindings": [
+                    {
+                        "receipt_name": "storage-receipt",
+                        "object_key": "profile-proof/evidence.json",
+                        "prior_object_version_id": "old-version",
+                        "content_sha256": expected_digest,
+                        "body_archive_path": "receipt-bound/storage-receipt.bin",
+                        "receipt_archive_path": "receipt-records/storage-receipt.json",
+                        "current_archive_path": "current/profile-proof/evidence.json",
+                    },
+                ],
+            }
+
+            result = VERSIONING_MODULE.rebind_receipts(storage, package_root, manifest)
+
+            mapping = result["receipt_rebindings"][0]
+            self.assertEqual(mapping["prior_object_version_id"], "old-version")
+            self.assertEqual(mapping["rebound_object_version_id"], "version-2")
+            self.assertEqual(mapping["restored_current_version_id"], "version-3")
+            self.assertEqual(
+                storage.get("ignored", version_id="version-2")[0],
+                accepted_body,
+            )
+            self.assertEqual(storage.get("ignored")[0], current_body)
+            rebound_receipt = json.loads(
+                (package_root / "rebound-receipts/storage-receipt.json").read_text(
+                    encoding="utf-8",
+                ),
+            )
+            self.assertEqual(rebound_receipt["object_version_id"], "version-2")
+            self.assertEqual(
+                rebound_receipt["restore_supersession"]["prior_storage_ref"],
+                old_ref,
+            )
+
     def test_restore_preflight_rejects_manifest_object_tampering(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-restore-") as temp_dir:
@@ -359,21 +444,54 @@ class DevIntegrationProfileTests(TestCase):
             backup = state_root / "backups/evidence.tar.gz"
             backup.parent.mkdir(parents=True)
             body = b"evidence-body"
+            receipt = {
+                "schema_version": 2,
+                "receipt_type": "dev-integration-storage",
+                "object_key": "artifact/evidence.json",
+                "object_version_id": "version-before-backup",
+                "content_sha256": hashlib.sha256(body).hexdigest(),
+                "storage_ref": "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/artifact/evidence.json?versionId=version-before-backup",
+            }
+            receipt_body = json.dumps(receipt).encode()
             with tarfile.open(backup, "w:gz") as bundle:
-                member = tarfile.TarInfo("artifact/evidence.json")
-                member.size = len(body)
-                bundle.addfile(member, io.BytesIO(body))
+                for name, content in (
+                    ("current/artifact/evidence.json", body),
+                    ("receipt-bound/storage-receipt.bin", body),
+                    ("receipt-records/storage-receipt.json", receipt_body),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(content)
+                    bundle.addfile(member, io.BytesIO(content))
             manifest = {
+                "schema_version": 2,
                 "archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
                 "backup_path": str(backup.resolve()),
                 "bucket": "wgcf-delivery-art-evidence",
                 "credentials_included": False,
                 "kubernetes_namespace": "devint-governance-control-fabric-test",
+                "version_ids_preserved": False,
+                "restore_requires_receipt_rebinding": True,
                 "objects": [
                     {
                         "object_key": "artifact/evidence.json",
+                        "archive_path": "current/artifact/evidence.json",
                         "sha256": hashlib.sha256(body).hexdigest(),
                         "size": len(body),
+                    },
+                ],
+                "receipt_bindings": [
+                    {
+                        "receipt_name": "storage-receipt",
+                        "receipt_archive_path": "receipt-records/storage-receipt.json",
+                        "body_archive_path": "receipt-bound/storage-receipt.bin",
+                        "current_archive_path": "current/artifact/evidence.json",
+                        "object_key": "artifact/evidence.json",
+                        "prior_object_version_id": "version-before-backup",
+                        "prior_storage_ref": receipt["storage_ref"],
+                        "content_sha256": hashlib.sha256(body).hexdigest(),
+                        "body_size": len(body),
+                        "receipt_record_sha256": hashlib.sha256(receipt_body).hexdigest(),
+                        "receipt_record_size": len(receipt_body),
                     },
                 ],
                 "profile_id": "governance-control-fabric",
@@ -478,6 +596,49 @@ class DevIntegrationProfileTests(TestCase):
             self.assertTrue((archive_path / manifest.name).is_file())
             self.assertFalse(backup.exists())
 
+    def test_backup_output_is_confined_to_the_archived_backups_directory(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-backup-path-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backups_dir = state_root / "backups"
+            backups_dir.mkdir(parents=True)
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            command = f"source {SCRIPTS_ROOT / 'common.sh'}; validate_backup_output_path"
+            accepted_path = backups_dir / "evidence.tar.gz"
+            accepted = subprocess.run(
+                ["bash", "-c", f"{command} {accepted_path}"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(Path(accepted.stdout.strip()), accepted_path)
+
+            rejected = subprocess.run(
+                ["bash", "-c", f"{command} {state_root / 'custom.tar.gz'}"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("backups directory", rejected.stderr)
+
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-security-") as temp_dir:
@@ -490,10 +651,31 @@ class DevIntegrationProfileTests(TestCase):
             review_path.parent.mkdir(parents=True)
             review_body = b"# Approved local evidence-custody review\n"
             review_path.write_bytes(review_body)
+            security_repo = workspace_root / "security-architecture"
+            subprocess.run(["git", "init", "-q", str(security_repo)], check=True)
+            subprocess.run(
+                ["git", "-C", str(security_repo), "config", "user.name", "WGCF Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(security_repo), "config", "user.email", "wgcf@example.invalid"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(security_repo), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(security_repo), "commit", "-q", "-m", "security review"],
+                check=True,
+            )
+            source_commit = subprocess.run(
+                ["git", "-C", str(security_repo), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
             profile["security"]["activation_review_refs"][0]["content_sha256"] = (
                 hashlib.sha256(review_body).hexdigest()
             )
-            profile["security"]["activation_review_refs"][0]["source_commit"] = "a" * 40
+            profile["security"]["activation_review_refs"][0]["source_commit"] = source_commit
             env = {
                 **os.environ,
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
@@ -527,10 +709,10 @@ class DevIntegrationProfileTests(TestCase):
                 capture_output=True,
                 check=False,
             )
-            self.assertNotEqual(changed.returncode, 0)
-            self.assertIn("pinned digest", changed.stderr)
+            self.assertEqual(changed.returncode, 0, changed.stderr)
 
-            review_path.unlink()
+            profile["security"]["activation_review_refs"][0]["source_commit"] = "a" * 40
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
             denied = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
@@ -540,7 +722,21 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertNotEqual(denied.returncode, 0)
-            self.assertIn("Security review is unavailable", denied.stderr)
+            self.assertIn("unavailable at its pinned commit", denied.stderr)
+
+            profile["security"]["activation_review_refs"][0]["source_commit"] = source_commit
+            profile["security"]["activation_review_refs"][0]["content_sha256"] = "0" * 64
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+            wrong_digest = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(wrong_digest.returncode, 0)
+            self.assertIn("pinned digest", wrong_digest.stderr)
 
     def test_storage_activation_requires_workspace_authority_contract(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
@@ -566,7 +762,7 @@ class DevIntegrationProfileTests(TestCase):
                         "2026-08-09-wgcf-devint-evidence-storage.md"
                     ),
                 },
-                "actions": ["up", "backup", "restore"],
+                "actions": ["up", "smoke", "down", "reset", "backup", "restore"],
                 "stage_handoff": {
                     "required_checks": profile["authority"]["activation_contract"][
                         "required_stage_checks"
@@ -601,7 +797,7 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
 
-            registered_profile["actions"].remove("restore")
+            registered_profile["actions"].remove("smoke")
             registry_path.write_text(
                 yaml.safe_dump({"profiles": {"governance-control-fabric": registered_profile}}),
                 encoding="utf-8",
@@ -669,6 +865,87 @@ class DevIntegrationProfileTests(TestCase):
                 "image-pull-secret",
             },
         )
+
+    def test_storage_isolation_requires_controller_uid_ownership(self) -> None:
+        deployment = {
+            "kind": "Deployment",
+            "metadata": {"name": "wgcf-api", "uid": "deployment-uid"},
+        }
+        replica_sets = [
+            {
+                "kind": "ReplicaSet",
+                "metadata": {
+                    "name": "wgcf-api-abc",
+                    "uid": "replica-set-uid",
+                    "ownerReferences": [
+                        {
+                            "kind": "Deployment",
+                            "name": "wgcf-api",
+                            "uid": "deployment-uid",
+                            "controller": True,
+                        },
+                    ],
+                },
+            },
+            {
+                "kind": "ReplicaSet",
+                "metadata": {
+                    "name": "wgcf-api-spoof",
+                    "uid": "spoof-replica-set-uid",
+                    "ownerReferences": [
+                        {
+                            "kind": "Deployment",
+                            "name": "wgcf-api",
+                            "uid": "wrong-deployment-uid",
+                            "controller": True,
+                        },
+                    ],
+                },
+            },
+        ]
+        controllers = ISOLATION_MODULE.api_replica_set_identities(
+            replica_sets,
+            deployment,
+            api_name="wgcf-api",
+        )
+        self.assertEqual(controllers, {("wgcf-api-abc", "replica-set-uid")})
+
+        pod = {
+            "metadata": {
+                "labels": {"app.kubernetes.io/component": "api"},
+                "ownerReferences": [
+                    {
+                        "kind": "ReplicaSet",
+                        "name": "wgcf-api-abc",
+                        "uid": "replica-set-uid",
+                        "controller": True,
+                    },
+                ],
+            },
+            "spec": {"serviceAccountName": "wgcf-api"},
+        }
+        common = {
+            "api_replica_sets": controllers,
+            "storage_controller": ("wgcf-storage", "storage-uid"),
+            "provision_controller": ("wgcf-provision", "provision-uid"),
+            "api_service_account": "wgcf-api",
+            "storage_service_account": "wgcf-storage",
+            "maintenance_service_account": "wgcf-maintenance",
+        }
+        self.assertEqual(ISOLATION_MODULE.classify_pod(pod, **common), "api")
+
+        spoof = json.loads(json.dumps(pod))
+        spoof["metadata"]["ownerReferences"][0]["uid"] = "spoof-replica-set-uid"
+        self.assertIsNone(ISOLATION_MODULE.classify_pod(spoof, **common))
+
+        transfer = {
+            "metadata": {
+                "name": "wgcf-storage-transfer",
+                "labels": {"app.kubernetes.io/component": "object-storage-maintenance"},
+            },
+            "spec": {"serviceAccountName": "wgcf-maintenance"},
+        }
+        self.assertIsNone(ISOLATION_MODULE.classify_pod(transfer, **common))
 
     def test_storage_isolation_validates_complete_network_policy(self) -> None:
         policy = {
