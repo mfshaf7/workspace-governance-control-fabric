@@ -549,7 +549,9 @@ Current execution behavior:
   controls
 - enforces manifest-declared command allowlists, allowed roots, safety classes,
   profiles, invocation classes, and output budgets before invocation
-- writes full stdout/stderr to local artifact files
+- writes full stdout/stderr to local artifact files for CLI and API callers
+- does not publish validation-run command output to the Delivery ART artifact
+  store because command output is not an approved registry artifact class
 - includes only artifact refs, digests, byte counts, line counts, exit codes,
   duration, planner decision, and outcome in receipts
 - includes a compact artifact custody summary in receipts with artifact ids,
@@ -569,6 +571,13 @@ profiles, then append a fabric-local ledger event for the readiness decision.
 CLI `wgcf run --plan` and API-side database persistence wiring remain later
 slices. The Temporal activity adapter exists but stays disabled until runtime
 activation is accepted.
+
+The dev-integration profile separately provisions versioned object storage and
+an API workload identity for the Delivery ART registry introduced by #810. Its
+seed and lifecycle probes prove the storage boundary but do not constitute
+registry operating evidence. The registry may persist only the artifact classes
+accepted by the routed Security review; arbitrary command output remains out of
+scope.
 
 Policy admission uses the schemas and policies at:
 

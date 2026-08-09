@@ -502,6 +502,10 @@ class DevIntegrationProfileTests(TestCase):
             'restore_evidence_storage "${STORAGE_RESTORE_INPUT_ARCHIVE}"',
             restore_source,
         )
+        self.assertLess(
+            restore_source.index("verify_storage_seed receipt"),
+            restore_source.index("write_restore_receipt"),
+        )
         self.assertIn('"reset-wgcf-evidence"', reset_source)
         self.assertIn('"restore-wgcf-evidence"', restore_source)
         for script_name in ("backup.sh", "restore.sh"):
@@ -1161,7 +1165,7 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertNotEqual(tampered.returncode, 0)
-            self.assertIn("configured seed digest", tampered.stderr)
+            self.assertIn("archive objects do not match", tampered.stderr)
 
             manifest["objects"][0]["sha256"] = hashlib.sha256(body).hexdigest()
             with tarfile.open(archived_backup, "w:gz") as bundle:
@@ -1189,6 +1193,65 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(unsafe_member.returncode, 0)
             self.assertIn("unsupported member", unsafe_member.stderr)
+
+    def test_restore_preflight_accepts_overwritten_current_seed_version(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-restore-overwrite-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backup = state_root / "backups/evidence.tar.gz"
+            backup.parent.mkdir(parents=True)
+            manifest_path = write_valid_storage_backup(
+                backup,
+                "devint-governance-control-fabric-test",
+            )
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            object_key = manifest["objects"][0]["object_key"]
+            binding = manifest["receipt_bindings"][0]
+            with tarfile.open(backup, "r:gz") as bundle:
+                bound_body = bundle.extractfile(binding["body_archive_path"]).read()
+                receipt_body = bundle.extractfile(binding["receipt_archive_path"]).read()
+            current_body = b'{"proof":"healthy-current-overwrite"}\n'
+            with tarfile.open(backup, "w:gz") as bundle:
+                for name, content in (
+                    (f"current/{object_key}", current_body),
+                    (binding["body_archive_path"], bound_body),
+                    (binding["receipt_archive_path"], receipt_body),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(content)
+                    bundle.addfile(member, io.BytesIO(content))
+            manifest["objects"][0]["sha256"] = hashlib.sha256(current_body).hexdigest()
+            manifest["objects"][0]["size"] = len(current_body)
+            manifest["archive_sha256"] = hashlib.sha256(backup.read_bytes()).hexdigest()
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+
+            validated = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; validate_backup_for_restore {backup}",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(validated.returncode, 0, validated.stderr)
 
     def test_reset_archives_recoverable_storage_backups(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

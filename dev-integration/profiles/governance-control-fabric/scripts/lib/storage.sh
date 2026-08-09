@@ -1865,8 +1865,6 @@ for item in manifest.get("objects") or []:
     if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
         raise SystemExit(f"restore manifest contains invalid object evidence: {object_key}")
     if object_key == seed_key:
-        if digest != seed_digest:
-            raise SystemExit("restore manifest seed object does not match the configured seed digest")
         seed_object_seen = True
     expected[archive_path] = (digest, size)
 if not expected:

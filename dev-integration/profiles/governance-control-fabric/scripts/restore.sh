@@ -38,9 +38,9 @@ esac
 restore_evidence_storage "${STORAGE_RESTORE_INPUT_ARCHIVE}"
 verify_storage_isolation
 refresh_storage_receipt_isolation
+verify_storage_seed receipt
 write_restore_receipt "${STORAGE_RESTORE_INPUT_ARCHIVE}" "${pre_restore_path}" \
   "${backup_path}" "${pre_restore_state}"
-verify_storage_seed receipt
 cleanup_storage_restore_input
 trap - EXIT
 

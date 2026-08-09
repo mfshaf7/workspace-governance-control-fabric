@@ -50,6 +50,13 @@ The local object store is deliberately bounded:
 
 - the API ServiceAccount receives a bucket-scoped access key through its own
   Kubernetes Secret
+- the profile seed uses that identity to prove server-assigned version IDs,
+  exact-version readback, overwrite preservation, and deletion denial
+- validation-run stdout/stderr remains local command output and is not admitted
+  to this store; the Delivery ART registry introduced by #810 is the first
+  approved consumer and is limited to Security-approved artifact classes
+- profile status and smoke evidence prove the storage foundation only; they do
+  not claim that the Delivery ART artifact registry is operational
 - the root-user and application access-key names are fixed identities; rotation
   replaces both secret values as one operation so no superseded MinIO user
   remains active; a namespace-local pending-rotation Secret retains the old
