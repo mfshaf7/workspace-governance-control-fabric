@@ -427,13 +427,13 @@ class DevIntegrationProfileTests(TestCase):
             profile["authority"]["activation_contract"][
                 "platform_acceptance_source_commit"
             ],
-            "58a2e6f963e46d8bd76ae4495d93414945bca973",
+            "9cf9c20483287fa6fd170b1af25a30bb64cd5fa3",
         )
         self.assertEqual(
             profile["authority"]["activation_contract"][
                 "platform_acceptance_content_sha256"
             ],
-            "8a7116ddb856ba60cc6d4a957edca54e41312e8fb54e61bdd1692d43dee95f40",
+            "c774d14cdd6c52a5661243be4031b85a9e65021f590075eba6b5455c6b5073fb",
         )
         self.assertEqual(
             profile["authority"]["activation_contract"]["required_actions"],

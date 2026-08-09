@@ -34,8 +34,8 @@ authority:
     authority_source_commit: 564a63aadbf1214da827503525ba030f38e17e79
     authority_content_sha256: c23f42c3040d4376af46bcec2ff53d3e6810540ab34e4b97ae00dab78a427da6
     platform_acceptance_ref: repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md
-    platform_acceptance_source_commit: 58a2e6f963e46d8bd76ae4495d93414945bca973
-    platform_acceptance_content_sha256: 8a7116ddb856ba60cc6d4a957edca54e41312e8fb54e61bdd1692d43dee95f40
+    platform_acceptance_source_commit: 9cf9c20483287fa6fd170b1af25a30bb64cd5fa3
+    platform_acceptance_content_sha256: c774d14cdd6c52a5661243be4031b85a9e65021f590075eba6b5455c6b5073fb
     required_actions:
       - up
       - smoke
