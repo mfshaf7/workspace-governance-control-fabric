@@ -23,6 +23,7 @@ fi
 
 readonly STORAGE_RESTORE_VALIDATED_ARCHIVE="/proc/self/fd/${WGCF_RESTORE_ARCHIVE_FD:?}"
 readonly STORAGE_RESTORE_VALIDATED_MANIFEST="/proc/self/fd/${WGCF_RESTORE_MANIFEST_FD:?}"
+readonly STORAGE_RESTORE_SELECTED_BACKUP_PATH="${WGCF_RESTORE_SELECTED_BACKUP_PATH:?}"
 trap 'delete_storage_transfer_pod; cleanup_storage_backup_staging' EXIT
 validate_backup_for_restore \
   "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" \
@@ -55,10 +56,10 @@ verify_storage_network_enforcement
 refresh_storage_receipt_isolation
 verify_storage_seed receipt
 write_restore_receipt "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" "${pre_restore_path}" \
-  "${backup_path}" "${pre_restore_state}"
+  "${STORAGE_RESTORE_SELECTED_BACKUP_PATH}" "${pre_restore_state}"
 trap - EXIT
 
-printf 'WGCF evidence restore completed from %s\n' "${backup_path}"
+printf 'WGCF evidence restore completed from %s\n' "${STORAGE_RESTORE_SELECTED_BACKUP_PATH}"
 printf 'Pre-restore state: %s\n' "${pre_restore_state}"
 if [[ -n "${pre_restore_path}" ]]; then
   printf 'Pre-restore backup written to %s\n' "${pre_restore_path}"

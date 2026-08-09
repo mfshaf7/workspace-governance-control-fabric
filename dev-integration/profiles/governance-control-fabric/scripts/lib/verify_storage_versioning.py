@@ -316,6 +316,85 @@ def _storage_ref(profile_id: str, bucket: str, object_key: str, version_id: str)
     )
 
 
+def normalize_version_preservation(version_preservation: object, receipt_name: str) -> dict:
+    if (
+        not isinstance(version_preservation, dict)
+        or version_preservation.get("accepted_version_preserved") is not True
+    ):
+        raise SystemExit(f"restore receipt has invalid version preservation: {receipt_name}")
+    if version_preservation.get("same_key_overwrite_proved") is True:
+        expected_version_keys = {
+            "accepted_version_preserved",
+            "same_key_overwrite_proved",
+            "overwrite_version_id",
+            "restored_version_id",
+        }
+        required_version_fields = ("overwrite_version_id", "restored_version_id")
+    elif version_preservation.get("restore_rebound") is True:
+        expected_version_keys = {
+            "accepted_version_preserved",
+            "restore_rebound",
+            "rebound_object_version_id",
+            "restored_current_version_id",
+        }
+        required_version_fields = (
+            "rebound_object_version_id",
+            "restored_current_version_id",
+        )
+    else:
+        raise SystemExit(f"restore receipt has unsupported version proof: {receipt_name}")
+    if set(version_preservation) != expected_version_keys:
+        raise SystemExit(f"restore receipt has unsupported version claims: {receipt_name}")
+    if not all(
+        isinstance(version_preservation.get(field), str)
+        and version_preservation[field]
+        for field in required_version_fields
+    ):
+        raise SystemExit(f"restore receipt has incomplete version proof: {receipt_name}")
+    return {key: version_preservation[key] for key in sorted(expected_version_keys)}
+
+
+def normalize_restore_supersession(
+    claim: object,
+    *,
+    active_scope: dict[str, str],
+    object_key: str,
+    current_version_id: str,
+    restored_current_version_id: str,
+    content_digest: str,
+    current_storage_ref: str,
+    receipt_name: str,
+) -> dict:
+    expected_keys = {
+        "prior_object_version_id",
+        "prior_storage_ref",
+        "rebound_object_version_id",
+        "rebound_storage_ref",
+        "restored_current_version_id",
+        "content_sha256",
+        "superseded_at",
+    }
+    if not isinstance(claim, dict) or set(claim) != expected_keys:
+        raise SystemExit(f"restore receipt has unsupported supersession claims: {receipt_name}")
+    if not all(isinstance(claim.get(key), str) and claim[key] for key in expected_keys):
+        raise SystemExit(f"restore receipt has incomplete supersession proof: {receipt_name}")
+    expected_prior_ref = _storage_ref(
+        active_scope["profile_id"],
+        active_scope["bucket"],
+        object_key,
+        claim["prior_object_version_id"],
+    )
+    if (
+        claim["prior_storage_ref"] != expected_prior_ref
+        or claim["rebound_object_version_id"] != current_version_id
+        or claim["rebound_storage_ref"] != current_storage_ref
+        or claim["restored_current_version_id"] != restored_current_version_id
+        or claim["content_sha256"] != content_digest
+    ):
+        raise SystemExit(f"restore receipt has invalid supersession binding: {receipt_name}")
+    return {key: claim[key] for key in sorted(expected_keys)}
+
+
 def validate_storage_receipt(
     receipt: dict,
     *,
@@ -363,41 +442,10 @@ def validate_storage_receipt(
     for field in ("credential_isolation_verified_at", "verified_at"):
         if not isinstance(receipt.get(field), str) or not receipt[field]:
             raise SystemExit(f"restore receipt has invalid {field}: {receipt_name}")
-    version_preservation = receipt.get("version_preservation")
-    if (
-        not isinstance(version_preservation, dict)
-        or version_preservation.get("accepted_version_preserved") is not True
-    ):
-        raise SystemExit(f"restore receipt has invalid version preservation: {receipt_name}")
-    if version_preservation.get("same_key_overwrite_proved") is True:
-        expected_version_keys = {
-            "accepted_version_preserved",
-            "same_key_overwrite_proved",
-            "overwrite_version_id",
-            "restored_version_id",
-        }
-        required_version_fields = ("overwrite_version_id", "restored_version_id")
-    elif version_preservation.get("restore_rebound") is True:
-        expected_version_keys = {
-            "accepted_version_preserved",
-            "restore_rebound",
-            "rebound_object_version_id",
-            "restored_current_version_id",
-        }
-        required_version_fields = (
-            "rebound_object_version_id",
-            "restored_current_version_id",
-        )
-    else:
-        raise SystemExit(f"restore receipt has unsupported version proof: {receipt_name}")
-    if set(version_preservation) != expected_version_keys:
-        raise SystemExit(f"restore receipt has unsupported version claims: {receipt_name}")
-    if not all(
-        isinstance(version_preservation.get(field), str)
-        and version_preservation[field]
-        for field in required_version_fields
-    ):
-        raise SystemExit(f"restore receipt has incomplete version proof: {receipt_name}")
+    version_preservation = normalize_version_preservation(
+        receipt.get("version_preservation"),
+        receipt_name,
+    )
     rotation = receipt.get("credential_rotation")
     if rotation is not None:
         denial_fields = (
@@ -411,7 +459,7 @@ def validate_storage_receipt(
             or not any(rotation.get(field) is True for field in denial_fields)
         ):
             raise SystemExit(f"restore receipt has invalid credential rotation: {receipt_name}")
-    return {key: version_preservation[key] for key in sorted(expected_version_keys)}
+    return version_preservation
 
 
 def assert_credentials_denied(client: S3Client, object_key: str) -> dict:
@@ -572,15 +620,24 @@ def rebind_receipts(
             "governed_stage_or_prod_claim": False,
             "verified_at": rebound_at,
         }
-        receipt["restore_supersession"] = {
-            "prior_object_version_id": prior_version_id,
-            "prior_storage_ref": prior_storage_ref,
-            "rebound_object_version_id": rebound_version_id,
-            "rebound_storage_ref": new_storage_ref,
-            "restored_current_version_id": current_version_id,
-            "content_sha256": expected_digest,
-            "superseded_at": rebound_at,
-        }
+        receipt["restore_supersession"] = normalize_restore_supersession(
+            {
+                "prior_object_version_id": prior_version_id,
+                "prior_storage_ref": prior_storage_ref,
+                "rebound_object_version_id": rebound_version_id,
+                "rebound_storage_ref": new_storage_ref,
+                "restored_current_version_id": current_version_id,
+                "content_sha256": expected_digest,
+                "superseded_at": rebound_at,
+            },
+            active_scope=active_scope,
+            object_key=object_key,
+            current_version_id=rebound_version_id,
+            restored_current_version_id=current_version_id,
+            content_digest=expected_digest,
+            current_storage_ref=new_storage_ref,
+            receipt_name=receipt_name,
+        )
         rebound_path = rebound_root / f"{receipt_name}.json"
         rebound_path.write_text(
             json.dumps(receipt, indent=2, sort_keys=True) + "\n",

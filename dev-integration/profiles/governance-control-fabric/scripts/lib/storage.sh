@@ -983,12 +983,19 @@ write_storage_receipt() {
     "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
     "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" \
-    "${STORAGE_ISOLATION_FILE}" "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" <<'PY'
+    "${STORAGE_ISOLATION_FILE}" "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" \
+    "${PROFILE_ROOT}/scripts/lib" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
 import sys
 from urllib.parse import quote
+
+sys.path.insert(0, sys.argv[15])
+from verify_storage_versioning import (  # noqa: E402
+    normalize_restore_supersession,
+    normalize_version_preservation,
+)
 
 receipt_path = pathlib.Path(sys.argv[1])
 prior_receipt_path = pathlib.Path(sys.argv[2])
@@ -1085,9 +1092,39 @@ if (
     and prior_receipt.get("object_version_id") == accepted_version_id
     and prior_receipt.get("content_sha256") == expected_digest
 ):
-    for field in ("restore_supersession", "pre_restore_version_preservation"):
-        if field in prior_receipt:
-            payload[field] = prior_receipt[field]
+    historical_fields = ("restore_supersession", "pre_restore_version_preservation")
+    if any(field in prior_receipt for field in historical_fields):
+        if not all(field in prior_receipt for field in historical_fields):
+            raise SystemExit("prior storage receipt has incomplete restore history")
+        current_version_history = normalize_version_preservation(
+            prior_receipt.get("version_preservation"),
+            "prior storage receipt",
+        )
+        if (
+            current_version_history.get("restore_rebound") is not True
+            or current_version_history.get("rebound_object_version_id")
+            != payload["object_version_id"]
+        ):
+            raise SystemExit("prior storage receipt restore history is inconsistent")
+        payload["pre_restore_version_preservation"] = normalize_version_preservation(
+            prior_receipt["pre_restore_version_preservation"],
+            "prior storage receipt",
+        )
+        payload["restore_supersession"] = normalize_restore_supersession(
+            prior_receipt["restore_supersession"],
+            active_scope={
+                "profile_id": payload["profile_id"],
+                "bucket": payload["bucket"],
+            },
+            object_key=payload["object_key"],
+            current_version_id=payload["object_version_id"],
+            restored_current_version_id=current_version_history[
+                "restored_current_version_id"
+            ],
+            content_digest=payload["content_sha256"],
+            current_storage_ref=payload["storage_ref"],
+            receipt_name="prior storage receipt",
+        )
 receipt_path.write_text(
     json.dumps(payload, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
@@ -2171,7 +2208,9 @@ import tempfile
 backup = pathlib.Path(sys.argv[2])
 pre_restore_value = sys.argv[3]
 pre_restore = pathlib.Path(pre_restore_value).resolve() if pre_restore_value else None
-selected_backup = pathlib.Path(sys.argv[8]).resolve()
+selected_backup = pathlib.Path(sys.argv[8])
+if not selected_backup.is_absolute():
+    raise SystemExit("restore receipt source path must be absolute")
 pre_restore_state = sys.argv[9]
 if pre_restore_state not in {"backup-created", "empty-live-store"}:
     raise SystemExit("restore receipt has an invalid pre-restore state")

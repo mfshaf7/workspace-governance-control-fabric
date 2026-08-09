@@ -1269,6 +1269,30 @@ class DevIntegrationProfileTests(TestCase):
             self.assertFalse(rebound_receipt["governed_stage_or_prod_claim"])
             self.assertNotIn("fabricated_claim", rebound_receipt)
 
+            corrupted_supersession = {
+                **rebound_receipt["restore_supersession"],
+                "fabricated_claim": "must-not-survive",
+            }
+            with self.assertRaisesRegex(SystemExit, "unsupported supersession claims"):
+                VERSIONING_MODULE.normalize_restore_supersession(
+                    corrupted_supersession,
+                    active_scope=active_scope,
+                    object_key="profile-proof/evidence.json",
+                    current_version_id="version-2",
+                    restored_current_version_id="version-3",
+                    content_digest=expected_digest,
+                    current_storage_ref=rebound_receipt["storage_ref"],
+                    receipt_name="storage-receipt",
+                )
+            with self.assertRaisesRegex(SystemExit, "unsupported version claims"):
+                VERSIONING_MODULE.normalize_version_preservation(
+                    {
+                        **rebound_receipt["pre_restore_version_preservation"],
+                        "fabricated_claim": "must-not-survive",
+                    },
+                    "storage-receipt",
+                )
+
             wrong_scope = {**active_scope, "profile_id": "wrong-profile"}
             with self.assertRaisesRegex(SystemExit, "active storage scope"):
                 VERSIONING_MODULE.rebind_receipts(
@@ -1364,8 +1388,10 @@ class DevIntegrationProfileTests(TestCase):
                         "#!/usr/bin/env bash",
                         "set -euo pipefail",
                         f"source {SCRIPTS_ROOT / 'common.sh'}",
-                        'printf tampered >"${ORIGINAL_BACKUP}"',
+                        'mv "${ORIGINAL_BACKUP}" "${ORIGINAL_BACKUP}.moved"',
+                        'ln -s "${ORIGINAL_MANIFEST}" "${ORIGINAL_BACKUP}"',
                         'printf "{}\\n" >"${ORIGINAL_MANIFEST}"',
+                        'test "${WGCF_RESTORE_SELECTED_BACKUP_PATH}" = "${ORIGINAL_BACKUP}"',
                         'archive="/proc/self/fd/${WGCF_RESTORE_ARCHIVE_FD}"',
                         'manifest="/proc/self/fd/${WGCF_RESTORE_MANIFEST_FD}"',
                         'validate_backup_for_restore "${archive}" "${manifest}" sealed',
@@ -1424,6 +1450,7 @@ class DevIntegrationProfileTests(TestCase):
                     hashlib.sha256(original_manifest).hexdigest(),
                 ],
             )
+            backup.unlink()
             backup.write_bytes(original_archive)
             manifest_path.write_bytes(original_manifest)
             valid = subprocess.run(

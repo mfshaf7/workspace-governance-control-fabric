@@ -22,18 +22,23 @@ def _under_allowed_root(path: Path, allowed_roots: list[Path]) -> bool:
     return any(root == path or root in path.parents for root in allowed_roots)
 
 
-def _sealed_copy(source: Path, *, name: str, allowed_roots: list[Path]) -> int:
+def _sealed_copy(
+    source: Path,
+    *,
+    name: str,
+    allowed_roots: list[Path],
+) -> tuple[int, Path]:
     if not source.is_absolute():
         raise SystemExit("restore backup path must be absolute")
-    resolved = source.resolve(strict=True)
-    if not _under_allowed_root(resolved, allowed_roots):
-        raise SystemExit(
-            "restore backup must stay under the operator profile state or reset archive"
-        )
     source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         if not stat.S_ISREG(os.fstat(source_fd).st_mode):
             raise SystemExit(f"restore input is not a regular file: {source}")
+        opened_path = Path(f"/proc/self/fd/{source_fd}").resolve(strict=True)
+        if not _under_allowed_root(opened_path, allowed_roots):
+            raise SystemExit(
+                "restore backup must stay under the operator profile state or reset archive"
+            )
         sealed_fd = os.memfd_create(name, os.MFD_ALLOW_SEALING)
         try:
             while chunk := os.read(source_fd, 1024 * 1024):
@@ -45,7 +50,7 @@ def _sealed_copy(source: Path, *, name: str, allowed_roots: list[Path]) -> int:
             if fcntl.fcntl(sealed_fd, fcntl.F_GET_SEALS) != REQUIRED_SEALS:
                 raise SystemExit(f"restore input could not be sealed: {source}")
             os.set_inheritable(sealed_fd, True)
-            return sealed_fd
+            return sealed_fd, opened_path
         except BaseException:
             os.close(sealed_fd)
             raise
@@ -62,12 +67,12 @@ def main() -> int:
     backup_path = Path(sys.argv[1])
     allowed_roots = [Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve()]
     restore_script = Path(sys.argv[4]).resolve(strict=True)
-    archive_fd = _sealed_copy(
+    archive_fd, selected_backup_path = _sealed_copy(
         backup_path,
         name="wgcf-restore-archive",
         allowed_roots=allowed_roots,
     )
-    manifest_fd = _sealed_copy(
+    manifest_fd, _ = _sealed_copy(
         Path(f"{backup_path}.manifest.json"),
         name="wgcf-restore-manifest",
         allowed_roots=allowed_roots,
@@ -77,6 +82,7 @@ def main() -> int:
         "WGCF_RESTORE_INPUTS_SEALED": "1",
         "WGCF_RESTORE_ARCHIVE_FD": str(archive_fd),
         "WGCF_RESTORE_MANIFEST_FD": str(manifest_fd),
+        "WGCF_RESTORE_SELECTED_BACKUP_PATH": str(selected_backup_path),
     }
     os.execve(restore_script, [str(restore_script)], environment)
     raise RuntimeError("failed to execute restore with sealed inputs")
