@@ -283,7 +283,7 @@ class DevIntegrationProfileTests(TestCase):
                 "contracts/developer-integration-profiles.yaml",
             )
 
-    def test_landed_source_reads_ignore_git_replacement_refs(self) -> None:
+    def test_landed_source_ignores_replacement_refs_and_fetch_head_injection(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wgcf-landed-source-replace-") as temp_dir:
             repo_root = Path(temp_dir) / "authority"
             subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
@@ -329,7 +329,13 @@ class DevIntegrationProfileTests(TestCase):
 
             with (
                 patch.object(LANDED_SOURCE_MODULE, "GIT_EXECUTABLE", "git"),
-                patch.dict(os.environ, self.git_transport_environment(Path(temp_dir))),
+                patch.dict(
+                    os.environ,
+                    {
+                        **self.git_transport_environment(Path(temp_dir)),
+                        "WGCF_TEST_INJECT_FETCH_HEAD": "1",
+                    },
+                ),
             ):
                 self.assertEqual(
                     LANDED_SOURCE_MODULE.read_landed_source_file(
@@ -496,6 +502,12 @@ class DevIntegrationProfileTests(TestCase):
                     "        while args[target_index].startswith('-'):",
                     "            target_index += 1",
                     "        args[target_index] = test_url",
+                    "    if os.environ.get('WGCF_TEST_INJECT_FETCH_HEAD'):",
+                    "        result = subprocess.run([REAL_GIT, *args], check=False)",
+                    "        git_dir = args[args.index('--git-dir') + 1]",
+                    "        with open(os.path.join(git_dir, 'FETCH_HEAD'), 'w', encoding='utf-8') as handle:",
+                    "            handle.write('0000000000000000000000000000000000000000\\t\\tbranch main\\n')",
+                    "        raise SystemExit(result.returncode)",
                     "os.execv(REAL_GIT, [REAL_GIT, *args])",
                     "",
                 ]
@@ -2409,6 +2421,21 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            shutil.rmtree(acceptance_path.parent)
+            acceptance_path.parent.symlink_to("../../../alternate", target_is_directory=True)
+            symlinked_checkout = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(symlinked_checkout.returncode, 0, symlinked_checkout.stderr)
+            acceptance_path.parent.unlink()
+            acceptance_path.parent.mkdir(parents=True)
+            acceptance_path.write_text("# Accepted local boundary\n", encoding="utf-8")
 
             fixed_authority_identity = {
                 "repo": "fabricated-governance",

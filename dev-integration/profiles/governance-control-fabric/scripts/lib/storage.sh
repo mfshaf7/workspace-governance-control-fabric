@@ -503,15 +503,17 @@ if admission.get("platform_acceptance_ref") != binding["platform_acceptance_ref"
 acceptance_prefix = "repo://platform-engineering/"
 if not binding["platform_acceptance_ref"].startswith(acceptance_prefix):
     raise SystemExit("WGCF evidence storage Platform acceptance reference is invalid")
-acceptance_path = (
-    pathlib.Path(
-        repo_paths.get("platform-engineering", workspace_root / "platform-engineering")
-    ).resolve()
-    / binding["platform_acceptance_ref"][len(acceptance_prefix):]
-).resolve()
 platform_repo = pathlib.Path(
     repo_paths.get("platform-engineering", workspace_root / "platform-engineering")
 ).resolve()
+acceptance_relpath = binding["platform_acceptance_ref"][len(acceptance_prefix):]
+acceptance_parts = pathlib.PurePosixPath(acceptance_relpath).parts
+if (
+    not acceptance_relpath
+    or acceptance_relpath.startswith("/")
+    or any(part in {"", ".", ".."} for part in acceptance_parts)
+):
+    raise SystemExit("WGCF evidence storage Platform acceptance path is invalid")
 source_commit = binding["platform_acceptance_source_commit"]
 expected_digest = binding["platform_acceptance_content_sha256"]
 if not isinstance(source_commit, str) or len(source_commit) != 40:
@@ -520,10 +522,6 @@ if not isinstance(expected_digest, str) or len(expected_digest) != 64:
     raise SystemExit("WGCF evidence storage Platform acceptance has no content digest")
 if not (platform_repo / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Platform repository is unavailable: {platform_repo}")
-try:
-    acceptance_relpath = acceptance_path.relative_to(platform_repo).as_posix()
-except ValueError as error:
-    raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
 acceptance_body = read_landed_source_file(
     platform_repo,
     "platform-engineering",

@@ -102,16 +102,26 @@ def read_landed_source_file(
             raise SystemExit(initialized.stderr.strip() or "clean Git authority initialization failed")
 
         clean_args = ["--git-dir", str(clean_git_dir)]
-        _run(
+        fetch_result = _run(
             repo_root,
             *clean_args,
             "fetch",
-            "--quiet",
+            "--porcelain",
             "--no-tags",
+            "--no-write-fetch-head",
             configured_url,
-            "main",
+            "refs/heads/main:refs/wgcf-authority/main",
         )
-        fetched_main = _run(repo_root, *clean_args, "rev-parse", "FETCH_HEAD")
+        fetch_fields = fetch_result.split()
+        if (
+            len(fetch_fields) != 4
+            or fetch_fields[0] != "*"
+            or fetch_fields[1] != "0" * 40
+            or re.fullmatch(r"[0-9a-f]{40}", fetch_fields[2]) is None
+            or fetch_fields[3] != "refs/wgcf-authority/main"
+        ):
+            raise SystemExit("clean Git authority fetch returned an unexpected result")
+        fetched_main = fetch_fields[2]
         landed = subprocess.run(
             [
                 GIT_EXECUTABLE,
