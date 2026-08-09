@@ -6,6 +6,8 @@ readonly STORAGE_APP_ACCESS_KEY_ID="wgcf-evidence-api"
 STORAGE_BACKUP_STAGING_ARCHIVE=""
 STORAGE_BACKUP_STAGING_MANIFEST=""
 STORAGE_BACKUP_STAGING_RECEIPT=""
+STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
+STORAGE_BACKUP_PUBLISHED_MANIFEST=""
 STORAGE_RESTORE_INPUT_DIR=""
 STORAGE_RESTORE_INPUT_ARCHIVE=""
 STORAGE_CREDENTIAL_ROTATION_DETECTED="false"
@@ -16,6 +18,12 @@ STORAGE_RETIRED_APP_SECRET_KEY=""
 
 cleanup_storage_backup_staging() {
   local path=""
+  for path in "${STORAGE_BACKUP_PUBLISHED_ARCHIVE:-}" \
+    "${STORAGE_BACKUP_PUBLISHED_MANIFEST:-}"; do
+    if [[ -n "${path}" ]]; then
+      rm -f -- "${path}"
+    fi
+  done
   for path in "${STORAGE_BACKUP_STAGING_ARCHIVE:-}" \
     "${STORAGE_BACKUP_STAGING_MANIFEST:-}" \
     "${STORAGE_BACKUP_STAGING_RECEIPT:-}"; do
@@ -26,6 +34,8 @@ cleanup_storage_backup_staging() {
   STORAGE_BACKUP_STAGING_ARCHIVE=""
   STORAGE_BACKUP_STAGING_MANIFEST=""
   STORAGE_BACKUP_STAGING_RECEIPT=""
+  STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
+  STORAGE_BACKUP_PUBLISHED_MANIFEST=""
 }
 
 cleanup_storage_restore_input() {
@@ -1701,11 +1711,12 @@ backup_evidence_storage() {
   delete_storage_transfer_pod
   write_backup_manifest "${STORAGE_BACKUP_STAGING_ARCHIVE}" \
     "${STORAGE_BACKUP_STAGING_RECEIPT}" "${backup_path}"
-  ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}" "${backup_path}.manifest.json"
-  if ! ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}" "${backup_path}"; then
-    rm -f -- "${backup_path}.manifest.json"
-    return 1
-  fi
+  STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"
+  STORAGE_BACKUP_PUBLISHED_MANIFEST="${backup_path}.manifest.json"
+  ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}" "${STORAGE_BACKUP_PUBLISHED_ARCHIVE}"
+  ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}" "${STORAGE_BACKUP_PUBLISHED_MANIFEST}"
+  STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
+  STORAGE_BACKUP_PUBLISHED_MANIFEST=""
   mv -- "${STORAGE_BACKUP_STAGING_RECEIPT}" "${receipt_path}"
   cleanup_storage_backup_staging
 }
@@ -1724,7 +1735,7 @@ probe_live_receipt_version() {
 
 require_empty_storage_for_receipt_loss() {
   local stored_versions=""
-  create_storage_transfer_pod application
+  create_storage_transfer_pod root
   if ! stored_versions="$(
     kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- \
       /bin/sh -ec \

@@ -393,8 +393,15 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn("require_no_pending_storage_credential_rotation", smoke_source)
-        self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
+        self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
+        self.assertIn('STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"', storage_source)
+        self.assertIn('STORAGE_BACKUP_PUBLISHED_MANIFEST="${backup_path}.manifest.json"', storage_source)
+        self.assertIn("require_empty_storage_for_receipt_loss()", storage_source)
+        empty_store_probe = storage_source.split(
+            "require_empty_storage_for_receipt_loss() {", 1
+        )[1].split("\n}", 1)[0]
+        self.assertIn("create_storage_transfer_pod root", empty_store_probe)
         self.assertLess(
             restore_source.index("snapshot_backup_for_restore"),
             restore_source.index("validate_backup_for_restore"),
@@ -1173,6 +1180,47 @@ class DevIntegrationProfileTests(TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("backup manifest is missing", result.stderr)
             self.assertTrue(orphan.is_file())
+
+    def test_interrupted_backup_publication_removes_both_final_links(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-backup-publish-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backups_dir = state_root / "backups"
+            backups_dir.mkdir(parents=True)
+            archive = backups_dir / "evidence.tar.gz"
+            manifest = backups_dir / "evidence.tar.gz.manifest.json"
+            archive.write_bytes(b"archive")
+            manifest.write_text("{}\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            command = (
+                f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                f"STORAGE_BACKUP_PUBLISHED_ARCHIVE={archive}; "
+                f"STORAGE_BACKUP_PUBLISHED_MANIFEST={manifest}; "
+                "cleanup_storage_backup_staging"
+            )
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(archive.exists())
+            self.assertFalse(manifest.exists())
 
     def test_restore_receipt_records_an_empty_live_store_without_fake_backup(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
