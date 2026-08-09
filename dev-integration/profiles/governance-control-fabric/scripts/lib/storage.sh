@@ -1710,26 +1710,73 @@ backup_evidence_storage() {
   cleanup_storage_backup_staging
 }
 
+probe_live_receipt_version() {
+  local -a receipt_fields=()
+  mapfile -t receipt_fields < <(read_storage_receipt_binding)
+  if [[ "${#receipt_fields[@]}" -ne 3 ]]; then
+    echo "Storage receipt fields could not be probed" >&2
+    return 1
+  fi
+  kubectl_cmd -n "${NAMESPACE}" exec -i "deployment/${API_DEPLOYMENT}" -- \
+    python - probe-version "${receipt_fields[0]}" "${receipt_fields[1]}" \
+    <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py"
+}
+
+require_empty_storage_for_receipt_loss() {
+  local stored_versions=""
+  create_storage_transfer_pod application
+  if ! stored_versions="$(
+    kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- \
+      /bin/sh -ec \
+      'mc alias set storage "$1" "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc ls --versions --recursive "storage/$2"' \
+      sh "${STORAGE_ENDPOINT}" "${STORAGE_BUCKET}"
+  )"; then
+    delete_storage_transfer_pod
+    return 1
+  fi
+  delete_storage_transfer_pod
+  if [[ -n "${stored_versions}" ]]; then
+    echo "Receipt-bound version is missing but live storage is not empty; restore refused" >&2
+    return 1
+  fi
+}
+
 archive_storage_backups() {
   local archive_path=""
-  local -a backup_files=()
-  if [[ -d "${BACKUPS_DIR}" ]]; then
-    while IFS= read -r -d '' backup_file; do
-      backup_files+=("${backup_file}")
-    done < <(
-      find "${BACKUPS_DIR}" -maxdepth 1 -type f \
-        \( -name '*.tar.gz' -o -name '*.tar.gz.manifest.json' \) -print0
-    )
+  local backup_file=""
+  local manifest_file=""
+  local backup_count=0
+  if [[ ! -d "${BACKUPS_DIR}" ]]; then
+    return
   fi
-  if [[ "${#backup_files[@]}" -eq 0 ]]; then
+  while IFS= read -r -d '' backup_file; do
+    manifest_file="${backup_file}.manifest.json"
+    if [[ ! -f "${manifest_file}" ]]; then
+      echo "WGCF evidence backup manifest is missing: ${manifest_file}" >&2
+      return 1
+    fi
+    backup_count=$((backup_count + 1))
+  done < <(find "${BACKUPS_DIR}" -maxdepth 1 -type f -name '*.tar.gz' -print0)
+  while IFS= read -r -d '' manifest_file; do
+    backup_file="${manifest_file%.manifest.json}"
+    if [[ ! -f "${backup_file}" ]]; then
+      echo "WGCF evidence backup archive is missing: ${backup_file}" >&2
+      return 1
+    fi
+  done < <(
+    find "${BACKUPS_DIR}" -maxdepth 1 -type f -name '*.tar.gz.manifest.json' -print0
+  )
+  if [[ "${backup_count}" -eq 0 ]]; then
     return
   fi
 
-  archive_path="${ARCHIVE_ROOT}/reset-$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "${archive_path}"
-  for backup_file in "${backup_files[@]}"; do
-    mv -- "${backup_file}" "${archive_path}/"
-  done
+  archive_path="${ARCHIVE_ROOT}/reset-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  mkdir -p "${ARCHIVE_ROOT}"
+  if [[ -e "${archive_path}" ]]; then
+    echo "WGCF evidence reset archive already exists: ${archive_path}" >&2
+    return 1
+  fi
+  mv -- "${BACKUPS_DIR}" "${archive_path}"
   if [[ -f "${STORAGE_BACKUP_RECEIPT_FILE}" ]]; then
     cp "${STORAGE_BACKUP_RECEIPT_FILE}" "${archive_path}/latest-backup-receipt.json"
   fi
@@ -2061,7 +2108,7 @@ write_restore_receipt() {
   python3 - "${STORAGE_RESTORE_RECEIPT_FILE}" "${backup_path}" \
     "${pre_restore_path}" "${STORAGE_RECEIPT_REBINDING_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
-    "${selected_backup_path}" <<'PY'
+    "${selected_backup_path}" "${4}" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -2069,8 +2116,14 @@ import pathlib
 import sys
 
 backup = pathlib.Path(sys.argv[2]).resolve()
-pre_restore = pathlib.Path(sys.argv[3]).resolve()
+pre_restore_value = sys.argv[3]
+pre_restore = pathlib.Path(pre_restore_value).resolve() if pre_restore_value else None
 selected_backup = pathlib.Path(sys.argv[8]).resolve()
+pre_restore_state = sys.argv[9]
+if pre_restore_state not in {"backup-created", "empty-live-store"}:
+    raise SystemExit("restore receipt has an invalid pre-restore state")
+if (pre_restore is None) != (pre_restore_state == "empty-live-store"):
+    raise SystemExit("restore receipt pre-restore evidence does not match its state")
 rebindings = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 if rebindings.get("receipt_identity_rebound") is not True:
     raise SystemExit("restore receipt rebinding proof is incomplete")
@@ -2082,8 +2135,13 @@ payload = {
     "bucket": sys.argv[7],
     "restored_from": str(selected_backup),
     "restored_archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
-    "pre_restore_backup": str(pre_restore),
-    "pre_restore_archive_sha256": hashlib.sha256(pre_restore.read_bytes()).hexdigest(),
+    "pre_restore_state": pre_restore_state,
+    "pre_restore_backup": str(pre_restore) if pre_restore is not None else None,
+    "pre_restore_archive_sha256": (
+        hashlib.sha256(pre_restore.read_bytes()).hexdigest()
+        if pre_restore is not None
+        else None
+    ),
     "content_addresses_preserved": True,
     "version_ids_preserved": False,
     "receipt_identity_rebound": True,

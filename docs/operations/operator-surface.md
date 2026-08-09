@@ -148,12 +148,15 @@ make devint-promote-check PROFILE=governance-control-fabric
 objects and exact receipt-bound bytes without credentials, and writes only
 under the reset-archived profile backup directory. `restore` validates the
 archive and every object against its manifest before mutation, captures a
-pre-restore backup, creates new server-assigned object versions, rebinds each
+pre-restore backup when the receipt-bound live version is present, creates new server-assigned object versions, rebinds each
 receipt to its new immutable version with an explicit supersession map, and
 then proves restored content addresses. `reset` is destructive and fails closed
 without the exact confirmation above. Before clearing profile state, confirmed
 reset preserves existing backup bundles and manifests in the operator-scoped
-reset archive so the documented restore path remains usable.
+reset archive with one atomic directory rename so the documented restore path
+remains usable after interruption. If the receipt-bound live version is gone,
+restore skips the pre-restore backup only after proving the entire live bucket
+has no versions and records that empty-store state in the restore receipt.
 
 Activation also fails closed unless the profile carries the routed
 `security-architecture` evidence-custody review and that review exists in the

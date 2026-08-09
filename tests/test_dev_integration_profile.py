@@ -80,6 +80,19 @@ class FakeVersionDeleteAllowedStorage(FakeVersionedStorage):
         return version_id is None
 
 
+class FakeMissingVersionStorage(FakeVersionedStorage):
+    def get(self, object_key: str, *, version_id: str | None = None) -> tuple[bytes, str]:
+        if version_id is not None:
+            raise VERSIONING_MODULE.HTTPError(
+                "http://storage.invalid",
+                404,
+                "Version not found",
+                {},
+                None,
+            )
+        return super().get(object_key, version_id=version_id)
+
+
 class FakeUnversionedStorage(FakeVersionedStorage):
     def __init__(self, body: bytes) -> None:
         self.unversioned_body = body
@@ -425,6 +438,22 @@ class DevIntegrationProfileTests(TestCase):
         self.assertTrue(verification["application_credential_version_read"])
         self.assertTrue(verification["application_credential_delete_denied"])
         self.assertTrue(verification["application_credential_version_delete_denied"])
+        self.assertEqual(
+            VERSIONING_MODULE.probe_receipt_version(
+                storage,
+                "profile-proof/evidence-custody-v1.json",
+                "version-1",
+            )["state"],
+            "present",
+        )
+        self.assertEqual(
+            VERSIONING_MODULE.probe_receipt_version(
+                FakeMissingVersionStorage(body),
+                "profile-proof/evidence-custody-v1.json",
+                "version-1",
+            )["state"],
+            "missing",
+        )
 
         with self.assertRaisesRegex(SystemExit, "receipt-bound version deletion"):
             VERSIONING_MODULE.verify(
@@ -1102,6 +1131,97 @@ class DevIntegrationProfileTests(TestCase):
             self.assertTrue((archive_path / backup.name).is_file())
             self.assertTrue((archive_path / manifest.name).is_file())
             self.assertFalse(backup.exists())
+            storage_source = (
+                SCRIPTS_ROOT / "lib/storage.sh"
+            ).read_text(encoding="utf-8")
+            self.assertIn('mv -- "${BACKUPS_DIR}" "${archive_path}"', storage_source)
+            self.assertNotIn('mv -- "${backup_file}" "${archive_path}/"', storage_source)
+
+    def test_reset_refuses_to_delete_an_incomplete_backup_pair(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-reset-orphan-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backups_dir = state_root / "backups"
+            backups_dir.mkdir(parents=True)
+            orphan = backups_dir / "evidence.tar.gz"
+            orphan.write_bytes(b"archive")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; archive_storage_backups",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("backup manifest is missing", result.stderr)
+            self.assertTrue(orphan.is_file())
+
+    def test_restore_receipt_records_an_empty_live_store_without_fake_backup(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-empty-restore-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            state_root.mkdir(parents=True)
+            selected_backup = state_root / "selected.tar.gz"
+            selected_backup.write_bytes(b"selected-backup")
+            (state_root / "storage-receipt-rebindings.json").write_text(
+                json.dumps(
+                    {
+                        "receipt_identity_rebound": True,
+                        "receipt_rebindings": [{"receipt_name": "storage-receipt"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            command = (
+                f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                f"write_restore_receipt {selected_backup} '' {selected_backup} empty-live-store"
+            )
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads(
+                (state_root / "restore-receipt.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(receipt["pre_restore_state"], "empty-live-store")
+            self.assertIsNone(receipt["pre_restore_backup"])
+            self.assertIsNone(receipt["pre_restore_archive_sha256"])
 
     def test_backup_output_is_confined_to_the_archived_backups_directory(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

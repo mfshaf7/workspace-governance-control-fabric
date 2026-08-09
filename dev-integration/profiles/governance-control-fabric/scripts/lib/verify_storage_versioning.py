@@ -270,6 +270,36 @@ def verify(
     }
 
 
+def probe_receipt_version(
+    client: S3Client,
+    object_key: str,
+    accepted_version_id: str,
+) -> dict:
+    _require_version_id(accepted_version_id, "receipt-bound evidence")
+    try:
+        _, response_version_id = client.get(
+            object_key,
+            version_id=accepted_version_id,
+        )
+    except HTTPError as error:
+        if error.code == 404:
+            return {
+                "bucket": client.bucket,
+                "object_key": object_key,
+                "object_version_id": accepted_version_id,
+                "state": "missing",
+            }
+        raise
+    if response_version_id != accepted_version_id:
+        raise SystemExit("receipt-bound evidence probe returned a different object version")
+    return {
+        "bucket": client.bucket,
+        "object_key": object_key,
+        "object_version_id": accepted_version_id,
+        "state": "present",
+    }
+
+
 def _safe_package_path(package_root: Path, relative_path: str) -> Path:
     candidate = (package_root / relative_path).resolve()
     if package_root != candidate and package_root not in candidate.parents:
@@ -456,6 +486,7 @@ def main() -> int:
             "usage: verify_storage_versioning.py "
             "preserve-overwrite|verify EXPECTED_SHA256 OBJECT_KEY [VERSION_ID], or "
             "expect-denied|expect-denied-stdin OBJECT_KEY, or "
+            "probe-version OBJECT_KEY VERSION_ID, or "
             "rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
         )
     mode = sys.argv[1]
@@ -502,6 +533,12 @@ def main() -> int:
             json.dumps(result, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+        return 0
+    if mode == "probe-version" and len(sys.argv) == 4:
+        if "MINIO_ROOT_USER" in os.environ or "MINIO_ROOT_PASSWORD" in os.environ:
+            raise SystemExit("root storage credentials must not be exposed to the verifier")
+        result = probe_receipt_version(S3Client(), sys.argv[2], sys.argv[3])
+        print(result["state"])
         return 0
     expected_digest = sys.argv[2]
     object_key = sys.argv[3]
