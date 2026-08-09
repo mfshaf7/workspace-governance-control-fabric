@@ -8,6 +8,7 @@ need_cmd python3
 need_cmd sha256sum
 require_storage_authority_contract
 confirm_exact "${CONFIRM:-}" "restore-wgcf-evidence" "WGCF evidence restore"
+require_no_pending_storage_credential_rotation
 
 backup_path="${DEVINT_BACKUP_FILE:-}"
 if [[ -z "${backup_path}" ]]; then

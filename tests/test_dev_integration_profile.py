@@ -393,6 +393,11 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn("require_no_pending_storage_credential_rotation", smoke_source)
+        self.assertIn("require_no_pending_storage_credential_rotation", restore_source)
+        self.assertLess(
+            restore_source.index("require_no_pending_storage_credential_rotation"),
+            restore_source.index("snapshot_backup_for_restore"),
+        )
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
         self.assertIn('STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"', storage_source)
