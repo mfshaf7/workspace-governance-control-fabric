@@ -26,6 +26,7 @@ def _git_environment() -> dict[str, str]:
             ),
             "GIT_SSH_VARIANT": "ssh",
             "GIT_TERMINAL_PROMPT": "0",
+            "GIT_GRAFT_FILE": "/dev/null",
             "GIT_NO_REPLACE_OBJECTS": "1",
             "HOME": pwd.getpwuid(os.getuid()).pw_dir,
             "LC_ALL": "C",

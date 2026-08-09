@@ -264,6 +264,7 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("GIT_CONFIG_COUNT", env)
         self.assertNotIn("GIT_CONFIG_KEY_0", env)
         self.assertNotIn("GIT_CONFIG_VALUE_0", env)
+        self.assertEqual(env["GIT_GRAFT_FILE"], "/dev/null")
         self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
         self.assertEqual(env["GIT_SSH_VARIANT"], "ssh")
         self.assertIn("/usr/bin/ssh -F /dev/null", env["GIT_SSH_COMMAND"])
@@ -323,6 +324,82 @@ class DevIntegrationProfileTests(TestCase):
                 ),
                 b"approved\n",
             )
+
+    def test_landed_source_ancestry_ignores_legacy_grafts(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wgcf-landed-source-graft-") as temp_dir:
+            repo_root = Path(temp_dir) / "authority"
+            subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo_root), "config", "user.name", "Test"],
+                check=True,
+            )
+            authority_path = repo_root / "authority.txt"
+            authority_path.write_text("landed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo_root), "add", "authority.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "commit", "-qm", "landed authority"],
+                check=True,
+            )
+            landed_commit = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+
+            subprocess.run(
+                ["git", "-C", str(repo_root), "checkout", "--orphan", "fabricated"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            subprocess.run(["git", "-C", str(repo_root), "rm", "-qf", "authority.txt"], check=True)
+            authority_path.write_text("fabricated\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo_root), "add", "authority.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "commit", "-qm", "fabricated authority"],
+                check=True,
+            )
+            fabricated_commit = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            git_dir = Path(
+                subprocess.run(
+                    ["git", "-C", str(repo_root), "rev-parse", "--absolute-git-dir"],
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                ).stdout.strip()
+            )
+            graft_path = git_dir / "info/grafts"
+            graft_path.parent.mkdir(parents=True, exist_ok=True)
+            graft_path.write_text(
+                f"{landed_commit} {fabricated_commit}\n",
+                encoding="utf-8",
+            )
+
+            grafted = subprocess.run(
+                ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", fabricated_commit, landed_commit],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            trusted = subprocess.run(
+                ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", fabricated_commit, landed_commit],
+                check=False,
+                env=LANDED_SOURCE_MODULE._git_environment(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.assertEqual(grafted.returncode, 0)
+            self.assertNotEqual(trusted.returncode, 0)
 
     def profile_scripts_with_local_git_transport(self, temp_root: Path) -> Path:
         profile_root = temp_root / ".test-profile"
