@@ -120,8 +120,9 @@ receipt record that names that version. Object-store version IDs are
 server-assigned and therefore are not claimed to survive destructive storage
 rebuilds.
 
-Before clearing profile state, confirmed reset moves existing evidence backup
-bundles and manifests into the operator-scoped reset archive. Restore validates
+Before clearing profile state, confirmed reset validates every evidence backup
+bundle against its adjacent manifest, then moves the complete backup directory
+into the operator-scoped reset archive. Restore validates
 the current allowed location, archive digest, every current object, and every
 receipt-bound version before mutation. It then creates a new immutable version,
 reissues the local receipt to that version, records an old-to-new supersession
@@ -134,6 +135,8 @@ receipt, before any object-store mutation.
 workspace authority registry or its referenced Platform acceptance record is
 missing or stale. `status` and `access` remain available for read-only operator
 orientation while activation is denied.
+`backup`, `restore`, and `smoke` also refuse to run while credential retirement
+is pending; rerun `up` to complete the retired-credential denial proof first.
 
 ## Smoke Scope
 

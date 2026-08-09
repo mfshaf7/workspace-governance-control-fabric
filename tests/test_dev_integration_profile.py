@@ -37,6 +37,87 @@ VERSIONING_MODULE = importlib.util.module_from_spec(VERSIONING_SPEC)
 VERSIONING_SPEC.loader.exec_module(VERSIONING_MODULE)
 
 
+def write_valid_storage_backup(backup: Path, namespace: str) -> Path:
+    object_key = "profile-proof/evidence-custody-v1.json"
+    body = (
+        b'{"artifact_class":"architecture_packet","profile":'
+        b'"governance-control-fabric","proof":"dev-integration-storage-v1"}\n'
+    )
+    digest = hashlib.sha256(body).hexdigest()
+    prior_version_id = "version-before-backup"
+    prior_storage_ref = (
+        "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/"
+        f"{object_key}?versionId={prior_version_id}"
+    )
+    receipt = {
+        "schema_version": 2,
+        "receipt_type": "dev-integration-storage",
+        "profile_id": "governance-control-fabric",
+        "kubernetes_namespace": namespace,
+        "bucket": "wgcf-delivery-art-evidence",
+        "object_key": object_key,
+        "object_version_id": prior_version_id,
+        "content_sha256": digest,
+        "storage_ref": prior_storage_ref,
+        "service_identity_ref": (
+            f"kubernetes://{namespace}/"
+            "serviceaccount/workspace-governance-control-fabric-api"
+        ),
+        "application_secret_ref": (
+            f"kubernetes://{namespace}/secret/"
+            "workspace-governance-control-fabric-object-storage-api"
+        ),
+    }
+    receipt_body = json.dumps(receipt).encode()
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(backup, "w:gz") as bundle:
+        for name, content in (
+            (f"current/{object_key}", body),
+            ("receipt-bound/storage-receipt.bin", body),
+            ("receipt-records/storage-receipt.json", receipt_body),
+        ):
+            member = tarfile.TarInfo(name)
+            member.size = len(content)
+            bundle.addfile(member, io.BytesIO(content))
+    manifest = {
+        "schema_version": 2,
+        "archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+        "backup_path": str(backup.resolve()),
+        "bucket": "wgcf-delivery-art-evidence",
+        "credentials_included": False,
+        "kubernetes_namespace": namespace,
+        "version_ids_preserved": False,
+        "restore_requires_receipt_rebinding": True,
+        "objects": [
+            {
+                "object_key": object_key,
+                "archive_path": f"current/{object_key}",
+                "sha256": digest,
+                "size": len(body),
+            },
+        ],
+        "receipt_bindings": [
+            {
+                "receipt_name": "storage-receipt",
+                "receipt_archive_path": "receipt-records/storage-receipt.json",
+                "body_archive_path": "receipt-bound/storage-receipt.bin",
+                "current_archive_path": f"current/{object_key}",
+                "object_key": object_key,
+                "prior_object_version_id": prior_version_id,
+                "prior_storage_ref": prior_storage_ref,
+                "content_sha256": digest,
+                "body_size": len(body),
+                "receipt_record_sha256": hashlib.sha256(receipt_body).hexdigest(),
+                "receipt_record_size": len(receipt_body),
+            },
+        ],
+        "profile_id": "governance-control-fabric",
+    }
+    manifest_path = Path(f"{backup}.manifest.json")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest_path
+
+
 class FakeVersionedStorage:
     bucket = "wgcf-delivery-art-evidence"
 
@@ -361,6 +442,7 @@ class DevIntegrationProfileTests(TestCase):
         reset_source = (SCRIPTS_ROOT / "reset.sh").read_text(encoding="utf-8")
         restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
         smoke_source = (SCRIPTS_ROOT / "smoke.sh").read_text(encoding="utf-8")
+        backup_source = (SCRIPTS_ROOT / "backup.sh").read_text(encoding="utf-8")
         deploy_source = common_source.split("deploy_api() {", 1)[1].split("\n}", 1)[0]
 
         self.assertIn('"s3:GetObject","s3:GetObjectVersion","s3:PutObject"', storage_source)
@@ -393,6 +475,11 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn("require_no_pending_storage_credential_rotation", smoke_source)
+        self.assertIn("require_no_pending_storage_credential_rotation", backup_source)
+        self.assertLess(
+            backup_source.index("require_no_pending_storage_credential_rotation"),
+            backup_source.index("backup_evidence_storage"),
+        )
         self.assertIn("require_no_pending_storage_credential_rotation", restore_source)
         self.assertLess(
             restore_source.index("require_no_pending_storage_credential_rotation"),
@@ -1110,9 +1197,10 @@ class DevIntegrationProfileTests(TestCase):
             backups_dir = state_root / "backups"
             backups_dir.mkdir(parents=True)
             backup = backups_dir / "evidence.tar.gz"
-            manifest = backups_dir / "evidence.tar.gz.manifest.json"
-            backup.write_bytes(b"archive")
-            manifest.write_text("{}\n", encoding="utf-8")
+            manifest = write_valid_storage_backup(
+                backup,
+                "devint-governance-control-fabric-test",
+            )
             env = {
                 **os.environ,
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
@@ -1143,11 +1231,52 @@ class DevIntegrationProfileTests(TestCase):
             self.assertTrue((archive_path / backup.name).is_file())
             self.assertTrue((archive_path / manifest.name).is_file())
             self.assertFalse(backup.exists())
+            self.assertFalse(manifest.exists())
             storage_source = (
                 SCRIPTS_ROOT / "lib/storage.sh"
             ).read_text(encoding="utf-8")
             self.assertIn('mv -- "${BACKUPS_DIR}" "${archive_path}"', storage_source)
             self.assertNotIn('mv -- "${backup_file}" "${archive_path}/"', storage_source)
+
+    def test_reset_refuses_to_archive_a_corrupt_backup_pair(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-reset-corrupt-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backups_dir = state_root / "backups"
+            backups_dir.mkdir(parents=True)
+            backup = backups_dir / "evidence.tar.gz"
+            manifest = backups_dir / "evidence.tar.gz.manifest.json"
+            backup.write_bytes(b"corrupt archive")
+            manifest.write_text("{}\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; archive_storage_backups",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("version-bound schema", result.stderr)
+            self.assertTrue(backup.is_file())
+            self.assertTrue(manifest.is_file())
 
     def test_reset_refuses_to_delete_an_incomplete_backup_pair(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

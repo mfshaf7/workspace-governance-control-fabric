@@ -1766,6 +1766,7 @@ archive_storage_backups() {
       echo "WGCF evidence backup manifest is missing: ${manifest_file}" >&2
       return 1
     fi
+    validate_backup_for_restore "${backup_file}"
     backup_count=$((backup_count + 1))
   done < <(find "${BACKUPS_DIR}" -maxdepth 1 -type f -name '*.tar.gz' -print0)
   while IFS= read -r -d '' manifest_file; do

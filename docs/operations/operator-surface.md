@@ -152,9 +152,9 @@ pre-restore backup when the receipt-bound live version is present, creates new s
 receipt to its new immutable version with an explicit supersession map, and
 then proves restored content addresses. `reset` is destructive and fails closed
 without the exact confirmation above. Before clearing profile state, confirmed
-reset preserves existing backup bundles and manifests in the operator-scoped
-reset archive with one atomic directory rename so the documented restore path
-remains usable after interruption. If the receipt-bound live version is gone,
+reset validates every backup against its adjacent manifest, then preserves the
+complete backup directory in the operator-scoped reset archive with one atomic
+rename so the documented restore path remains usable after interruption. If the receipt-bound live version is gone,
 restore skips the pre-restore backup only after proving the entire live bucket
 has no versions and records that empty-store state in the restore receipt.
 
@@ -181,8 +181,9 @@ proves the application identity cannot delete either the current object or the
 receipt-bound object version.
 It also recreates and removes bounded network-probe Jobs so each smoke run
 proves current CNI enforcement rather than trusting an earlier `up` artifact.
-Smoke fails closed while a credential-retirement Secret remains pending, so a
-read-only success cannot bypass an interrupted rotation's denial proof.
+Backup, restore, and smoke fail closed while a credential-retirement Secret
+remains pending, so no evidence capture, recovery mutation, or read-only success
+can bypass an interrupted rotation's denial proof.
 
 ## Temporal Activity Worker
 
