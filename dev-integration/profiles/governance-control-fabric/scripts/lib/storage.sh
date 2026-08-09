@@ -1339,7 +1339,8 @@ PY
 }
 
 read_storage_receipt_binding() {
-  python3 - "${STORAGE_RECEIPT_FILE}" "${PROFILE_ID}" "${NAMESPACE}" \
+  local receipt_file="${1:-${STORAGE_RECEIPT_FILE}}"
+  python3 - "${receipt_file}" "${PROFILE_ID}" "${NAMESPACE}" \
     "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" "${COMPONENT_NAME}" \
     "${STORAGE_APP_SECRET}" <<'PY'
 import json
@@ -1378,6 +1379,53 @@ if receipt.get("application_secret_ref") != expected_secret_ref:
 for field in required:
     print(receipt[field])
 PY
+}
+
+capture_rebound_json_atomically() {
+  local pod_path="$1"
+  local target_path="$2"
+  local validation_mode="$3"
+  local staged_path
+  staged_path="$(mktemp "${target_path}.XXXXXX.tmp")"
+  chmod 600 "${staged_path}"
+  if ! kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
+    cat "${pod_path}" >"${staged_path}"; then
+    rm -f "${staged_path}"
+    return 1
+  fi
+  case "${validation_mode}" in
+    receipt-rebindings)
+      if ! python3 - "${staged_path}" <<'PY'
+import json
+import pathlib
+import sys
+
+payload = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+if not isinstance(payload, dict):
+    raise SystemExit("restore receipt-rebinding output must be an object")
+if payload.get("receipt_identity_rebound") is not True:
+    raise SystemExit("restore receipt-rebinding output is not complete")
+if not isinstance(payload.get("receipt_rebindings"), list) or not payload["receipt_rebindings"]:
+    raise SystemExit("restore receipt-rebinding output contains no bindings")
+PY
+      then
+        rm -f "${staged_path}"
+        return 1
+      fi
+      ;;
+    storage-receipt)
+      if ! read_storage_receipt_binding "${staged_path}" >/dev/null; then
+        rm -f "${staged_path}"
+        return 1
+      fi
+      ;;
+    *)
+      rm -f "${staged_path}"
+      echo "unsupported rebound JSON validation mode: ${validation_mode}" >&2
+      return 1
+      ;;
+  esac
+  mv -f -- "${staged_path}" "${target_path}"
 }
 
 stage_receipt_bound_evidence() {
@@ -1859,10 +1907,14 @@ restore_evidence_storage() {
     python - rebind /transfer/restore /transfer/restore-manifest.json \
     /transfer/receipt-rebindings.json \
     <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py"
-  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
-    cat /transfer/receipt-rebindings.json >"${STORAGE_RECEIPT_REBINDING_FILE}"
-  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c rebind -- \
-    cat /transfer/restore/rebound-receipts/storage-receipt.json >"${STORAGE_RECEIPT_FILE}"
+  capture_rebound_json_atomically \
+    /transfer/receipt-rebindings.json \
+    "${STORAGE_RECEIPT_REBINDING_FILE}" \
+    receipt-rebindings
+  capture_rebound_json_atomically \
+    /transfer/restore/rebound-receipts/storage-receipt.json \
+    "${STORAGE_RECEIPT_FILE}" \
+    storage-receipt
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
     'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/verify >/dev/null'
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \

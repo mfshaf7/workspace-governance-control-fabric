@@ -1207,6 +1207,25 @@ class DevIntegrationProfileTests(TestCase):
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("different bucket", rejected.stderr)
 
+    def test_restore_receipts_publish_through_validated_atomic_staging(self) -> None:
+        storage_source = (
+            SCRIPTS_ROOT / "lib/storage.sh"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn('staged_path="$(mktemp "${target_path}.XXXXXX.tmp")"', storage_source)
+        self.assertIn('read_storage_receipt_binding "${staged_path}"', storage_source)
+        self.assertIn('mv -f -- "${staged_path}" "${target_path}"', storage_source)
+        self.assertIn(
+            "capture_rebound_json_atomically \\\n"
+            "    /transfer/restore/rebound-receipts/storage-receipt.json",
+            storage_source,
+        )
+        self.assertNotIn(
+            'cat /transfer/restore/rebound-receipts/storage-receipt.json '
+            '>"${STORAGE_RECEIPT_FILE}"',
+            storage_source,
+        )
+
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-security-") as temp_dir:
