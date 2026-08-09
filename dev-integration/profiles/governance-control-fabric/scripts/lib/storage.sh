@@ -127,7 +127,17 @@ load_pending_storage_credential_rotation() {
       retired-root-password \
       retired-app-access-key \
       retired-app-secret-key
-  )" && [[ -n "${pending_output}" ]]; then
+  )"; then
+    read_status=0
+  else
+    read_status=$?
+  fi
+
+  if [[ "${read_status}" -eq 0 ]]; then
+    if [[ -z "${pending_output}" ]]; then
+      echo "pending storage credential rotation Secret is empty" >&2
+      return 1
+    fi
     mapfile -t pending_values <<<"${pending_output}"
     if [[ "${#pending_values[@]}" -ne 5 ]]; then
       echo "pending storage credential rotation has an invalid shape" >&2
@@ -146,7 +156,6 @@ load_pending_storage_credential_rotation() {
     return 0
   fi
 
-  read_status=$?
   if [[ "${read_status}" -eq 3 ]]; then
     return 3
   fi

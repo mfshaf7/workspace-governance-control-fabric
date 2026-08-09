@@ -485,6 +485,87 @@ class DevIntegrationProfileTests(TestCase):
                 "true|wgcf-root|retired-root-secret|wgcf-evidence-api|retired-app-secret",
             )
 
+    def test_missing_pending_rotation_captures_both_live_credentials(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-new-rotation-") as temp_dir:
+            state_root = Path(temp_dir)
+            credentials = "\n".join(
+                [
+                    "STORAGE_ROOT_USER=wgcf-root",
+                    "STORAGE_ROOT_PASSWORD=replacement-root-secret",
+                    "STORAGE_APP_ACCESS_KEY=wgcf-evidence-api",
+                    "STORAGE_APP_SECRET_KEY=replacement-app-secret",
+                ]
+            ) + "\n"
+            (state_root / "storage-credentials.env").write_text(credentials, encoding="utf-8")
+            root_secret = {
+                "data": {
+                    "root-user": base64.b64encode(b"wgcf-root").decode(),
+                    "root-password": base64.b64encode(b"retired-root-secret").decode(),
+                }
+            }
+            app_secret = {
+                "data": {
+                    "access-key": base64.b64encode(b"wgcf-evidence-api").decode(),
+                    "secret-key": base64.b64encode(b"retired-app-secret").decode(),
+                }
+            }
+            root_path = state_root / "root-secret.json"
+            app_path = state_root / "app-secret.json"
+            applied_path = state_root / "applied-pending-secret.yaml"
+            root_path.write_text(json.dumps(root_secret), encoding="utf-8")
+            app_path.write_text(json.dumps(app_secret), encoding="utf-8")
+            session_file = state_root / "current-session.yaml"
+            session_file.write_text("profile_id: governance-control-fabric\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(session_file),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+                "ROOT_SECRET_JSON": str(root_path),
+                "APP_SECRET_JSON": str(app_path),
+                "APPLIED_SECRET_YAML": str(applied_path),
+            }
+            command = (
+                f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                "kubectl_cmd() { "
+                "if [[ \"$1\" == apply ]]; then cat >\"${APPLIED_SECRET_YAML}\"; return 0; fi; "
+                "if [[ \"$3\" == get && \"$4\" == secret ]]; then "
+                "case \"$5\" in "
+                "\"${STORAGE_CREDENTIAL_RETIREMENT_SECRET}\") return 0 ;; "
+                "\"${STORAGE_ROOT_SECRET}\") cat \"${ROOT_SECRET_JSON}\" ;; "
+                "\"${STORAGE_APP_SECRET}\") cat \"${APP_SECRET_JSON}\" ;; "
+                "*) return 1 ;; esac; return 0; fi; return 1; }; "
+                "capture_storage_credentials_for_rotation; "
+                "printf '%s|%s|%s\n' "
+                "\"${STORAGE_CREDENTIAL_ROTATION_DETECTED}\" "
+                "\"${STORAGE_RETIRED_ROOT_PASSWORD}\" "
+                "\"${STORAGE_RETIRED_APP_SECRET_KEY}\""
+            )
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout.strip(),
+                "true|retired-root-secret|retired-app-secret",
+            )
+            applied = applied_path.read_text(encoding="utf-8")
+            self.assertIn("pending-credential-retirement", applied)
+            self.assertIn("target-credentials-sha256", applied)
+
     def test_retired_storage_credentials_must_fail_authentication(self) -> None:
         proof = VERSIONING_MODULE.assert_credentials_denied(
             FakeDeniedStorage(),
