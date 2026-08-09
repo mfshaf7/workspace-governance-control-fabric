@@ -25,6 +25,10 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(profile["runtime"]["state_model"], "persistent")
         self.assertIn("workspace-governance-control-fabric-postgresql", profile["runtime"]["components"])
         self.assertIn(
+            "workspace-governance-control-fabric-object-storage",
+            profile["runtime"]["components"],
+        )
+        self.assertIn(
             "workspace-governance-control-fabric-temporal-activity",
             profile["runtime"]["components"],
         )
@@ -33,6 +37,12 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("database migration", profile["stage_handoff"]["required_checks"])
         self.assertIn(
             "receipt and ledger metadata read",
+            profile["stage_handoff"]["required_checks"],
+        )
+        self.assertIn("backup", profile["commands"])
+        self.assertIn("restore", profile["commands"])
+        self.assertIn(
+            "content-address-preserving backup and restore",
             profile["stage_handoff"]["required_checks"],
         )
         self.assertFalse((SCRIPTS_ROOT / "_proposed-profile.sh").exists())
@@ -77,6 +87,7 @@ class DevIntegrationProfileTests(TestCase):
                     "-c",
                     (
                         f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        "ensure_storage_credentials; "
                         "render_runtime_manifest; "
                         "write_temporal_worker_status; "
                         "write_access_file"
@@ -132,8 +143,61 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("readOnly: true", manifest)
             self.assertIn("service: workspace-governance-control-fabric-api", access)
             self.assertIn("postgres_service: workspace-governance-control-fabric-postgresql", access)
+            self.assertIn(
+                "storage_service: workspace-governance-control-fabric-object-storage",
+                access,
+            )
             self.assertIn("enabled: false", worker_status)
             self.assertIn("replicas: 0", worker_status)
+
+            documents = [item for item in yaml.safe_load_all(manifest) if item]
+            by_kind_name = {
+                (item["kind"], item["metadata"]["name"]): item
+                for item in documents
+            }
+            api = by_kind_name[("Deployment", "workspace-governance-control-fabric-api")]
+            storage = by_kind_name[
+                ("StatefulSet", "workspace-governance-control-fabric-object-storage")
+            ]
+            api_env = {
+                item["name"]: item
+                for item in api["spec"]["template"]["spec"]["containers"][0]["env"]
+            }
+            storage_env = {
+                item["name"]: item
+                for item in storage["spec"]["template"]["spec"]["containers"][0]["env"]
+            }
+            self.assertEqual(
+                api_env["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]["name"],
+                "workspace-governance-control-fabric-object-storage-api",
+            )
+            self.assertNotIn("MINIO_ROOT_USER", api_env)
+            self.assertEqual(
+                storage_env["MINIO_ROOT_USER"]["valueFrom"]["secretKeyRef"]["name"],
+                "workspace-governance-control-fabric-object-storage-root",
+            )
+            self.assertNotIn("WGCF_EVIDENCE_STORAGE_ACCESS_KEY", storage_env)
+            self.assertIn(
+                ("NetworkPolicy", "workspace-governance-control-fabric-object-storage-ingress"),
+                by_kind_name,
+            )
+            self.assertNotIn("operator-orchestration-service", manifest)
+            self.assertNotIn("openproject", manifest.lower())
+            credentials = (state_root / "storage-credentials.env").read_text(encoding="utf-8")
+            self.assertNotIn(credentials.split("STORAGE_ROOT_PASSWORD=", 1)[1].splitlines()[0], manifest)
+            self.assertNotIn(credentials.split("STORAGE_APP_SECRET_KEY=", 1)[1].splitlines()[0], manifest)
+
+    def test_storage_lifecycle_keeps_destructive_authority_explicit(self) -> None:
+        storage_source = (SCRIPTS_ROOT / "lib/storage.sh").read_text(encoding="utf-8")
+        reset_source = (SCRIPTS_ROOT / "reset.sh").read_text(encoding="utf-8")
+        restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
+
+        self.assertIn('"s3:GetObject","s3:PutObject"', storage_source)
+        self.assertNotIn("s3:DeleteObject", storage_source)
+        self.assertIn('"reset-wgcf-evidence"', reset_source)
+        self.assertIn('"restore-wgcf-evidence"', restore_source)
+        for script_name in ("backup.sh", "restore.sh"):
+            self.assertTrue(os.access(SCRIPTS_ROOT / script_name, os.X_OK))
 
     def test_worker_activation_requires_execution_and_security_evidence(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

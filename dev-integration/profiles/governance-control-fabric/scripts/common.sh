@@ -42,6 +42,20 @@ readonly POSTGRES_USER="${DEVINT_WGCF_POSTGRES_USER:-wgcf}"
 readonly POSTGRES_PASSWORD="${DEVINT_WGCF_POSTGRES_PASSWORD:-wgcf-devint-local}"
 readonly POSTGRES_VOLUME_SIZE="${DEVINT_WGCF_POSTGRES_VOLUME_SIZE:-2Gi}"
 readonly DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_SERVICE}:5432/${POSTGRES_DATABASE}"
+readonly STORAGE_STATEFULSET="${DEVINT_WGCF_STORAGE_STATEFULSET:-workspace-governance-control-fabric-object-storage}"
+readonly STORAGE_SERVICE="${DEVINT_WGCF_STORAGE_SERVICE:-workspace-governance-control-fabric-object-storage}"
+readonly STORAGE_ROOT_SECRET="${STORAGE_STATEFULSET}-root"
+readonly STORAGE_APP_SECRET="${STORAGE_STATEFULSET}-api"
+readonly STORAGE_SERVICE_ACCOUNT="${STORAGE_STATEFULSET}"
+readonly STORAGE_PROVISION_JOB="${STORAGE_STATEFULSET}-provision"
+readonly STORAGE_TRANSFER_POD="${STORAGE_STATEFULSET}-transfer"
+readonly STORAGE_IMAGE="${DEVINT_WGCF_STORAGE_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
+readonly STORAGE_CLIENT_IMAGE="${DEVINT_WGCF_STORAGE_CLIENT_IMAGE:-minio/mc:RELEASE.2025-04-16T18-13-26Z}"
+readonly STORAGE_VOLUME_SIZE="${DEVINT_WGCF_STORAGE_VOLUME_SIZE:-2Gi}"
+readonly STORAGE_BUCKET="${DEVINT_WGCF_STORAGE_BUCKET:-wgcf-delivery-art-evidence}"
+readonly STORAGE_ENDPOINT="http://${STORAGE_SERVICE}:9000"
+readonly STORAGE_SEED_KEY="profile-proof/evidence-custody-v1.json"
+readonly STORAGE_SEED_PAYLOAD='{"artifact_class":"architecture_packet","profile":"governance-control-fabric","proof":"dev-integration-storage-v1"}'
 readonly DEFAULT_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric"
 readonly DEFAULT_WORKER_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric-worker"
 readonly DEFAULT_IMAGE_TAG="sha-$(git -C "${OWNER_REPO_ROOT}" rev-parse --short=7 HEAD)"
@@ -62,6 +76,9 @@ readonly TEMPORAL_EVIDENCE_VOLUME_SIZE="${DEVINT_WGCF_TEMPORAL_EVIDENCE_VOLUME_S
 readonly TEMPORAL_WORKER_STATUS_FILE="${STATE_ROOT}/temporal-activity-worker-status.txt"
 readonly LOGS_DIR="${STATE_ROOT}/logs"
 readonly RENDERED_DIR="${STATE_ROOT}/rendered"
+readonly BACKUPS_DIR="${STATE_ROOT}/backups"
+readonly DEVINT_BASE_ROOT="$(dirname "$(dirname "${STATE_ROOT}")")"
+readonly ARCHIVE_ROOT="${DEVINT_BASE_ROOT}/archives/${PROFILE_ID}/${OPERATOR_SLUG}"
 readonly SESSION_ARTIFACT="${STATE_ROOT}/control-fabric-session.yaml"
 readonly API_HEALTH_FILE="${STATE_ROOT}/api-health.json"
 readonly READINESS_FILE="${STATE_ROOT}/readiness.json"
@@ -74,6 +91,14 @@ readonly SMOKE_SUMMARY="${STATE_ROOT}/smoke-summary.txt"
 readonly ACCESS_FILE="${STATE_ROOT}/access.txt"
 readonly PROFILE_PROMOTION_NOTES="${STATE_ROOT}/profile-promotion-notes.md"
 readonly RUNTIME_MANIFEST="${RENDERED_DIR}/wgcf-api-runtime.yaml"
+readonly STORAGE_CREDENTIALS_ENV="${STATE_ROOT}/storage-credentials.env"
+readonly STORAGE_PROVISION_FILE="${STATE_ROOT}/storage-provision.txt"
+readonly STORAGE_RECEIPT_FILE="${STATE_ROOT}/storage-receipt.json"
+readonly STORAGE_ISOLATION_FILE="${STATE_ROOT}/storage-isolation.json"
+readonly STORAGE_BACKUP_RECEIPT_FILE="${STATE_ROOT}/backup-receipt.json"
+readonly STORAGE_RESTORE_RECEIPT_FILE="${STATE_ROOT}/restore-receipt.json"
+
+source "${PROFILE_ROOT}/scripts/lib/storage.sh"
 
 temporal_worker_replicas() {
   case "${TEMPORAL_WORKER_ENABLED}" in
@@ -133,7 +158,17 @@ need_cmd() {
 }
 
 ensure_state_dirs() {
-  mkdir -p "${STATE_ROOT}" "${LOGS_DIR}" "${RENDERED_DIR}"
+  mkdir -p "${STATE_ROOT}" "${LOGS_DIR}" "${RENDERED_DIR}" "${BACKUPS_DIR}"
+}
+
+confirm_exact() {
+  local actual="$1"
+  local expected="$2"
+  local action="$3"
+  if [[ "${actual}" != "${expected}" ]]; then
+    printf 'refused: %s requires CONFIRM=%s\n' "${action}" "${expected}" >&2
+    exit 2
+  fi
 }
 
 write_session_artifact() {
@@ -467,6 +502,22 @@ spec:
                 secretKeyRef:
                   name: ${COMPONENT_NAME}-database
                   key: WGCF_DATABASE_URL
+            - name: WGCF_EVIDENCE_STORAGE_ENDPOINT
+              value: ${STORAGE_ENDPOINT}
+            - name: WGCF_EVIDENCE_STORAGE_BUCKET
+              value: ${STORAGE_BUCKET}
+            - name: WGCF_EVIDENCE_STORAGE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_APP_SECRET}
+                  key: access-key
+            - name: WGCF_EVIDENCE_STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_APP_SECRET}
+                  key: secret-key
+            - name: WGCF_EVIDENCE_STORAGE_IDENTITY_REF
+              value: kubernetes://${NAMESPACE}/serviceaccount/${COMPONENT_NAME}
           readinessProbe:
             httpGet:
               path: /readyz
@@ -516,28 +567,37 @@ spec:
       port: ${API_CONTAINER_PORT}
       targetPort: http
 EOF
+  append_storage_runtime_manifest >>"${RUNTIME_MANIFEST}"
 }
 
 deploy_api() {
   validate_temporal_worker_activation
   render_runtime_manifest
   write_temporal_worker_status
+  apply_storage_secrets
   kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
   kubectl_cmd -n "${NAMESPACE}" rollout status "statefulset/${POSTGRES_STATEFULSET}" --timeout=180s
+  wait_for_storage_ready
+  provision_storage
   run_database_migration
   kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
+  verify_storage_seed
+  write_storage_receipt
   if [[ "${TEMPORAL_WORKER_ENABLED}" == "true" ]]; then
     kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" --timeout=180s
   fi
 }
 
-scale_api() {
+scale_runtime() {
   local replicas="$1"
   if kubectl_cmd -n "${NAMESPACE}" get "deployment/${API_DEPLOYMENT}" >/dev/null 2>&1; then
     kubectl_cmd -n "${NAMESPACE}" scale "deployment/${API_DEPLOYMENT}" --replicas="${replicas}" >/dev/null
   fi
   if kubectl_cmd -n "${NAMESPACE}" get "statefulset/${POSTGRES_STATEFULSET}" >/dev/null 2>&1; then
     kubectl_cmd -n "${NAMESPACE}" scale "statefulset/${POSTGRES_STATEFULSET}" --replicas="${replicas}" >/dev/null
+  fi
+  if kubectl_cmd -n "${NAMESPACE}" get "statefulset/${STORAGE_STATEFULSET}" >/dev/null 2>&1; then
+    kubectl_cmd -n "${NAMESPACE}" scale "statefulset/${STORAGE_STATEFULSET}" --replicas="${replicas}" >/dev/null
   fi
   if kubectl_cmd -n "${NAMESPACE}" get "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" >/dev/null 2>&1; then
     kubectl_cmd -n "${NAMESPACE}" scale "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" --replicas="${replicas}" >/dev/null
@@ -679,6 +739,9 @@ image: ${API_IMAGE}
 service: ${API_SERVICE}
 deployment: ${API_DEPLOYMENT}
 postgres_service: ${POSTGRES_SERVICE}
+storage_service: ${STORAGE_SERVICE}
+storage_bucket: ${STORAGE_BUCKET}
+storage_receipt: ${STORAGE_RECEIPT_FILE}
 local_url: http://127.0.0.1:${API_LOCAL_PORT}
 health: http://127.0.0.1:${API_LOCAL_PORT}/healthz
 readiness: http://127.0.0.1:${API_LOCAL_PORT}/readyz

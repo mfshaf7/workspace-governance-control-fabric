@@ -1,7 +1,7 @@
 schema_version: 1
 profile_id: governance-control-fabric
 lane_class: governed-devint
-summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata store, and disabled-by-default Temporal activity worker.
+summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata, isolated evidence storage, and disabled-by-default Temporal activity worker.
 runtime:
   platform: local-k3s
   state_model: persistent
@@ -11,7 +11,15 @@ runtime:
     - workspace-governance-control-fabric-api
     - workspace-governance-control-fabric-service
     - workspace-governance-control-fabric-postgresql
+    - workspace-governance-control-fabric-object-storage
     - workspace-governance-control-fabric-temporal-activity
+persistence:
+  justification: WGCF evidence-custody proof must survive normal local runtime suspension and restart while preserving artifact content addresses.
+  retained_data_scope: Operator-scoped WGCF metadata, content-addressed Delivery ART evidence objects, storage receipts, and backup or restore receipts for local dev-integration only.
+  suspend_resume_semantics: Down scales API, PostgreSQL, object storage, and optional worker processes to zero while preserving operator-scoped PVCs and profile artifacts; up reconciles and resumes that state.
+  storage_size_or_class: 2Gi local-path PostgreSQL, object-storage, and Temporal evidence PVCs inside the operator-scoped local-k3s namespace.
+  reset_semantics: Reset requires exact operator confirmation and removes only the operator-scoped WGCF namespace and local profile state.
+  cutover_plan_when_upgrading: Any future storage format, encryption, identity, or runtime migration requires a recorded backup, digest-preserving restore, compatibility, and rollback plan.
 testing:
   smoke:
     mutation_mode: read-only
@@ -21,7 +29,7 @@ source_repos:
   - repo: workspace-governance
     purpose: Authority contracts, runtime-lane policy, component inventory, and validation rules consumed by the control fabric.
   - repo: platform-engineering
-    purpose: Local-k3s dev-integration runner, PostgreSQL runtime dependency, runtime access path, and future stage handoff owner.
+    purpose: Local-k3s dev-integration runner, PostgreSQL and object-storage runtime acceptance, runtime access path, and future stage handoff owner.
 commands:
   up: dev-integration/profiles/governance-control-fabric/scripts/up.sh
   status: dev-integration/profiles/governance-control-fabric/scripts/status.sh
@@ -29,6 +37,8 @@ commands:
   smoke: dev-integration/profiles/governance-control-fabric/scripts/smoke.sh
   down: dev-integration/profiles/governance-control-fabric/scripts/down.sh
   reset: dev-integration/profiles/governance-control-fabric/scripts/reset.sh
+  backup: dev-integration/profiles/governance-control-fabric/scripts/backup.sh
+  restore: dev-integration/profiles/governance-control-fabric/scripts/restore.sh
   promote_check: dev-integration/profiles/governance-control-fabric/scripts/promote-check.sh
 session:
   required_artifacts:
@@ -38,6 +48,9 @@ session:
     - api-health.json
     - readiness.json
     - database-migration.txt
+    - storage-provision.txt
+    - storage-receipt.json
+    - storage-isolation.json
     - smoke-summary.txt
     - promotion-report.yaml
 stage_handoff:
@@ -50,3 +63,9 @@ stage_handoff:
     - database migration
     - validation planner dry run
     - receipt and ledger metadata read
+    - profile-scoped evidence storage availability
+    - storage credential and network isolation
+    - content digest and storage receipt verification
+    - content-address-preserving backup and restore
+    - explicit retention and deletion boundary
+    - governed encryption identity and Security approval

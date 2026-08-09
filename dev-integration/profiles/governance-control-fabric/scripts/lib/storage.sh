@@ -1,0 +1,822 @@
+#!/usr/bin/env bash
+
+generate_storage_secret() {
+  python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(32))
+PY
+}
+
+ensure_storage_credentials() {
+  ensure_state_dirs
+  if [[ -f "${STORAGE_CREDENTIALS_ENV}" ]]; then
+    return
+  fi
+
+  umask 077
+  cat >"${STORAGE_CREDENTIALS_ENV}" <<EOF
+STORAGE_ROOT_USER=wgcf-root
+STORAGE_ROOT_PASSWORD=$(generate_storage_secret)
+STORAGE_APP_ACCESS_KEY=wgcf-evidence-api
+STORAGE_APP_SECRET_KEY=$(generate_storage_secret)
+EOF
+}
+
+load_storage_credentials() {
+  ensure_storage_credentials
+  # shellcheck disable=SC1090
+  source "${STORAGE_CREDENTIALS_ENV}"
+}
+
+storage_seed_digest() {
+  printf '%s\n' "${STORAGE_SEED_PAYLOAD}" | sha256sum | awk '{print $1}'
+}
+
+apply_storage_secrets() {
+  load_storage_credentials
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${STORAGE_ROOT_SECRET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+type: Opaque
+stringData:
+  root-user: "${STORAGE_ROOT_USER}"
+  root-password: "${STORAGE_ROOT_PASSWORD}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${STORAGE_APP_SECRET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-api-credential
+    devint.profile: ${PROFILE_ID}
+type: Opaque
+stringData:
+  access-key: "${STORAGE_APP_ACCESS_KEY}"
+  secret-key: "${STORAGE_APP_SECRET_KEY}"
+EOF
+}
+
+append_storage_runtime_manifest() {
+  cat <<EOF
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${STORAGE_SERVICE_ACCOUNT}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${STORAGE_STATEFULSET}-seed
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-seed
+    devint.profile: ${PROFILE_ID}
+data:
+  evidence-custody-v1.json: |
+    ${STORAGE_SEED_PAYLOAD}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${STORAGE_STATEFULSET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: ${STORAGE_VOLUME_SIZE}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${STORAGE_SERVICE}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${STORAGE_STATEFULSET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+spec:
+  serviceName: ${STORAGE_SERVICE}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP_LABEL}
+      app.kubernetes.io/component: object-storage
+      devint.profile: ${PROFILE_ID}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: object-storage
+        devint.profile: ${PROFILE_ID}
+    spec:
+      serviceAccountName: ${STORAGE_SERVICE_ACCOUNT}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: ${STORAGE_IMAGE}
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - /data
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_ROOT_SECRET}
+                  key: root-user
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_ROOT_SECRET}
+                  key: root-password
+          ports:
+            - name: s3
+              containerPort: 9000
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 24
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ${STORAGE_STATEFULSET}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${STORAGE_STATEFULSET}-ingress
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ${APP_LABEL}
+      app.kubernetes.io/component: object-storage
+      devint.profile: ${PROFILE_ID}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values:
+                  - api
+                  - object-storage-maintenance
+      ports:
+        - protocol: TCP
+          port: 9000
+EOF
+}
+
+wait_for_storage_ready() {
+  kubectl_cmd -n "${NAMESPACE}" rollout status \
+    "statefulset/${STORAGE_STATEFULSET}" --timeout=180s
+}
+
+provision_storage() {
+  kubectl_cmd -n "${NAMESPACE}" delete job "${STORAGE_PROVISION_JOB}" \
+    --ignore-not-found=true >/dev/null
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${STORAGE_PROVISION_JOB}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-maintenance
+    devint.profile: ${PROFILE_ID}
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: object-storage-maintenance
+        devint.profile: ${PROFILE_ID}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: provision
+          image: ${STORAGE_CLIENT_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              until mc alias set storage "${STORAGE_ENDPOINT}" "\${STORAGE_ROOT_USER}" "\${STORAGE_ROOT_PASSWORD}" >/dev/null 2>&1; do
+                sleep 2
+              done
+              mc ready storage
+              mc mb --ignore-existing "storage/${STORAGE_BUCKET}"
+              cat >/tmp/api-policy.json <<'POLICY'
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}/*"]}]}
+              POLICY
+              mc admin policy create storage wgcf-evidence-api /tmp/api-policy.json >/dev/null 2>&1 || true
+              mc admin user add storage "\${STORAGE_APP_ACCESS_KEY}" "\${STORAGE_APP_SECRET_KEY}" >/dev/null
+              mc admin policy attach storage wgcf-evidence-api --user "\${STORAGE_APP_ACCESS_KEY}" >/dev/null
+              seed_created=false
+              if ! mc stat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" >/dev/null 2>&1; then
+                mc cp /seed/evidence-custody-v1.json "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" >/dev/null
+                seed_created=true
+              fi
+              actual_digest="\$(mc cat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" | sha256sum)"
+              actual_digest="\${actual_digest%% *}"
+              printf 'bucket=%s\nobject_key=%s\nsha256=%s\nseed_created=%s\n' \
+                '${STORAGE_BUCKET}' '${STORAGE_SEED_KEY}' "\${actual_digest}" "\${seed_created}"
+          env:
+            - name: STORAGE_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_ROOT_SECRET}
+                  key: root-user
+            - name: STORAGE_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_ROOT_SECRET}
+                  key: root-password
+            - name: STORAGE_APP_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_APP_SECRET}
+                  key: access-key
+            - name: STORAGE_APP_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ${STORAGE_APP_SECRET}
+                  key: secret-key
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+      volumes:
+        - name: seed
+          configMap:
+            name: ${STORAGE_STATEFULSET}-seed
+EOF
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete \
+    "job/${STORAGE_PROVISION_JOB}" --timeout=180s
+  kubectl_cmd -n "${NAMESPACE}" logs "job/${STORAGE_PROVISION_JOB}" \
+    >"${STORAGE_PROVISION_FILE}"
+  if ! grep -q "sha256=$(storage_seed_digest)" "${STORAGE_PROVISION_FILE}"; then
+    cat "${STORAGE_PROVISION_FILE}" >&2
+    echo "Provisioned storage seed digest does not match the profile contract" >&2
+    return 1
+  fi
+}
+
+verify_storage_seed() {
+  kubectl_cmd -n "${NAMESPACE}" exec -i "deployment/${API_DEPLOYMENT}" -- \
+    python - "$(storage_seed_digest)" >"${STATE_ROOT}/storage-verification.json" <<'PY'
+from datetime import datetime, timezone
+import hashlib
+import hmac
+import json
+import os
+import sys
+from urllib.error import HTTPError
+from urllib.parse import quote, urlsplit
+from urllib.request import Request, urlopen
+
+endpoint = os.environ["WGCF_EVIDENCE_STORAGE_ENDPOINT"].rstrip("/")
+bucket = os.environ["WGCF_EVIDENCE_STORAGE_BUCKET"]
+access_key = os.environ["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]
+secret_key = os.environ["WGCF_EVIDENCE_STORAGE_SECRET_KEY"]
+object_key = "profile-proof/evidence-custody-v1.json"
+expected_digest = sys.argv[1]
+
+assert "MINIO_ROOT_USER" not in os.environ
+assert "MINIO_ROOT_PASSWORD" not in os.environ
+
+parsed = urlsplit(endpoint)
+host = parsed.netloc
+canonical_uri = f"/{quote(bucket, safe='')}/{quote(object_key, safe='/')}"
+now = datetime.now(timezone.utc)
+amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+date_stamp = now.strftime("%Y%m%d")
+payload_hash = hashlib.sha256(b"").hexdigest()
+canonical_headers = (
+    f"host:{host}\n"
+    f"x-amz-content-sha256:{payload_hash}\n"
+    f"x-amz-date:{amz_date}\n"
+)
+signed_headers = "host;x-amz-content-sha256;x-amz-date"
+scope = f"{date_stamp}/us-east-1/s3/aws4_request"
+
+def sign(key: bytes, message: str) -> bytes:
+    return hmac.new(key, message.encode(), hashlib.sha256).digest()
+
+def signed_request(method: str) -> Request:
+    canonical_request = "\n".join(
+        [method, canonical_uri, "", canonical_headers, signed_headers, payload_hash]
+    )
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256",
+        amz_date,
+        scope,
+        hashlib.sha256(canonical_request.encode()).hexdigest(),
+    ])
+    date_key = sign(("AWS4" + secret_key).encode(), date_stamp)
+    region_key = sign(date_key, "us-east-1")
+    service_key = sign(region_key, "s3")
+    signing_key = sign(service_key, "aws4_request")
+    signature = hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+    authorization = (
+        f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, "
+        f"SignedHeaders={signed_headers}, Signature={signature}"
+    )
+    return Request(
+        f"{endpoint}{canonical_uri}",
+        headers={
+            "Authorization": authorization,
+            "Host": host,
+            "x-amz-content-sha256": payload_hash,
+            "x-amz-date": amz_date,
+        },
+        method=method,
+    )
+
+with urlopen(signed_request("GET"), timeout=20) as response:
+    body = response.read()
+actual_digest = hashlib.sha256(body).hexdigest()
+if actual_digest != expected_digest:
+    raise SystemExit(f"storage seed digest mismatch: {actual_digest}")
+delete_denied = False
+try:
+    urlopen(signed_request("DELETE"), timeout=20)
+except HTTPError as error:
+    delete_denied = error.code == 403
+if not delete_denied:
+    raise SystemExit("application storage credential unexpectedly permits object deletion")
+print(json.dumps({
+    "bucket": bucket,
+    "object_key": object_key,
+    "sha256": actual_digest,
+    "application_credential_read": True,
+    "application_credential_delete_denied": delete_denied,
+    "root_credential_absent": True,
+}, indent=2, sort_keys=True))
+PY
+}
+
+write_storage_receipt() {
+  python3 - "${STORAGE_RECEIPT_FILE}" "${STATE_ROOT}/storage-verification.json" \
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
+    "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
+from datetime import datetime, timezone
+import json
+import pathlib
+import sys
+
+verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+expected_digest = sys.argv[7]
+if verification.get("sha256") != expected_digest:
+    raise SystemExit("storage verification does not bind the expected content digest")
+payload = {
+    "schema_version": 1,
+    "receipt_type": "dev-integration-storage",
+    "profile_id": sys.argv[3],
+    "kubernetes_namespace": sys.argv[4],
+    "bucket": sys.argv[5],
+    "object_key": sys.argv[6],
+    "content_sha256": expected_digest,
+    "storage_ref": f"wgcf-storage://{sys.argv[3]}/{sys.argv[5]}/{sys.argv[6]}",
+    "service_identity_ref": f"kubernetes://{sys.argv[4]}/serviceaccount/{sys.argv[9]}",
+    "application_secret_ref": f"kubernetes://{sys.argv[4]}/secret/{sys.argv[8]}",
+    "root_credential_exposed_to_api": False,
+    "oos_credential_issued": False,
+    "openproject_credential_issued": False,
+    "network_exposure": "namespace-local-network-policy",
+    "transport_encryption": "not-governed-dev-integration-http",
+    "at_rest_encryption": "not-governed-local-path-pvc",
+    "governed_stage_or_prod_claim": False,
+    "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+}
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+verify_storage_isolation() {
+  local deployments_file="${STATE_ROOT}/storage-isolation-deployments.json"
+  local statefulsets_file="${STATE_ROOT}/storage-isolation-statefulsets.json"
+  local network_policy_file="${STATE_ROOT}/storage-isolation-network-policy.json"
+  kubectl_cmd -n "${NAMESPACE}" get deployments -o json >"${deployments_file}"
+  kubectl_cmd -n "${NAMESPACE}" get statefulsets -o json >"${statefulsets_file}"
+  kubectl_cmd -n "${NAMESPACE}" get networkpolicy \
+    "${STORAGE_STATEFULSET}-ingress" -o json >"${network_policy_file}"
+  python3 - "${STORAGE_ISOLATION_FILE}" "${deployments_file}" \
+    "${statefulsets_file}" "${network_policy_file}" "${API_DEPLOYMENT}" \
+    "${STORAGE_STATEFULSET}" "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" <<'PY'
+from datetime import datetime, timezone
+import json
+import pathlib
+import sys
+
+deployments = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))["items"]
+statefulsets = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))["items"]
+network_policy = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+api_name, storage_name, app_secret, root_secret = sys.argv[5:9]
+
+def secret_refs(workload: dict) -> set[str]:
+    refs = set()
+    pod_spec = workload["spec"]["template"]["spec"]
+    for container in pod_spec.get("containers", []):
+        for env in container.get("env", []):
+            ref = ((env.get("valueFrom") or {}).get("secretKeyRef") or {}).get("name")
+            if ref:
+                refs.add(ref)
+        for ref in container.get("envFrom", []):
+            name = (ref.get("secretRef") or {}).get("name")
+            if name:
+                refs.add(name)
+    return refs
+
+deployment_refs = {item["metadata"]["name"]: secret_refs(item) for item in deployments}
+statefulset_refs = {item["metadata"]["name"]: secret_refs(item) for item in statefulsets}
+app_holders = sorted(name for name, refs in deployment_refs.items() if app_secret in refs)
+root_holders = sorted(name for name, refs in statefulset_refs.items() if root_secret in refs)
+if app_holders != [api_name]:
+    raise SystemExit(f"application storage credential leaked to deployments: {app_holders}")
+if root_holders != [storage_name]:
+    raise SystemExit(f"root storage credential leaked to statefulsets: {root_holders}")
+all_names = set(deployment_refs) | set(statefulset_refs)
+for forbidden in ("operator-orchestration-service", "openproject"):
+    if any(forbidden in name for name in all_names):
+        raise SystemExit(f"forbidden storage consumer is present in the profile namespace: {forbidden}")
+allowed_components = {
+    expression_value
+    for rule in network_policy["spec"]["ingress"]
+    for source in rule.get("from", [])
+    for expression in (source.get("podSelector") or {}).get("matchExpressions", [])
+    if expression.get("key") == "app.kubernetes.io/component"
+    for expression_value in expression.get("values", [])
+}
+if allowed_components != {"api", "object-storage-maintenance"}:
+    raise SystemExit(f"unexpected storage ingress subjects: {sorted(allowed_components)}")
+payload = {
+    "schema_version": 1,
+    "api_application_secret_holders": app_holders,
+    "storage_root_secret_holders": root_holders,
+    "network_policy_allowed_components": sorted(allowed_components),
+    "oos_credential_issued": False,
+    "openproject_credential_issued": False,
+    "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+}
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+  rm -f "${deployments_file}" "${statefulsets_file}" "${network_policy_file}"
+}
+
+create_storage_transfer_pod() {
+  local credential_kind="$1"
+  local secret_name access_key_field secret_key_field
+  case "${credential_kind}" in
+    application)
+      secret_name="${STORAGE_APP_SECRET}"
+      access_key_field="access-key"
+      secret_key_field="secret-key"
+      ;;
+    root)
+      secret_name="${STORAGE_ROOT_SECRET}"
+      access_key_field="root-user"
+      secret_key_field="root-password"
+      ;;
+    *)
+      echo "unknown storage transfer credential kind: ${credential_kind}" >&2
+      return 2
+      ;;
+  esac
+
+  kubectl_cmd -n "${NAMESPACE}" delete pod "${STORAGE_TRANSFER_POD}" \
+    --ignore-not-found=true --wait=true >/dev/null
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${STORAGE_TRANSFER_POD}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-maintenance
+    devint.profile: ${PROFILE_ID}
+spec:
+  restartPolicy: Never
+  containers:
+    - name: transfer
+      image: ${STORAGE_CLIENT_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - sleep 3600
+      env:
+        - name: STORAGE_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: ${access_key_field}
+        - name: STORAGE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: ${secret_name}
+              key: ${secret_key_field}
+      volumeMounts:
+        - name: transfer
+          mountPath: /transfer
+    - name: archive
+      image: busybox:1.36.1
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - sleep 3600
+      volumeMounts:
+        - name: transfer
+          mountPath: /transfer
+  volumes:
+    - name: transfer
+      emptyDir: {}
+EOF
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=Ready \
+    "pod/${STORAGE_TRANSFER_POD}" --timeout=120s
+}
+
+delete_storage_transfer_pod() {
+  kubectl_cmd -n "${NAMESPACE}" delete pod "${STORAGE_TRANSFER_POD}" \
+    --ignore-not-found=true --wait=true >/dev/null 2>&1 || true
+}
+
+write_backup_manifest() {
+  local backup_path="$1"
+  local receipt_path="$2"
+  python3 - "${backup_path}" "${receipt_path}" "${PROFILE_ID}" \
+    "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+from datetime import datetime, timezone
+import hashlib
+import json
+import pathlib
+import sys
+import tarfile
+
+archive = pathlib.Path(sys.argv[1]).resolve()
+objects = []
+with tarfile.open(archive, "r:gz") as bundle:
+    for member in sorted(bundle.getmembers(), key=lambda item: item.name):
+        if not member.isfile():
+            continue
+        source = bundle.extractfile(member)
+        if source is None:
+            raise SystemExit(f"backup member cannot be read: {member.name}")
+        body = source.read()
+        objects.append({
+            "object_key": member.name.removeprefix("./"),
+            "sha256": hashlib.sha256(body).hexdigest(),
+            "size": len(body),
+        })
+if not objects:
+    raise SystemExit("storage backup contains no objects")
+archive_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+manifest = {
+    "schema_version": 1,
+    "profile_id": sys.argv[3],
+    "kubernetes_namespace": sys.argv[4],
+    "bucket": sys.argv[5],
+    "backup_path": str(archive),
+    "archive_sha256": archive_digest,
+    "objects": objects,
+    "credentials_included": False,
+    "created_at": created_at,
+}
+pathlib.Path(f"{archive}.manifest.json").write_text(
+    json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+receipt = {
+    "schema_version": 1,
+    "receipt_type": "dev-integration-storage-backup",
+    "profile_id": sys.argv[3],
+    "kubernetes_namespace": sys.argv[4],
+    "bucket": sys.argv[5],
+    "backup_path": str(archive),
+    "archive_sha256": archive_digest,
+    "object_count": len(objects),
+    "content_addresses": [item["sha256"] for item in objects],
+    "credentials_included": False,
+    "completed_at": created_at,
+}
+pathlib.Path(sys.argv[2]).write_text(
+    json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+}
+
+backup_evidence_storage() {
+  local backup_path="$1"
+  local receipt_path="$2"
+  wait_for_storage_ready
+  mkdir -p "$(dirname "${backup_path}")"
+  create_storage_transfer_pod application
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
+    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; rm -rf /transfer/objects; mkdir -p /transfer/objects; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/objects >/dev/null'
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    tar -C /transfer/objects -czf - . >"${backup_path}"
+  delete_storage_transfer_pod
+  write_backup_manifest "${backup_path}" "${receipt_path}"
+}
+
+validate_backup_for_restore() {
+  local backup_path="$1"
+  python3 - "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+backup = pathlib.Path(sys.argv[1]).resolve()
+allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[2:4]]
+if not backup.is_file():
+    raise SystemExit(f"restore backup does not exist: {backup}")
+if not any(root == backup or root in backup.parents for root in allowed_roots):
+    raise SystemExit("restore backup must stay under the operator profile state or reset archive")
+manifest_path = pathlib.Path(f"{backup}.manifest.json")
+if not manifest_path.is_file():
+    raise SystemExit(f"restore backup manifest is missing: {manifest_path}")
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+if manifest.get("archive_sha256") != hashlib.sha256(backup.read_bytes()).hexdigest():
+    raise SystemExit("restore backup digest does not match its manifest")
+if pathlib.Path(manifest.get("backup_path", "")).resolve() != backup:
+    raise SystemExit("restore backup path does not match its manifest")
+if manifest.get("profile_id") != sys.argv[4]:
+    raise SystemExit("restore backup belongs to a different profile")
+if manifest.get("kubernetes_namespace") != sys.argv[5]:
+    raise SystemExit("restore backup belongs to a different Kubernetes namespace")
+if manifest.get("bucket") != sys.argv[6]:
+    raise SystemExit("restore backup belongs to a different bucket")
+if manifest.get("credentials_included") is not False:
+    raise SystemExit("restore backup may not contain credentials")
+PY
+}
+
+restore_evidence_storage() {
+  local backup_path="$1"
+  local verification_archive="${STATE_ROOT}/restore-verification.tar.gz"
+  wait_for_storage_ready
+  create_storage_transfer_pod root
+  kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_TRANSFER_POD}" -c archive -- /bin/sh -ec \
+    'cat >/transfer/restore.tar.gz; rm -rf /transfer/restore /transfer/verify; mkdir -p /transfer/restore /transfer/verify; tar -C /transfer/restore -xzf /transfer/restore.tar.gz' \
+    <"${backup_path}"
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
+    'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; mc mirror --overwrite --remove /transfer/restore storage/'"'${STORAGE_BUCKET}'"' >/dev/null; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/verify >/dev/null'
+  kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
+    tar -C /transfer/verify -czf - . >"${verification_archive}"
+  delete_storage_transfer_pod
+  python3 - "${backup_path}.manifest.json" "${verification_archive}" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+import tarfile
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    item["object_key"]: (item["sha256"], item["size"])
+    for item in manifest["objects"]
+}
+actual = {}
+with tarfile.open(sys.argv[2], "r:gz") as bundle:
+    for member in bundle.getmembers():
+        if not member.isfile():
+            continue
+        source = bundle.extractfile(member)
+        if source is None:
+            raise SystemExit(f"restored member cannot be read: {member.name}")
+        body = source.read()
+        actual[member.name.removeprefix("./")] = (hashlib.sha256(body).hexdigest(), len(body))
+if actual != expected:
+    raise SystemExit("restored object set does not preserve the backup content addresses")
+PY
+  rm -f "${verification_archive}"
+}
+
+write_restore_receipt() {
+  local backup_path="$1"
+  local pre_restore_path="$2"
+  python3 - "${STORAGE_RESTORE_RECEIPT_FILE}" "${backup_path}" \
+    "${pre_restore_path}" "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+from datetime import datetime, timezone
+import hashlib
+import json
+import pathlib
+import sys
+
+backup = pathlib.Path(sys.argv[2]).resolve()
+pre_restore = pathlib.Path(sys.argv[3]).resolve()
+payload = {
+    "schema_version": 1,
+    "receipt_type": "dev-integration-storage-restore",
+    "profile_id": sys.argv[4],
+    "kubernetes_namespace": sys.argv[5],
+    "bucket": sys.argv[6],
+    "restored_from": str(backup),
+    "restored_archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+    "pre_restore_backup": str(pre_restore),
+    "pre_restore_archive_sha256": hashlib.sha256(pre_restore.read_bytes()).hexdigest(),
+    "content_addresses_preserved": True,
+    "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+}
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+}

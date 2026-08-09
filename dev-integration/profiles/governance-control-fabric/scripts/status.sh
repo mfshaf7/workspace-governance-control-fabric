@@ -17,6 +17,7 @@ if ! namespace_status="$(kubectl_cmd get namespace "${NAMESPACE}" 2>&1)"; then
     echo "access artifact: ${ACCESS_FILE}"
     echo "temporal activity worker enabled: ${TEMPORAL_WORKER_ENABLED}"
     echo "worker status artifact: ${TEMPORAL_WORKER_STATUS_FILE}"
+    echo "storage receipt: ${STORAGE_RECEIPT_FILE}"
     exit 0
   fi
   echo "${namespace_status}" >&2
@@ -31,6 +32,7 @@ echo "image: ${API_IMAGE}"
 echo "access artifact: ${ACCESS_FILE}"
 echo "temporal activity worker enabled: ${TEMPORAL_WORKER_ENABLED}"
 echo "worker status artifact: ${TEMPORAL_WORKER_STATUS_FILE}"
+echo "storage receipt: ${STORAGE_RECEIPT_FILE}"
 echo
 kubectl_cmd -n "${NAMESPACE}" get deploy,pods,svc -l "devint.profile=${PROFILE_ID}"
 echo

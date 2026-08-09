@@ -7,10 +7,13 @@ Runtime boundary:
 
 - local-k3s Deployment and Service managed by the shared platform runner
 - local-k3s PostgreSQL StatefulSet and Service for fabric-local metadata
+- profile-scoped MinIO/S3-compatible object storage with a dedicated PVC,
+  API-only application credentials, and namespace-local network isolation
 - WGCF-owned Temporal activity Deployment, using the dedicated worker image,
   rendered at zero replicas by default
 - persistent local state root under `.dev-integration/governance-control-fabric/<operator>`
-- read-only smoke for API, graph, validation-plan, and receipt metadata reads
+- read-only smoke for API, graph, validation-plan, receipt metadata, and seeded
+  evidence-object digest reads
 - no stage or prod deployment approval
 
 This profile is the first real runtime-access path for the control fabric. It
@@ -24,6 +27,7 @@ gates remain separate.
 - bounded activity execution from the separately published WGCF worker image
 - local k3s Service for operator and future console access
 - local PostgreSQL for graph, receipt, readiness, and ledger state
+- local MinIO for content-addressed Delivery ART evidence-custody proof
 - a bounded `wgcf.validation-readiness.evaluate` activity worker after explicit
   activation
 - workspace-governance contracts mounted or synced as read-only authority input
@@ -37,10 +41,27 @@ Runtime state model:
 - `persistent`
 
 Persistent is selected because the control fabric will hold session, graph,
-receipt, and ledger state during long-running governance work. Shared smoke
-must remain read-only. If mutating ledger or receipt smoke is needed later,
-create a separate disposable companion profile instead of writing test traffic
-into this persistent working lane.
+receipt, ledger, and evidence-custody state during long-running governance work.
+Shared smoke must remain read-only. If mutating ledger, receipt, or artifact
+smoke is needed later, create a separate disposable companion profile instead
+of writing test traffic into this persistent working lane.
+
+The local object store is deliberately bounded:
+
+- the API ServiceAccount receives a bucket-scoped access key through its own
+  Kubernetes Secret
+- the MinIO root credential is confined to the storage workload and explicit
+  storage-maintenance jobs
+- OOS and OpenProject receive no object-store credential
+- the API credential can list, read, and write the profile bucket but cannot
+  delete objects
+- retention and deletion remain explicit lifecycle operations rather than
+  automatic cleanup
+- the local profile uses namespace-internal HTTP and a local-path PVC; it does
+  not claim governed transport encryption or encrypted-at-rest storage
+- `stage` and `prod` remain denied until workload identity, secret delivery,
+  transport and at-rest encryption, retention, backup, restore, and Security
+  acceptance are approved for those lanes
 
 The current profile starts PostgreSQL as a local k3s StatefulSet, runs database
 migrations from the WGCF image, starts the API as a local k3s Deployment,
@@ -68,7 +89,13 @@ Use the shared platform runner:
 - `make devint-smoke PROFILE=governance-control-fabric`
 - `make devint-down PROFILE=governance-control-fabric`
 - `make devint-reset PROFILE=governance-control-fabric`
+- `make devint-backup PROFILE=governance-control-fabric`
+- `make devint-restore PROFILE=governance-control-fabric`
 - `make devint-promote-check PROFILE=governance-control-fabric`
+
+`reset` requires `CONFIRM=reset-wgcf-evidence`. `restore` requires
+`CONFIRM=restore-wgcf-evidence` plus `DEVINT_BACKUP_FILE` pointing to a backup
+inside the operator-scoped profile state or reset archive.
 
 ## Smoke Scope
 
@@ -80,6 +107,9 @@ The shared smoke path stays read-only and proves:
 - database migration
 - validation planner dry run
 - receipt and ledger metadata read
+- profile-scoped evidence storage availability
+- storage credential and network isolation
+- seeded object digest and storage receipt verification
 
 Smoke must not write to governed stage or prod state. It must not mutate the
 persistent working ledger unless a separate disposable companion profile is
@@ -95,6 +125,12 @@ The governed `stage` handoff is not ready until it proves:
 - database migration
 - validation planner dry run
 - receipt and ledger metadata read
+- profile-scoped evidence storage availability
+- storage credential and network isolation
+- content digest and storage receipt verification
+- content-address-preserving backup and restore
+- explicit retention and deletion boundary
+- governed encryption identity and Security approval
 
 These checks must mirror `stage_handoff.required_checks` in `profile.yaml` and
 the workspace registry entry.
