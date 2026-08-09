@@ -51,7 +51,9 @@ The local object store is deliberately bounded:
 - the API ServiceAccount receives a bucket-scoped access key through its own
   Kubernetes Secret
 - the root-user and application access-key names are fixed identities; rotation
-  replaces only their secret values so no superseded MinIO user remains active
+  replaces both secret values as one operation so no superseded MinIO user
+  remains active; a namespace-local pending-rotation Secret retains the old
+  pairs until both authentication-denial probes succeed
 - the MinIO root credential is confined to the storage workload and explicit
   storage-maintenance jobs
 - OOS and OpenProject receive no object-store credential
@@ -67,7 +69,8 @@ The local object store is deliberately bounded:
   content digest
 - storage-affecting lifecycle actions also fail closed until the active
   workspace registry carries the exact Platform acceptance, actions, and
-  stage-handoff gates declared by this profile
+  stage-handoff gates declared by this profile, and the Platform acceptance
+  matches its pinned source commit and content digest
 - retention and deletion remain explicit lifecycle operations rather than
   automatic cleanup
 - the local profile uses namespace-internal HTTP and a local-path PVC; it does
@@ -124,6 +127,8 @@ receipt-bound version before mutation. It then creates a new immutable version,
 reissues the local receipt to that version, records an old-to-new supersession
 map, and restores the backed-up current object. The original absolute backup
 path remains provenance rather than recovery authority.
+Preflight also requires the configured seed key and digest, including its bound
+receipt, before any object-store mutation.
 
 `up`, `smoke`, `down`, `backup`, `restore`, and `reset` refuse to run when the
 workspace authority registry or its referenced Platform acceptance record is

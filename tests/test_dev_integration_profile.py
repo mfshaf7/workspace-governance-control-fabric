@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import io
@@ -130,6 +131,18 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(
             profile["authority"]["activation_contract"]["platform_acceptance_ref"],
             "repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md",
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"][
+                "platform_acceptance_source_commit"
+            ],
+            "13d7ff1ec5e314bda49492f61cf712858cb77d65",
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"][
+                "platform_acceptance_content_sha256"
+            ],
+            "509c58ae2af2d0f3c12723d2115a2f28d3be4bf03e08ba96d1aa2284e060f204",
         )
         self.assertEqual(
             profile["authority"]["activation_contract"]["required_actions"],
@@ -333,9 +346,12 @@ class DevIntegrationProfileTests(TestCase):
         receipt_index = deploy_source.index("write_storage_receipt")
         self.assertLess(rotation_capture_index, secret_index)
         self.assertLess(namespace_index, secret_index)
+        self.assertLess(namespace_index, rotation_capture_index)
         self.assertLess(secret_index, runtime_index)
         self.assertLess(rotation_proof_index, receipt_index)
         self.assertIn("expect-denied-stdin", storage_source)
+        self.assertIn("persist_pending_storage_credential_rotation", storage_source)
+        self.assertIn("STORAGE_CREDENTIAL_RETIREMENT_SECRET", storage_source)
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
@@ -392,6 +408,82 @@ class DevIntegrationProfileTests(TestCase):
         )
         self.assertEqual(later_verification["accepted_sha256"], expected_digest)
         self.assertFalse(later_verification["current_matches_accepted"])
+
+    def test_pending_credential_rotation_survives_interrupted_up(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-pending-rotation-") as temp_dir:
+            state_root = Path(temp_dir)
+            credentials = "\n".join(
+                [
+                    "STORAGE_ROOT_USER=wgcf-root",
+                    "STORAGE_ROOT_PASSWORD=replacement-root-secret",
+                    "STORAGE_APP_ACCESS_KEY=wgcf-evidence-api",
+                    "STORAGE_APP_SECRET_KEY=replacement-app-secret",
+                ]
+            ) + "\n"
+            (state_root / "storage-credentials.env").write_text(
+                credentials,
+                encoding="utf-8",
+            )
+            target_digest = hashlib.sha256(credentials.encode()).hexdigest()
+            values = {
+                "target-credentials-sha256": target_digest,
+                "retired-root-user": "wgcf-root",
+                "retired-root-password": "retired-root-secret",
+                "retired-app-access-key": "wgcf-evidence-api",
+                "retired-app-secret-key": "retired-app-secret",
+            }
+            pending_secret = {
+                "data": {
+                    key: base64.b64encode(value.encode()).decode()
+                    for key, value in values.items()
+                }
+            }
+            pending_path = state_root / "pending-secret.json"
+            pending_path.write_text(json.dumps(pending_secret), encoding="utf-8")
+            session_file = state_root / "current-session.yaml"
+            session_file.write_text("profile_id: governance-control-fabric\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(session_file),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+                "PENDING_SECRET_JSON": str(pending_path),
+            }
+            command = (
+                f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                "kubectl_cmd() { "
+                "if [[ \"$3\" == get && \"$4\" == secret && "
+                "\"$5\" == \"${STORAGE_CREDENTIAL_RETIREMENT_SECRET}\" ]]; then "
+                "cat \"${PENDING_SECRET_JSON}\"; else return 1; fi; }; "
+                "capture_storage_credentials_for_rotation; "
+                "printf '%s|%s|%s|%s|%s\n' "
+                "\"${STORAGE_CREDENTIAL_ROTATION_DETECTED}\" "
+                "\"${STORAGE_RETIRED_ROOT_USER}\" "
+                "\"${STORAGE_RETIRED_ROOT_PASSWORD}\" "
+                "\"${STORAGE_RETIRED_APP_ACCESS_KEY}\" "
+                "\"${STORAGE_RETIRED_APP_SECRET_KEY}\""
+            )
+            result = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                result.stdout.strip(),
+                "true|wgcf-root|retired-root-secret|wgcf-evidence-api|retired-app-secret",
+            )
 
     def test_retired_storage_credentials_must_fail_authentication(self) -> None:
         proof = VERSIONING_MODULE.assert_credentials_denied(
@@ -547,17 +639,25 @@ class DevIntegrationProfileTests(TestCase):
             state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
             backup = state_root / "backups/evidence.tar.gz"
             backup.parent.mkdir(parents=True)
-            body = b"evidence-body"
+            object_key = "profile-proof/evidence-custody-v1.json"
+            body = (
+                b'{"artifact_class":"architecture_packet","profile":'
+                b'"governance-control-fabric","proof":"dev-integration-storage-v1"}\n'
+            )
             receipt = {
                 "schema_version": 2,
                 "receipt_type": "dev-integration-storage",
                 "profile_id": "governance-control-fabric",
                 "kubernetes_namespace": "devint-governance-control-fabric-test",
                 "bucket": "wgcf-delivery-art-evidence",
-                "object_key": "artifact/evidence.json",
+                "object_key": object_key,
                 "object_version_id": "version-before-backup",
                 "content_sha256": hashlib.sha256(body).hexdigest(),
-                "storage_ref": "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/artifact/evidence.json?versionId=version-before-backup",
+                "storage_ref": (
+                    "wgcf-storage://governance-control-fabric/"
+                    "wgcf-delivery-art-evidence/"
+                    f"{object_key}?versionId=version-before-backup"
+                ),
                 "service_identity_ref": (
                     "kubernetes://devint-governance-control-fabric-test/"
                     "serviceaccount/workspace-governance-control-fabric-api"
@@ -570,7 +670,7 @@ class DevIntegrationProfileTests(TestCase):
             receipt_body = json.dumps(receipt).encode()
             with tarfile.open(backup, "w:gz") as bundle:
                 for name, content in (
-                    ("current/artifact/evidence.json", body),
+                    (f"current/{object_key}", body),
                     ("receipt-bound/storage-receipt.bin", body),
                     ("receipt-records/storage-receipt.json", receipt_body),
                 ):
@@ -588,8 +688,8 @@ class DevIntegrationProfileTests(TestCase):
                 "restore_requires_receipt_rebinding": True,
                 "objects": [
                     {
-                        "object_key": "artifact/evidence.json",
-                        "archive_path": "current/artifact/evidence.json",
+                        "object_key": object_key,
+                        "archive_path": f"current/{object_key}",
                         "sha256": hashlib.sha256(body).hexdigest(),
                         "size": len(body),
                     },
@@ -599,8 +699,8 @@ class DevIntegrationProfileTests(TestCase):
                         "receipt_name": "storage-receipt",
                         "receipt_archive_path": "receipt-records/storage-receipt.json",
                         "body_archive_path": "receipt-bound/storage-receipt.bin",
-                        "current_archive_path": "current/artifact/evidence.json",
-                        "object_key": "artifact/evidence.json",
+                        "current_archive_path": f"current/{object_key}",
+                        "object_key": object_key,
                         "prior_object_version_id": "version-before-backup",
                         "prior_storage_ref": receipt["storage_ref"],
                         "content_sha256": hashlib.sha256(body).hexdigest(),
@@ -666,6 +766,56 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertEqual(valid.returncode, 0, valid.stderr)
 
+            substituted_key = "artifact/substituted.json"
+            substituted_receipt = {
+                **receipt,
+                "object_key": substituted_key,
+                "storage_ref": (
+                    "wgcf-storage://governance-control-fabric/"
+                    "wgcf-delivery-art-evidence/"
+                    f"{substituted_key}?versionId=version-before-backup"
+                ),
+            }
+            substituted_receipt_body = json.dumps(substituted_receipt).encode()
+            with tarfile.open(backup, "w:gz") as bundle:
+                for name, content in (
+                    (f"current/{substituted_key}", body),
+                    ("receipt-bound/storage-receipt.bin", body),
+                    ("receipt-records/storage-receipt.json", substituted_receipt_body),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(content)
+                    bundle.addfile(member, io.BytesIO(content))
+            substituted_manifest = json.loads(json.dumps(manifest))
+            substituted_manifest["archive_sha256"] = hashlib.sha256(
+                backup.read_bytes()
+            ).hexdigest()
+            substituted_manifest["objects"][0]["object_key"] = substituted_key
+            substituted_manifest["objects"][0]["archive_path"] = (
+                f"current/{substituted_key}"
+            )
+            substituted_binding = substituted_manifest["receipt_bindings"][0]
+            substituted_binding["object_key"] = substituted_key
+            substituted_binding["current_archive_path"] = f"current/{substituted_key}"
+            substituted_binding["prior_storage_ref"] = substituted_receipt["storage_ref"]
+            substituted_binding["receipt_record_sha256"] = hashlib.sha256(
+                substituted_receipt_body
+            ).hexdigest()
+            substituted_binding["receipt_record_size"] = len(substituted_receipt_body)
+            manifest_path.write_text(json.dumps(substituted_manifest), encoding="utf-8")
+            substituted_seed = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(substituted_seed.returncode, 0)
+            self.assertIn("configured seed object", substituted_seed.stderr)
+            backup.write_bytes(original_archive)
+            manifest_path.write_bytes(original_manifest)
+
             manifest["receipt_bindings"][0]["prior_object_version_id"] = "wrong-version"
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             wrong_binding = subprocess.run(
@@ -697,11 +847,11 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("invalid or duplicate receipt binding", unsafe_receipt_name.stderr)
             manifest["receipt_bindings"][0]["receipt_name"] = "storage-receipt"
 
-            manifest["objects"][0]["object_key"] = "artifact//evidence.json"
-            manifest["objects"][0]["archive_path"] = "current/artifact//evidence.json"
-            manifest["receipt_bindings"][0]["object_key"] = "artifact//evidence.json"
+            manifest["objects"][0]["object_key"] = "profile-proof//evidence-custody-v1.json"
+            manifest["objects"][0]["archive_path"] = "current/profile-proof//evidence-custody-v1.json"
+            manifest["receipt_bindings"][0]["object_key"] = "profile-proof//evidence-custody-v1.json"
             manifest["receipt_bindings"][0]["current_archive_path"] = (
-                "current/artifact//evidence.json"
+                "current/profile-proof//evidence-custody-v1.json"
             )
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             noncanonical_object = subprocess.run(
@@ -714,11 +864,11 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(noncanonical_object.returncode, 0)
             self.assertIn("invalid or duplicate object key", noncanonical_object.stderr)
-            manifest["objects"][0]["object_key"] = "artifact/evidence.json"
-            manifest["objects"][0]["archive_path"] = "current/artifact/evidence.json"
-            manifest["receipt_bindings"][0]["object_key"] = "artifact/evidence.json"
+            manifest["objects"][0]["object_key"] = object_key
+            manifest["objects"][0]["archive_path"] = f"current/{object_key}"
+            manifest["receipt_bindings"][0]["object_key"] = object_key
             manifest["receipt_bindings"][0]["current_archive_path"] = (
-                "current/artifact/evidence.json"
+                f"current/{object_key}"
             )
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
@@ -753,12 +903,12 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertNotEqual(tampered.returncode, 0)
-            self.assertIn("do not match", tampered.stderr)
+            self.assertIn("configured seed digest", tampered.stderr)
 
             manifest["objects"][0]["sha256"] = hashlib.sha256(body).hexdigest()
             with tarfile.open(archived_backup, "w:gz") as bundle:
                 for name, content in (
-                    ("current/artifact/evidence.json", body),
+                    (f"current/{object_key}", body),
                     ("receipt-bound/storage-receipt.bin", body),
                     ("receipt-records/storage-receipt.json", receipt_body),
                 ):
@@ -767,7 +917,7 @@ class DevIntegrationProfileTests(TestCase):
                     bundle.addfile(member, io.BytesIO(content))
                 link = tarfile.TarInfo("current/linked-evidence.json")
                 link.type = tarfile.SYMTYPE
-                link.linkname = "artifact/evidence.json"
+                link.linkname = object_key
                 bundle.addfile(link)
             manifest["archive_sha256"] = hashlib.sha256(archived_backup.read_bytes()).hexdigest()
             archived_manifest.write_text(json.dumps(manifest), encoding="utf-8")
@@ -1077,6 +1227,38 @@ class DevIntegrationProfileTests(TestCase):
             )
             acceptance_path.parent.mkdir(parents=True)
             acceptance_path.write_text("# Accepted local boundary\n", encoding="utf-8")
+            platform_root = workspace_root / "platform-engineering"
+            subprocess.run(
+                ["git", "init", "-q", str(platform_root)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(platform_root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(platform_root), "config", "user.name", "Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(platform_root), "add", acceptance_path.relative_to(platform_root)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(platform_root), "commit", "-qm", "accept storage"],
+                check=True,
+            )
+            acceptance_commit = subprocess.run(
+                ["git", "-C", str(platform_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            activation_contract = profile["authority"]["activation_contract"]
+            activation_contract["platform_acceptance_source_commit"] = acceptance_commit
+            activation_contract["platform_acceptance_content_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
             registered_profile = {
                 "lifecycle": "active",
                 "admission": {

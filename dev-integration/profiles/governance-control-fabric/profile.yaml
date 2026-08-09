@@ -32,6 +32,8 @@ authority:
     path: contracts/developer-integration-profiles.yaml
     profile_id: governance-control-fabric
     platform_acceptance_ref: repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md
+    platform_acceptance_source_commit: 13d7ff1ec5e314bda49492f61cf712858cb77d65
+    platform_acceptance_content_sha256: 509c58ae2af2d0f3c12723d2115a2f28d3be4bf03e08ba96d1aa2284e060f204
     required_actions:
       - up
       - smoke

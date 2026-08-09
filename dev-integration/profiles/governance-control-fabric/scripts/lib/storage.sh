@@ -88,8 +88,7 @@ load_storage_credentials() {
 
 read_live_storage_secret() {
   local secret_name="$1"
-  local first_key="$2"
-  local second_key="$3"
+  shift
   local secret_json=""
   if ! secret_json="$(
     kubectl_cmd -n "${NAMESPACE}" get secret "${secret_name}" \
@@ -112,7 +111,70 @@ for key in sys.argv[1:]:
     if not isinstance(encoded, str) or not encoded:
         raise SystemExit(f"live storage Secret is missing {key}")
     print(base64.b64decode(encoded).decode("utf-8"))
-' "${first_key}" "${second_key}" <<<"${secret_json}"
+' "$@" <<<"${secret_json}"
+}
+
+load_pending_storage_credential_rotation() {
+  local -a pending_values=()
+  local pending_output=""
+  local read_status=0
+  local desired_digest=""
+
+  if pending_output="$(
+    read_live_storage_secret "${STORAGE_CREDENTIAL_RETIREMENT_SECRET}" \
+      target-credentials-sha256 \
+      retired-root-user \
+      retired-root-password \
+      retired-app-access-key \
+      retired-app-secret-key
+  )" && [[ -n "${pending_output}" ]]; then
+    mapfile -t pending_values <<<"${pending_output}"
+    if [[ "${#pending_values[@]}" -ne 5 ]]; then
+      echo "pending storage credential rotation has an invalid shape" >&2
+      return 1
+    fi
+    desired_digest="$(storage_credentials_digest)"
+    if [[ "${pending_values[0]}" != "${desired_digest}" ]]; then
+      echo "pending storage credential rotation targets different replacement credentials" >&2
+      return 1
+    fi
+    STORAGE_CREDENTIAL_ROTATION_DETECTED="true"
+    STORAGE_RETIRED_ROOT_USER="${pending_values[1]}"
+    STORAGE_RETIRED_ROOT_PASSWORD="${pending_values[2]}"
+    STORAGE_RETIRED_APP_ACCESS_KEY="${pending_values[3]}"
+    STORAGE_RETIRED_APP_SECRET_KEY="${pending_values[4]}"
+    return 0
+  fi
+
+  read_status=$?
+  if [[ "${read_status}" -eq 3 ]]; then
+    return 3
+  fi
+  return "${read_status}"
+}
+
+persist_pending_storage_credential_rotation() {
+  local desired_digest=""
+  desired_digest="$(storage_credentials_digest)"
+  rm -f -- "${STORAGE_CREDENTIAL_RETIREMENT_FILE}"
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${STORAGE_CREDENTIAL_RETIREMENT_SECRET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-credential-retirement
+    devint.profile: ${PROFILE_ID}
+type: Opaque
+stringData:
+  target-credentials-sha256: "${desired_digest}"
+  retired-root-user: "${STORAGE_RETIRED_ROOT_USER}"
+  retired-root-password: "${STORAGE_RETIRED_ROOT_PASSWORD}"
+  retired-app-access-key: "${STORAGE_RETIRED_APP_ACCESS_KEY}"
+  retired-app-secret-key: "${STORAGE_RETIRED_APP_SECRET_KEY}"
+EOF
 }
 
 capture_storage_credentials_for_rotation() {
@@ -120,7 +182,15 @@ capture_storage_credentials_for_rotation() {
   local live_output=""
   local read_status=0
   load_storage_credentials
-  rm -f -- "${STORAGE_CREDENTIAL_RETIREMENT_FILE}"
+
+  if load_pending_storage_credential_rotation; then
+    return
+  else
+    read_status=$?
+    if [[ "${read_status}" -ne 3 ]]; then
+      return "${read_status}"
+    fi
+  fi
 
   if live_output="$(
     read_live_storage_secret "${STORAGE_ROOT_SECRET}" root-user root-password
@@ -164,6 +234,17 @@ capture_storage_credentials_for_rotation() {
     if [[ "${read_status}" -ne 3 ]]; then
       return "${read_status}"
     fi
+  fi
+
+  if [[ "${STORAGE_CREDENTIAL_ROTATION_DETECTED}" == "true" ]]; then
+    if [[ -z "${STORAGE_RETIRED_ROOT_USER}" \
+      || -z "${STORAGE_RETIRED_ROOT_PASSWORD}" \
+      || -z "${STORAGE_RETIRED_APP_ACCESS_KEY}" \
+      || -z "${STORAGE_RETIRED_APP_SECRET_KEY}" ]]; then
+      echo "WGCF storage root and application secrets must rotate together" >&2
+      return 1
+    fi
+    persist_pending_storage_credential_rotation
   fi
 }
 
@@ -229,14 +310,10 @@ verify_retired_storage_credentials() {
   root_proof="$(mktemp "${STATE_ROOT}/.retired-root.XXXXXX.json")"
   app_proof="$(mktemp "${STATE_ROOT}/.retired-app.XXXXXX.json")"
   create_storage_credential_retirement_pod
-  if [[ -n "${STORAGE_RETIRED_ROOT_USER}" ]]; then
-    prove_retired_storage_credential_denied \
-      "${STORAGE_RETIRED_ROOT_USER}" "${STORAGE_RETIRED_ROOT_PASSWORD}" "${root_proof}"
-  fi
-  if [[ -n "${STORAGE_RETIRED_APP_ACCESS_KEY}" ]]; then
-    prove_retired_storage_credential_denied \
-      "${STORAGE_RETIRED_APP_ACCESS_KEY}" "${STORAGE_RETIRED_APP_SECRET_KEY}" "${app_proof}"
-  fi
+  prove_retired_storage_credential_denied \
+    "${STORAGE_RETIRED_ROOT_USER}" "${STORAGE_RETIRED_ROOT_PASSWORD}" "${root_proof}"
+  prove_retired_storage_credential_denied \
+    "${STORAGE_RETIRED_APP_ACCESS_KEY}" "${STORAGE_RETIRED_APP_SECRET_KEY}" "${app_proof}"
   python3 - "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" "${root_proof}" "${app_proof}" <<'PY'
 from datetime import datetime, timezone
 import json
@@ -251,10 +328,8 @@ def denied(path_value: str):
 
 root_denied = denied(sys.argv[2])
 app_denied = denied(sys.argv[3])
-if root_denied is False or app_denied is False:
+if root_denied is not True or app_denied is not True:
     raise SystemExit("retired storage credential denial proof is incomplete")
-if root_denied is not True and app_denied is not True:
-    raise SystemExit("credential rotation was recorded without a retired credential")
 payload = {
     "schema_version": 1,
     "rotation_detected": True,
@@ -268,6 +343,8 @@ pathlib.Path(sys.argv[1]).write_text(
 )
 PY
   rm -f -- "${root_proof}" "${app_proof}"
+  kubectl_cmd -n "${NAMESPACE}" delete secret \
+    "${STORAGE_CREDENTIAL_RETIREMENT_SECRET}" --wait=true >/dev/null
   cleanup_storage_credential_retirement
 }
 
@@ -277,7 +354,11 @@ storage_credentials_digest() {
 }
 
 require_storage_security_review() {
-  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
+  local repo_paths_json="${DEVINT_REPO_PATHS_JSON:-}"
+  if [[ -z "${repo_paths_json}" ]]; then
+    repo_paths_json='{}'
+  fi
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -286,6 +367,7 @@ import sys
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
+repo_paths = json.loads(sys.argv[3])
 expected_repo = "security-architecture"
 expected_path = "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md"
 refs = (profile.get("security") or {}).get("activation_review_refs") or []
@@ -302,8 +384,8 @@ if not isinstance(source_commit, str) or len(source_commit) != 40:
     raise SystemExit("WGCF evidence storage Security review has no immutable source commit")
 if not isinstance(expected_digest, str) or len(expected_digest) != 64:
     raise SystemExit("WGCF evidence storage Security review has no content digest")
-review_path = workspace_root / expected_repo / expected_path
-repo_root = workspace_root / expected_repo
+repo_root = pathlib.Path(repo_paths.get(expected_repo, workspace_root / expected_repo)).resolve()
+review_path = repo_root / expected_path
 if not (repo_root / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
 result = subprocess.run(
@@ -321,28 +403,40 @@ PY
 }
 
 require_storage_authority_contract() {
-  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
+  local repo_paths_json="${DEVINT_REPO_PATHS_JSON:-}"
+  if [[ -z "${repo_paths_json}" ]]; then
+    repo_paths_json='{}'
+  fi
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" <<'PY'
+import hashlib
 import json
 import pathlib
+import subprocess
 import sys
 
 import yaml
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
+repo_paths = json.loads(sys.argv[3])
 binding = (profile.get("authority") or {}).get("activation_contract") or {}
 required_binding_fields = {
     "repo",
     "path",
     "profile_id",
     "platform_acceptance_ref",
+    "platform_acceptance_source_commit",
+    "platform_acceptance_content_sha256",
     "required_actions",
     "required_stage_checks",
 }
 if set(binding) != required_binding_fields:
     raise SystemExit("WGCF evidence storage profile has an incomplete authority binding")
 
-registry_path = workspace_root / binding["repo"] / binding["path"]
+governance_repo = pathlib.Path(
+    repo_paths.get(binding["repo"], workspace_root / binding["repo"])
+).resolve()
+registry_path = governance_repo / binding["path"]
 if not registry_path.is_file():
     raise SystemExit(f"WGCF evidence storage authority registry is unavailable: {registry_path}")
 registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
@@ -359,12 +453,37 @@ acceptance_prefix = "repo://platform-engineering/"
 if not binding["platform_acceptance_ref"].startswith(acceptance_prefix):
     raise SystemExit("WGCF evidence storage Platform acceptance reference is invalid")
 acceptance_path = (
-    workspace_root
-    / "platform-engineering"
+    pathlib.Path(
+        repo_paths.get("platform-engineering", workspace_root / "platform-engineering")
+    ).resolve()
     / binding["platform_acceptance_ref"][len(acceptance_prefix):]
+).resolve()
+platform_repo = pathlib.Path(
+    repo_paths.get("platform-engineering", workspace_root / "platform-engineering")
+).resolve()
+source_commit = binding["platform_acceptance_source_commit"]
+expected_digest = binding["platform_acceptance_content_sha256"]
+if not isinstance(source_commit, str) or len(source_commit) != 40:
+    raise SystemExit("WGCF evidence storage Platform acceptance has no immutable source commit")
+if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+    raise SystemExit("WGCF evidence storage Platform acceptance has no content digest")
+if not (platform_repo / ".git").exists():
+    raise SystemExit(f"WGCF evidence storage Platform repository is unavailable: {platform_repo}")
+try:
+    acceptance_relpath = acceptance_path.relative_to(platform_repo).as_posix()
+except ValueError as error:
+    raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
+result = subprocess.run(
+    ["git", "-C", str(platform_repo), "show", f"{source_commit}:{acceptance_relpath}"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    check=False,
 )
-if not acceptance_path.is_file():
-    raise SystemExit(f"WGCF evidence storage Platform acceptance is unavailable: {acceptance_path}")
+if result.returncode != 0:
+    raise SystemExit("WGCF evidence storage Platform acceptance is unavailable at its pinned commit")
+actual_digest = hashlib.sha256(result.stdout).hexdigest()
+if actual_digest != expected_digest:
+    raise SystemExit("WGCF evidence storage Platform acceptance commit does not match its pinned digest")
 
 registered_actions = set(registered_profile.get("actions") or [])
 missing_actions = sorted(set(binding["required_actions"]) - registered_actions)
@@ -1458,7 +1577,8 @@ validate_backup_for_restore() {
   local backup_path="$1"
   python3 - "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
-    "${COMPONENT_NAME}" "${STORAGE_APP_SECRET}" <<'PY'
+    "${COMPONENT_NAME}" "${STORAGE_APP_SECRET}" \
+    "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -1497,6 +1617,9 @@ if manifest.get("restore_requires_receipt_rebinding") is not True:
     raise SystemExit("restore manifest does not require receipt rebinding")
 expected = {}
 object_keys = set()
+seed_key = sys.argv[9]
+seed_digest = sys.argv[10]
+seed_object_seen = False
 for item in manifest.get("objects") or []:
     object_key = item.get("object_key")
     archive_path = item.get("archive_path")
@@ -1519,12 +1642,19 @@ for item in manifest.get("objects") or []:
         raise SystemExit(f"restore manifest contains an invalid current object path: {object_key}")
     if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
         raise SystemExit(f"restore manifest contains invalid object evidence: {object_key}")
+    if object_key == seed_key:
+        if digest != seed_digest:
+            raise SystemExit("restore manifest seed object does not match the configured seed digest")
+        seed_object_seen = True
     expected[archive_path] = (digest, size)
 if not expected:
     raise SystemExit("restore manifest contains no objects")
+if not seed_object_seen:
+    raise SystemExit("restore manifest does not contain the configured seed object")
 
 receipt_names = set()
 receipt_bindings = {}
+seed_receipt_seen = False
 for binding in manifest.get("receipt_bindings") or []:
     receipt_name = binding.get("receipt_name")
     object_key = binding.get("object_key")
@@ -1584,8 +1714,14 @@ for binding in manifest.get("receipt_bindings") or []:
     expected[body_path] = (content_digest, body_size)
     expected[receipt_path] = (receipt_digest, receipt_size)
     receipt_bindings[receipt_name] = binding
+    if object_key == seed_key:
+        if content_digest != seed_digest:
+            raise SystemExit("restore manifest seed receipt does not match the configured seed digest")
+        seed_receipt_seen = True
 if not receipt_names:
     raise SystemExit("restore manifest contains no receipt-bound evidence")
+if not seed_receipt_seen:
+    raise SystemExit("restore manifest does not contain a receipt for the configured seed")
 actual = {}
 archive_bodies = {}
 seen_paths = set()
