@@ -165,7 +165,9 @@ actions, and handoff checks declared by the owner profile. This keeps a merged
 owner implementation dormant until workspace authority activates the same
 contract. The API receives only the bucket-scoped application credential; the
 storage root credential remains limited to the storage and named maintenance
-workloads. The `up` action uses that application identity to prove a same-key
+workloads. The root-user and application access-key names are immutable;
+rotation changes only their secret values. The `up` action uses that
+application identity to prove a same-key
 overwrite cannot make the accepted bytes unreachable, restores the accepted
 payload as current, and writes a receipt bound to the accepted object version
 ID. Shared smoke verifies that pinned version without mutating storage.

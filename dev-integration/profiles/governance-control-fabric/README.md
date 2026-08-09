@@ -50,6 +50,8 @@ The local object store is deliberately bounded:
 
 - the API ServiceAccount receives a bucket-scoped access key through its own
   Kubernetes Secret
+- the root-user and application access-key names are fixed identities; rotation
+  replaces only their secret values so no superseded MinIO user remains active
 - the MinIO root credential is confined to the storage workload and explicit
   storage-maintenance jobs
 - OOS and OpenProject receive no object-store credential

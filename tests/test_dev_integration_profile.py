@@ -267,6 +267,29 @@ class DevIntegrationProfileTests(TestCase):
             self.assertNotIn(credentials.split("STORAGE_ROOT_PASSWORD=", 1)[1].splitlines()[0], manifest)
             self.assertNotIn(credentials.split("STORAGE_APP_SECRET_KEY=", 1)[1].splitlines()[0], manifest)
 
+            credential_path = state_root / "storage-credentials.env"
+            credential_path.write_text(
+                credentials.replace(
+                    "STORAGE_APP_ACCESS_KEY=wgcf-evidence-api",
+                    "STORAGE_APP_ACCESS_KEY=rotated-access-key",
+                ),
+                encoding="utf-8",
+            )
+            changed_identity = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; storage_credentials_digest",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(changed_identity.returncode, 0)
+            self.assertIn("application identity is immutable", changed_identity.stderr)
+
     def test_storage_lifecycle_keeps_destructive_authority_explicit(self) -> None:
         storage_source = (SCRIPTS_ROOT / "lib/storage.sh").read_text(encoding="utf-8")
         common_source = (SCRIPTS_ROOT / "common.sh").read_text(encoding="utf-8")
@@ -297,6 +320,14 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
+        self.assertLess(
+            restore_source.index("snapshot_backup_for_restore"),
+            restore_source.index("validate_backup_for_restore"),
+        )
+        self.assertIn(
+            'restore_evidence_storage "${STORAGE_RESTORE_INPUT_ARCHIVE}"',
+            restore_source,
+        )
         self.assertIn('"reset-wgcf-evidence"', reset_source)
         self.assertIn('"restore-wgcf-evidence"', restore_source)
         for script_name in ("backup.sh", "restore.sh"):
@@ -518,6 +549,35 @@ class DevIntegrationProfileTests(TestCase):
                 "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
             }
             command = f"source {SCRIPTS_ROOT / 'common.sh'}; validate_backup_for_restore {backup}"
+            original_archive = backup.read_bytes()
+            original_manifest = manifest_path.read_bytes()
+            snapshot = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    (
+                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        f"snapshot_backup_for_restore {backup}; "
+                        'printf "%s\\n" "${STORAGE_RESTORE_INPUT_ARCHIVE}"'
+                    ),
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(snapshot.returncode, 0, snapshot.stderr)
+            snapshot_path = Path(snapshot.stdout.strip())
+            backup.write_bytes(b"changed after snapshot")
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            self.assertEqual(snapshot_path.read_bytes(), original_archive)
+            self.assertEqual(
+                Path(f"{snapshot_path}.manifest.json").read_bytes(),
+                original_manifest,
+            )
+            backup.write_bytes(original_archive)
+            manifest_path.write_bytes(original_manifest)
             valid = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
@@ -697,6 +757,76 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(rejected.returncode, 0)
             self.assertIn("backups directory", rejected.stderr)
+
+    def test_storage_receipt_binding_requires_exact_active_scope(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-receipt-scope-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            state_root.mkdir(parents=True)
+            namespace = "devint-governance-control-fabric-test"
+            version_id = "version-1"
+            object_key = "profile-proof/evidence-custody-v1.json"
+            receipt_path = state_root / "storage-receipt.json"
+            receipt = {
+                "schema_version": 2,
+                "receipt_type": "dev-integration-storage",
+                "profile_id": "governance-control-fabric",
+                "kubernetes_namespace": namespace,
+                "bucket": "wgcf-delivery-art-evidence",
+                "object_key": object_key,
+                "object_version_id": version_id,
+                "content_sha256": "a" * 64,
+                "storage_ref": (
+                    "wgcf-storage://governance-control-fabric/"
+                    f"wgcf-delivery-art-evidence/{object_key}?versionId={version_id}"
+                ),
+                "service_identity_ref": (
+                    f"kubernetes://{namespace}/serviceaccount/"
+                    "workspace-governance-control-fabric-api"
+                ),
+                "application_secret_ref": (
+                    f"kubernetes://{namespace}/secret/"
+                    "workspace-governance-control-fabric-object-storage-api"
+                ),
+            }
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": namespace,
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            command = f"source {SCRIPTS_ROOT / 'common.sh'}; read_storage_receipt_binding"
+            accepted = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(accepted.stdout.splitlines(), [object_key, version_id, "a" * 64])
+
+            receipt["bucket"] = "wrong-bucket"
+            receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            rejected = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("different bucket", rejected.stderr)
 
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 
+readonly STORAGE_ROOT_USER_ID="wgcf-root"
+readonly STORAGE_APP_ACCESS_KEY_ID="wgcf-evidence-api"
+
 STORAGE_BACKUP_STAGING_ARCHIVE=""
 STORAGE_BACKUP_STAGING_MANIFEST=""
 STORAGE_BACKUP_STAGING_RECEIPT=""
+STORAGE_RESTORE_INPUT_DIR=""
+STORAGE_RESTORE_INPUT_ARCHIVE=""
 
 cleanup_storage_backup_staging() {
   local path=""
@@ -16,6 +21,16 @@ cleanup_storage_backup_staging() {
   STORAGE_BACKUP_STAGING_ARCHIVE=""
   STORAGE_BACKUP_STAGING_MANIFEST=""
   STORAGE_BACKUP_STAGING_RECEIPT=""
+}
+
+cleanup_storage_restore_input() {
+  if [[ -n "${STORAGE_RESTORE_INPUT_DIR:-}" \
+    && "${STORAGE_RESTORE_INPUT_DIR}" == "${STATE_ROOT}"/restore-input.* \
+    && -d "${STORAGE_RESTORE_INPUT_DIR}" ]]; then
+    rm -rf -- "${STORAGE_RESTORE_INPUT_DIR}"
+  fi
+  STORAGE_RESTORE_INPUT_DIR=""
+  STORAGE_RESTORE_INPUT_ARCHIVE=""
 }
 
 generate_storage_secret() {
@@ -33,9 +48,9 @@ ensure_storage_credentials() {
 
   umask 077
   cat >"${STORAGE_CREDENTIALS_ENV}" <<EOF
-STORAGE_ROOT_USER=wgcf-root
+STORAGE_ROOT_USER=${STORAGE_ROOT_USER_ID}
 STORAGE_ROOT_PASSWORD=$(generate_storage_secret)
-STORAGE_APP_ACCESS_KEY=wgcf-evidence-api
+STORAGE_APP_ACCESS_KEY=${STORAGE_APP_ACCESS_KEY_ID}
 STORAGE_APP_SECRET_KEY=$(generate_storage_secret)
 EOF
 }
@@ -44,10 +59,18 @@ load_storage_credentials() {
   ensure_storage_credentials
   # shellcheck disable=SC1090
   source "${STORAGE_CREDENTIALS_ENV}"
+  if [[ "${STORAGE_ROOT_USER:-}" != "${STORAGE_ROOT_USER_ID}" ]]; then
+    echo "WGCF storage root identity is immutable; rotate only its secret" >&2
+    return 1
+  fi
+  if [[ "${STORAGE_APP_ACCESS_KEY:-}" != "${STORAGE_APP_ACCESS_KEY_ID}" ]]; then
+    echo "WGCF storage application identity is immutable; rotate only its secret" >&2
+    return 1
+  fi
 }
 
 storage_credentials_digest() {
-  ensure_storage_credentials
+  load_storage_credentials
   sha256sum "${STORAGE_CREDENTIALS_ENV}" | awk '{print $1}'
 }
 
@@ -956,16 +979,14 @@ print(backup_root / backup.name)
 PY
 }
 
-stage_receipt_bound_evidence() {
-  local -a receipt_fields=()
-  if [[ ! -f "${STORAGE_RECEIPT_FILE}" ]]; then
-    echo "Storage receipt is missing; run the profile up action before backup" >&2
-    return 1
-  fi
-  mapfile -t receipt_fields < <(python3 - "${STORAGE_RECEIPT_FILE}" <<'PY'
+read_storage_receipt_binding() {
+  python3 - "${STORAGE_RECEIPT_FILE}" "${PROFILE_ID}" "${NAMESPACE}" \
+    "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" "${COMPONENT_NAME}" \
+    "${STORAGE_APP_SECRET}" <<'PY'
 import json
 import pathlib
 import sys
+from urllib.parse import quote
 
 receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 required = ["object_key", "object_version_id", "content_sha256"]
@@ -975,10 +996,38 @@ for field in required:
         raise SystemExit(f"storage receipt has invalid {field}")
 if receipt.get("schema_version") != 2 or receipt.get("receipt_type") != "dev-integration-storage":
     raise SystemExit("storage receipt is not a version-bound WGCF receipt")
+if receipt.get("profile_id") != sys.argv[2]:
+    raise SystemExit("storage receipt belongs to a different profile")
+if receipt.get("kubernetes_namespace") != sys.argv[3]:
+    raise SystemExit("storage receipt belongs to a different Kubernetes namespace")
+if receipt.get("bucket") != sys.argv[4]:
+    raise SystemExit("storage receipt belongs to a different bucket")
+if receipt.get("object_key") != sys.argv[5]:
+    raise SystemExit("storage receipt belongs to a different evidence object")
+expected_ref = (
+    f"wgcf-storage://{sys.argv[2]}/{sys.argv[4]}/{sys.argv[5]}"
+    f"?versionId={quote(receipt['object_version_id'], safe='-_.~')}"
+)
+if receipt.get("storage_ref") != expected_ref:
+    raise SystemExit("storage receipt has an invalid version-qualified storage reference")
+expected_service_identity = f"kubernetes://{sys.argv[3]}/serviceaccount/{sys.argv[6]}"
+if receipt.get("service_identity_ref") != expected_service_identity:
+    raise SystemExit("storage receipt has an invalid service identity reference")
+expected_secret_ref = f"kubernetes://{sys.argv[3]}/secret/{sys.argv[7]}"
+if receipt.get("application_secret_ref") != expected_secret_ref:
+    raise SystemExit("storage receipt has an invalid application Secret reference")
 for field in required:
     print(receipt[field])
 PY
-  )
+}
+
+stage_receipt_bound_evidence() {
+  local -a receipt_fields=()
+  if [[ ! -f "${STORAGE_RECEIPT_FILE}" ]]; then
+    echo "Storage receipt is missing; run the profile up action before backup" >&2
+    return 1
+  fi
+  mapfile -t receipt_fields < <(read_storage_receipt_binding)
   if [[ "${#receipt_fields[@]}" -ne 3 ]]; then
     echo "Storage receipt fields could not be staged" >&2
     return 1
@@ -1274,6 +1323,57 @@ if actual != expected:
 PY
 }
 
+snapshot_backup_for_restore() {
+  local backup_path="$1"
+  ensure_state_dirs
+  cleanup_storage_restore_input
+  STORAGE_RESTORE_INPUT_DIR="$(mktemp -d "${STATE_ROOT}/restore-input.XXXXXX")"
+  chmod 700 "${STORAGE_RESTORE_INPUT_DIR}"
+  STORAGE_RESTORE_INPUT_ARCHIVE="${STORAGE_RESTORE_INPUT_DIR}/input.tar.gz"
+  python3 - "${backup_path}" "${STORAGE_RESTORE_INPUT_ARCHIVE}" \
+    "${STATE_ROOT}" "${ARCHIVE_ROOT}" <<'PY'
+import os
+import pathlib
+import stat
+import sys
+
+source_archive = pathlib.Path(sys.argv[1])
+target_archive = pathlib.Path(sys.argv[2])
+allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[3:5]]
+if not source_archive.is_absolute():
+    raise SystemExit("restore backup path must be absolute")
+
+def copy_regular_file(source: pathlib.Path, target: pathlib.Path) -> None:
+    resolved = source.resolve(strict=True)
+    if not any(root == resolved or root in resolved.parents for root in allowed_roots):
+        raise SystemExit("restore backup must stay under the operator profile state or reset archive")
+    source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+            raise SystemExit(f"restore input is not a regular file: {source}")
+        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            while True:
+                chunk = os.read(source_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                remaining = memoryview(chunk)
+                while remaining:
+                    remaining = remaining[os.write(target_fd, remaining):]
+            os.fsync(target_fd)
+        finally:
+            os.close(target_fd)
+    finally:
+        os.close(source_fd)
+
+copy_regular_file(source_archive, target_archive)
+copy_regular_file(
+    pathlib.Path(f"{source_archive}.manifest.json"),
+    pathlib.Path(f"{target_archive}.manifest.json"),
+)
+PY
+}
+
 restore_evidence_storage() {
   local backup_path="$1"
   local verification_archive="${STATE_ROOT}/restore-verification.tar.gz"
@@ -1332,9 +1432,11 @@ PY
 write_restore_receipt() {
   local backup_path="$1"
   local pre_restore_path="$2"
+  local selected_backup_path="$3"
   python3 - "${STORAGE_RESTORE_RECEIPT_FILE}" "${backup_path}" \
     "${pre_restore_path}" "${STORAGE_RECEIPT_REBINDING_FILE}" \
-    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
+    "${selected_backup_path}" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -1343,6 +1445,7 @@ import sys
 
 backup = pathlib.Path(sys.argv[2]).resolve()
 pre_restore = pathlib.Path(sys.argv[3]).resolve()
+selected_backup = pathlib.Path(sys.argv[8]).resolve()
 rebindings = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 if rebindings.get("receipt_identity_rebound") is not True:
     raise SystemExit("restore receipt rebinding proof is incomplete")
@@ -1352,7 +1455,7 @@ payload = {
     "profile_id": sys.argv[5],
     "kubernetes_namespace": sys.argv[6],
     "bucket": sys.argv[7],
-    "restored_from": str(backup),
+    "restored_from": str(selected_backup),
     "restored_archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
     "pre_restore_backup": str(pre_restore),
     "pre_restore_archive_sha256": hashlib.sha256(pre_restore.read_bytes()).hexdigest(),
