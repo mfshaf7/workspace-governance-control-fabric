@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 import yaml
 
@@ -36,6 +37,14 @@ VERSIONING_SPEC = importlib.util.spec_from_file_location(
 assert VERSIONING_SPEC and VERSIONING_SPEC.loader
 VERSIONING_MODULE = importlib.util.module_from_spec(VERSIONING_SPEC)
 VERSIONING_SPEC.loader.exec_module(VERSIONING_MODULE)
+LANDED_SOURCE_MODULE_PATH = SCRIPTS_ROOT / "lib/verify_landed_source.py"
+LANDED_SOURCE_SPEC = importlib.util.spec_from_file_location(
+    "verify_landed_source",
+    LANDED_SOURCE_MODULE_PATH,
+)
+assert LANDED_SOURCE_SPEC and LANDED_SOURCE_SPEC.loader
+LANDED_SOURCE_MODULE = importlib.util.module_from_spec(LANDED_SOURCE_SPEC)
+LANDED_SOURCE_SPEC.loader.exec_module(LANDED_SOURCE_MODULE)
 
 
 def valid_storage_receipt(
@@ -236,10 +245,48 @@ class FakeDeniedStorage:
 
 
 class DevIntegrationProfileTests(TestCase):
+    def test_landed_source_fetch_neutralizes_alternate_ssh_transports(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.sshCommand",
+                "GIT_CONFIG_VALUE_0": "/tmp/fabricated-ssh",
+                "GIT_SSH": "/tmp/fabricated-git-ssh",
+                "GIT_SSH_COMMAND": "/tmp/fabricated-command",
+                "GIT_SSH_VARIANT": "simple",
+                "HOME": "/tmp/fabricated-home",
+            },
+        ):
+            env = LANDED_SOURCE_MODULE._git_environment()
+
+        self.assertNotIn("GIT_CONFIG_COUNT", env)
+        self.assertNotIn("GIT_CONFIG_KEY_0", env)
+        self.assertNotIn("GIT_CONFIG_VALUE_0", env)
+        self.assertEqual(env["GIT_SSH_VARIANT"], "ssh")
+        self.assertIn("/usr/bin/ssh -F /dev/null", env["GIT_SSH_COMMAND"])
+        self.assertIn("-oProxyCommand=none", env["GIT_SSH_COMMAND"])
+        self.assertIn("-oProxyJump=none", env["GIT_SSH_COMMAND"])
+        self.assertNotEqual(env["HOME"], "/tmp/fabricated-home")
+        self.assertEqual(LANDED_SOURCE_MODULE.GIT_EXECUTABLE, "/usr/bin/git")
+
+    def profile_scripts_with_local_git_transport(self, temp_root: Path) -> Path:
+        profile_root = temp_root / ".test-profile"
+        shutil.copytree(PROFILE_ROOT, profile_root)
+        helper_path = profile_root / "scripts/lib/verify_landed_source.py"
+        helper_source = helper_path.read_text(encoding="utf-8")
+        trusted_git = 'GIT_EXECUTABLE = "/usr/bin/git"'
+        self.assertIn(trusted_git, helper_source)
+        helper_path.write_text(
+            helper_source.replace(trusted_git, 'GIT_EXECUTABLE = "git"', 1),
+            encoding="utf-8",
+        )
+        return profile_root / "scripts"
+
     def configure_published_origin(self, repo_root: Path, repo_name: str) -> None:
         remote_root = repo_root.parent / f".{repo_name}-origin.git"
         subprocess.run(["git", "init", "--bare", "-q", str(remote_root)], check=True)
-        canonical_url = f"https://github.com/mfshaf7/{repo_name}.git"
+        canonical_url = f"git@github.com:mfshaf7/{repo_name}.git"
         subprocess.run(
             ["git", "-C", str(repo_root), "remote", "add", "origin", canonical_url],
             check=True,
@@ -1951,6 +1998,7 @@ class DevIntegrationProfileTests(TestCase):
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-security-") as temp_dir:
             temp_root = Path(temp_dir)
+            test_scripts_root = self.profile_scripts_with_local_git_transport(temp_root)
             workspace_root = temp_root / "workspace"
             review_path = (
                 workspace_root
@@ -1998,7 +2046,10 @@ class DevIntegrationProfileTests(TestCase):
                 "DEVINT_STATE_ROOT": str(temp_root / "state"),
                 "DEVINT_WORKSPACE_ROOT": str(workspace_root),
             }
-            command = f"source {SCRIPTS_ROOT / 'common.sh'}; require_storage_security_review"
+            command = (
+                f"source {test_scripts_root / 'common.sh'}; "
+                "require_storage_security_review"
+            )
             accepted = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
@@ -2080,6 +2131,7 @@ class DevIntegrationProfileTests(TestCase):
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-authority-") as temp_dir:
             temp_root = Path(temp_dir)
+            test_scripts_root = self.profile_scripts_with_local_git_transport(temp_root)
             workspace_root = temp_root / "workspace"
             registry_path = (
                 workspace_root
@@ -2186,7 +2238,10 @@ class DevIntegrationProfileTests(TestCase):
                 "DEVINT_STATE_ROOT": str(temp_root / "state"),
                 "DEVINT_WORKSPACE_ROOT": str(workspace_root),
             }
-            command = f"source {SCRIPTS_ROOT / 'common.sh'}; require_storage_authority_contract"
+            command = (
+                f"source {test_scripts_root / 'common.sh'}; "
+                "require_storage_authority_contract"
+            )
             accepted = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
@@ -2225,12 +2280,12 @@ class DevIntegrationProfileTests(TestCase):
                     str(governance_root),
                     "config",
                     "remote.origin.url",
-                    "https://github.com/mfshaf7/workspace-governance.git",
+                    "git@github.com:mfshaf7/workspace-governance.git",
                 ],
                 check=True,
             )
 
-            rewrite_prefix = "https://github.com/mfshaf7/workspace-governance"
+            rewrite_prefix = "git@github.com:mfshaf7/workspace-governance"
             subprocess.run(
                 [
                     "git",

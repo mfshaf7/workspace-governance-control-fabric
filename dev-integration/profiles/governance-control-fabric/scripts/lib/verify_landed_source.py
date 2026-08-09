@@ -1,14 +1,44 @@
 from __future__ import annotations
 
+import os
+import pwd
 import subprocess
 from pathlib import Path
+
+GIT_EXECUTABLE = "/usr/bin/git"
+
+
+def _git_environment() -> dict[str, str]:
+    env = dict(os.environ)
+    for key in tuple(env):
+        if key.startswith("GIT_CONFIG_") or key in {
+            "GIT_SSH",
+            "GIT_SSH_COMMAND",
+            "GIT_SSH_VARIANT",
+        }:
+            env.pop(key)
+    env.update(
+        {
+            "GIT_SSH_COMMAND": (
+                "/usr/bin/ssh -F /dev/null -oCanonicalizeHostname=no "
+                "-oClearAllForwardings=yes -oPermitLocalCommand=no "
+                "-oProxyCommand=none -oProxyJump=none -oStrictHostKeyChecking=yes"
+            ),
+            "GIT_SSH_VARIANT": "ssh",
+            "GIT_TERMINAL_PROMPT": "0",
+            "HOME": pwd.getpwuid(os.getuid()).pw_dir,
+            "LC_ALL": "C",
+        }
+    )
+    return env
 
 
 def _run(repo_root: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", "-C", str(repo_root), *args],
+        [GIT_EXECUTABLE, "-C", str(repo_root), *args],
         check=False,
         capture_output=True,
+        env=_git_environment(),
         text=True,
     )
     if result.returncode != 0:
@@ -19,7 +49,7 @@ def _run(repo_root: Path, *args: str) -> str:
 def _reject_matching_url_rewrites(repo_root: Path, configured_url: str) -> None:
     result = subprocess.run(
         [
-            "git",
+            GIT_EXECUTABLE,
             "-C",
             str(repo_root),
             "config",
@@ -28,6 +58,7 @@ def _reject_matching_url_rewrites(repo_root: Path, configured_url: str) -> None:
         ],
         check=False,
         capture_output=True,
+        env=_git_environment(),
         text=True,
     )
     if result.returncode == 1:
@@ -43,7 +74,6 @@ def _reject_matching_url_rewrites(repo_root: Path, configured_url: str) -> None:
 def require_landed_commit(repo_root: Path, repo_name: str, source_commit: str) -> None:
     expected_urls = {
         f"git@github.com:mfshaf7/{repo_name}.git",
-        f"https://github.com/mfshaf7/{repo_name}.git",
         f"ssh://git@github.com/mfshaf7/{repo_name}.git",
     }
     configured_url = _run(repo_root, "config", "--get", "remote.origin.url")
@@ -54,7 +84,7 @@ def require_landed_commit(repo_root: Path, repo_name: str, source_commit: str) -
     fetched_main = _run(repo_root, "rev-parse", "FETCH_HEAD")
     landed = subprocess.run(
         [
-            "git",
+            GIT_EXECUTABLE,
             "-C",
             str(repo_root),
             "merge-base",
@@ -63,6 +93,7 @@ def require_landed_commit(repo_root: Path, repo_name: str, source_commit: str) -
             fetched_main,
         ],
         check=False,
+        env=_git_environment(),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
