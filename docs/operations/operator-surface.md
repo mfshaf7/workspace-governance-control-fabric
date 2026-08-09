@@ -152,10 +152,14 @@ without the exact confirmation above.
 
 Activation also fails closed unless the profile carries the routed
 `security-architecture` evidence-custody review and that review exists in the
-workspace. The API receives only the bucket-scoped application credential;
-the storage root credential remains limited to the storage and named
-maintenance workloads. Storage versioning preserves prior object versions if
-an application write reuses a key.
+workspace. Storage-affecting lifecycle commands also require the active
+`workspace-governance` profile entry to carry the exact Platform acceptance,
+actions, and handoff checks declared by the owner profile. This keeps a merged
+owner implementation dormant until workspace authority activates the same
+contract. The API receives only the bucket-scoped application credential; the
+storage root credential remains limited to the storage and named maintenance
+workloads. Storage versioning preserves prior object versions if an application
+write reuses a key.
 
 ## Temporal Activity Worker
 

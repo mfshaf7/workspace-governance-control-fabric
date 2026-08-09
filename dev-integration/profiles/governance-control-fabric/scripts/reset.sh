@@ -4,6 +4,8 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 need_cmd k3s
+need_cmd python3
+require_storage_authority_contract
 confirm_exact "${CONFIRM:-}" "reset-wgcf-evidence" "WGCF evidence reset"
 kubectl_cmd delete namespace "${NAMESPACE}" --ignore-not-found=true
 if [[ -d "${STATE_ROOT}" ]]; then

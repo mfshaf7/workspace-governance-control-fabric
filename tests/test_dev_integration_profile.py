@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -17,6 +18,14 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROFILE_ROOT = REPO_ROOT / "dev-integration/profiles/governance-control-fabric"
 SCRIPTS_ROOT = PROFILE_ROOT / "scripts"
+ISOLATION_MODULE_PATH = SCRIPTS_ROOT / "lib/verify_storage_isolation.py"
+ISOLATION_SPEC = importlib.util.spec_from_file_location(
+    "verify_storage_isolation",
+    ISOLATION_MODULE_PATH,
+)
+assert ISOLATION_SPEC and ISOLATION_SPEC.loader
+ISOLATION_MODULE = importlib.util.module_from_spec(ISOLATION_SPEC)
+ISOLATION_SPEC.loader.exec_module(ISOLATION_MODULE)
 
 
 class DevIntegrationProfileTests(TestCase):
@@ -56,6 +65,14 @@ class DevIntegrationProfileTests(TestCase):
                     "path": "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md",
                 },
             ],
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"]["platform_acceptance_ref"],
+            "repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md",
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"]["required_actions"],
+            ["backup", "restore"],
         )
         self.assertFalse((SCRIPTS_ROOT / "_proposed-profile.sh").exists())
 
@@ -133,6 +150,10 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("image: ghcr.io/mfshaf7/workspace-governance-control-fabric:sha-test", manifest)
             self.assertIn("runAsNonRoot: true", manifest)
             self.assertIn("allowPrivilegeEscalation: false", manifest)
+            self.assertEqual(
+                manifest.count("devint.workspace/storage-credentials-sha256:"),
+                2,
+            )
             self.assertIn(
                 "name: workspace-governance-control-fabric-temporal-activity",
                 manifest,
@@ -210,6 +231,10 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("s3:DeleteObject", storage_source)
         self.assertIn("mc version enable", storage_source)
         self.assertIn('get pods -o json', storage_source)
+        self.assertIn("require_storage_authority_contract", common_source)
+        for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
+            source = (SCRIPTS_ROOT / script_name).read_text(encoding="utf-8")
+            self.assertIn("require_storage_authority_contract", source)
         self.assertLess(
             deploy_source.index('kubectl_cmd apply -f "${RUNTIME_MANIFEST}"'),
             deploy_source.index("apply_storage_secrets"),
@@ -330,6 +355,183 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(denied.returncode, 0)
             self.assertIn("Security review is unavailable", denied.stderr)
+
+    def test_storage_activation_requires_workspace_authority_contract(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-authority-") as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspace"
+            registry_path = (
+                workspace_root
+                / "workspace-governance/contracts/developer-integration-profiles.yaml"
+            )
+            registry_path.parent.mkdir(parents=True)
+            acceptance_path = (
+                workspace_root
+                / "platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md"
+            )
+            acceptance_path.parent.mkdir(parents=True)
+            acceptance_path.write_text("# Accepted local boundary\n", encoding="utf-8")
+            registered_profile = {
+                "lifecycle": "active",
+                "admission": {
+                    "platform_acceptance_ref": (
+                        "repo://platform-engineering/docs/records/change-records/"
+                        "2026-08-09-wgcf-devint-evidence-storage.md"
+                    ),
+                },
+                "actions": ["up", "backup", "restore"],
+                "stage_handoff": {
+                    "required_checks": profile["authority"]["activation_contract"][
+                        "required_stage_checks"
+                    ],
+                },
+            }
+            registry_path.write_text(
+                yaml.safe_dump({"profiles": {"governance-control-fabric": registered_profile}}),
+                encoding="utf-8",
+            )
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(temp_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(temp_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(temp_root / "state"),
+                "DEVINT_WORKSPACE_ROOT": str(workspace_root),
+            }
+            command = f"source {SCRIPTS_ROOT / 'common.sh'}; require_storage_authority_contract"
+            accepted = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            registered_profile["actions"].remove("restore")
+            registry_path.write_text(
+                yaml.safe_dump({"profiles": {"governance-control-fabric": registered_profile}}),
+                encoding="utf-8",
+            )
+            denied = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn("actions are not authorized", denied.stderr)
+
+    def test_storage_isolation_reads_every_pod_secret_projection(self) -> None:
+        pod = {
+            "spec": {
+                "containers": [
+                    {
+                        "env": [
+                            {
+                                "valueFrom": {
+                                    "secretKeyRef": {"name": "regular-env"},
+                                },
+                            },
+                        ],
+                        "envFrom": [{"secretRef": {"name": "regular-env-from"}}],
+                    },
+                ],
+                "initContainers": [
+                    {"envFrom": [{"secretRef": {"name": "init-env-from"}}]},
+                ],
+                "ephemeralContainers": [
+                    {
+                        "env": [
+                            {
+                                "valueFrom": {
+                                    "secretKeyRef": {"name": "ephemeral-env"},
+                                },
+                            },
+                        ],
+                    },
+                ],
+                "volumes": [
+                    {"secret": {"secretName": "secret-volume"}},
+                    {
+                        "projected": {
+                            "sources": [{"secret": {"name": "projected-secret"}}],
+                        },
+                    },
+                ],
+                "imagePullSecrets": [{"name": "image-pull-secret"}],
+            },
+        }
+        self.assertEqual(
+            ISOLATION_MODULE.collect_secret_refs(pod),
+            {
+                "regular-env",
+                "regular-env-from",
+                "init-env-from",
+                "ephemeral-env",
+                "secret-volume",
+                "projected-secret",
+                "image-pull-secret",
+            },
+        )
+
+    def test_storage_isolation_validates_complete_network_policy(self) -> None:
+        policy = {
+            "spec": {
+                "podSelector": {
+                    "matchLabels": {
+                        "app.kubernetes.io/name": "workspace-governance-control-fabric",
+                        "app.kubernetes.io/component": "object-storage",
+                        "devint.profile": "governance-control-fabric",
+                    },
+                },
+                "policyTypes": ["Ingress"],
+                "ingress": [
+                    {
+                        "from": [
+                            {
+                                "podSelector": {
+                                    "matchExpressions": [
+                                        {
+                                            "key": "app.kubernetes.io/component",
+                                            "operator": "In",
+                                            "values": ["api", "object-storage-maintenance"],
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                        "ports": [{"protocol": "TCP", "port": 9000}],
+                    },
+                ],
+            },
+        }
+        self.assertEqual(
+            ISOLATION_MODULE.validate_network_policy(
+                policy,
+                app_label="workspace-governance-control-fabric",
+                profile_id="governance-control-fabric",
+            ),
+            ["api", "object-storage-maintenance"],
+        )
+
+        broad_policy = json.loads(json.dumps(policy))
+        broad_policy["spec"]["ingress"][0]["from"].append({"namespaceSelector": {}})
+        with self.assertRaisesRegex(ValueError, "unexpected ingress subjects"):
+            ISOLATION_MODULE.validate_network_policy(
+                broad_policy,
+                app_label="workspace-governance-control-fabric",
+                profile_id="governance-control-fabric",
+            )
 
     def test_worker_activation_requires_execution_and_security_evidence(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))

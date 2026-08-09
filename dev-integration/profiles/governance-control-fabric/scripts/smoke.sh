@@ -6,6 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 need_cmd k3s
 need_cmd python3
 need_cmd sha256sum
+require_storage_authority_contract
 ensure_state_dirs
 kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
 wait_for_storage_ready

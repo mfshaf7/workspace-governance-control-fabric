@@ -6,6 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 need_cmd k3s
 need_cmd python3
 need_cmd sha256sum
+require_storage_authority_contract
 
 backup_path="${DEVINT_BACKUP_FILE:-${BACKUPS_DIR}/wgcf-evidence-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
 trap delete_storage_transfer_pod EXIT

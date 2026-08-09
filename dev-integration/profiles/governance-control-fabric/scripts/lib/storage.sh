@@ -28,6 +28,11 @@ load_storage_credentials() {
   source "${STORAGE_CREDENTIALS_ENV}"
 }
 
+storage_credentials_digest() {
+  ensure_storage_credentials
+  sha256sum "${STORAGE_CREDENTIALS_ENV}" | awk '{print $1}'
+}
+
 require_storage_security_review() {
   python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
 import json
@@ -46,6 +51,63 @@ if expected not in refs:
 review_path = workspace_root / expected["repo"] / expected["path"]
 if not review_path.is_file():
     raise SystemExit(f"WGCF evidence storage Security review is unavailable: {review_path}")
+PY
+}
+
+require_storage_authority_contract() {
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
+import json
+import pathlib
+import sys
+
+import yaml
+
+profile = json.loads(sys.argv[1])
+workspace_root = pathlib.Path(sys.argv[2]).resolve()
+binding = (profile.get("authority") or {}).get("activation_contract") or {}
+required_binding_fields = {
+    "repo",
+    "path",
+    "profile_id",
+    "platform_acceptance_ref",
+    "required_actions",
+    "required_stage_checks",
+}
+if set(binding) != required_binding_fields:
+    raise SystemExit("WGCF evidence storage profile has an incomplete authority binding")
+
+registry_path = workspace_root / binding["repo"] / binding["path"]
+if not registry_path.is_file():
+    raise SystemExit(f"WGCF evidence storage authority registry is unavailable: {registry_path}")
+registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+registered_profile = (registry.get("profiles") or {}).get(binding["profile_id"])
+if not isinstance(registered_profile, dict):
+    raise SystemExit("WGCF evidence storage is not registered by workspace authority")
+if registered_profile.get("lifecycle") != "active":
+    raise SystemExit("WGCF evidence storage authority profile is not active")
+
+admission = registered_profile.get("admission") or {}
+if admission.get("platform_acceptance_ref") != binding["platform_acceptance_ref"]:
+    raise SystemExit("WGCF evidence storage Platform acceptance is not active in workspace authority")
+acceptance_prefix = "repo://platform-engineering/"
+if not binding["platform_acceptance_ref"].startswith(acceptance_prefix):
+    raise SystemExit("WGCF evidence storage Platform acceptance reference is invalid")
+acceptance_path = (
+    workspace_root
+    / "platform-engineering"
+    / binding["platform_acceptance_ref"][len(acceptance_prefix):]
+)
+if not acceptance_path.is_file():
+    raise SystemExit(f"WGCF evidence storage Platform acceptance is unavailable: {acceptance_path}")
+
+registered_actions = set(registered_profile.get("actions") or [])
+missing_actions = sorted(set(binding["required_actions"]) - registered_actions)
+if missing_actions:
+    raise SystemExit(f"WGCF evidence storage actions are not authorized: {missing_actions}")
+registered_checks = set((registered_profile.get("stage_handoff") or {}).get("required_checks") or [])
+missing_checks = sorted(set(binding["required_stage_checks"]) - registered_checks)
+if missing_checks:
+    raise SystemExit(f"WGCF evidence storage gates are not authorized: {missing_checks}")
 PY
 }
 
@@ -181,6 +243,8 @@ spec:
         app.kubernetes.io/name: ${APP_LABEL}
         app.kubernetes.io/component: object-storage
         devint.profile: ${PROFILE_ID}
+      annotations:
+        devint.workspace/storage-credentials-sha256: $(storage_credentials_digest)
     spec:
       serviceAccountName: ${STORAGE_SERVICE_ACCOUNT}
       securityContext:
@@ -523,108 +587,12 @@ verify_storage_isolation() {
   kubectl_cmd -n "${NAMESPACE}" get pods -o json >"${pods_file}"
   kubectl_cmd -n "${NAMESPACE}" get networkpolicy \
     "${STORAGE_STATEFULSET}-ingress" -o json >"${network_policy_file}"
-  python3 - "${STORAGE_ISOLATION_FILE}" "${pods_file}" \
+  python3 "${PROFILE_ROOT}/scripts/lib/verify_storage_isolation.py" \
+    "${STORAGE_ISOLATION_FILE}" "${pods_file}" \
     "${network_policy_file}" "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
     "${STORAGE_PROVISION_JOB}" "${STORAGE_TRANSFER_POD}" "${COMPONENT_NAME}" \
     "${STORAGE_SERVICE_ACCOUNT}" "${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}" \
-    "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" <<'PY'
-from datetime import datetime, timezone
-import json
-import pathlib
-import sys
-
-pods = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))["items"]
-network_policy = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-(
-    api_name,
-    storage_name,
-    provision_name,
-    transfer_name,
-    api_service_account,
-    storage_service_account,
-    maintenance_service_account,
-    app_secret,
-    root_secret,
-) = sys.argv[4:13]
-
-def secret_refs(pod: dict) -> set[str]:
-    refs = set()
-    pod_spec = pod["spec"]
-    for container in pod_spec.get("containers", []):
-        for env in container.get("env", []):
-            ref = ((env.get("valueFrom") or {}).get("secretKeyRef") or {}).get("name")
-            if ref:
-                refs.add(ref)
-        for ref in container.get("envFrom", []):
-            name = (ref.get("secretRef") or {}).get("name")
-            if name:
-                refs.add(name)
-    return refs
-
-def role(pod: dict) -> str | None:
-    metadata = pod["metadata"]
-    name = metadata["name"]
-    labels = metadata.get("labels") or {}
-    component = labels.get("app.kubernetes.io/component")
-    service_account = pod["spec"].get("serviceAccountName")
-    owners = {
-        (owner.get("kind"), owner.get("name"))
-        for owner in metadata.get("ownerReferences") or []
-    }
-    if component == "api" and service_account == api_service_account and name.startswith(f"{api_name}-"):
-        return "api"
-    if component == "object-storage" and service_account == storage_service_account and ("StatefulSet", storage_name) in owners:
-        return "storage"
-    if component == "object-storage-maintenance" and service_account == maintenance_service_account:
-        if ("Job", provision_name) in owners:
-            return "provision"
-        if name == transfer_name and not owners:
-            return "transfer"
-    return None
-
-pod_refs = {pod["metadata"]["name"]: secret_refs(pod) for pod in pods}
-pod_roles = {pod["metadata"]["name"]: role(pod) for pod in pods}
-allowed_app_roles = {"api", "provision", "transfer"}
-allowed_root_roles = {"storage", "provision", "transfer"}
-app_holders = sorted(name for name, refs in pod_refs.items() if app_secret in refs)
-root_holders = sorted(name for name, refs in pod_refs.items() if root_secret in refs)
-unexpected_app = [name for name in app_holders if pod_roles.get(name) not in allowed_app_roles]
-unexpected_root = [name for name in root_holders if pod_roles.get(name) not in allowed_root_roles]
-if unexpected_app:
-    raise SystemExit(f"application storage credential leaked to pods: {unexpected_app}")
-if unexpected_root:
-    raise SystemExit(f"root storage credential leaked to pods: {unexpected_root}")
-if not any(pod_roles.get(name) == "api" for name in app_holders):
-    raise SystemExit("application storage credential is not projected to the WGCF API pod")
-if not any(pod_roles.get(name) == "storage" for name in root_holders):
-    raise SystemExit("root storage credential is not projected to the storage pod")
-for name, refs in pod_refs.items():
-    if refs.intersection({app_secret, root_secret}) and pod_roles.get(name) is None:
-        raise SystemExit(f"unclassified pod holds a storage credential: {name}")
-allowed_components = {
-    expression_value
-    for rule in network_policy["spec"]["ingress"]
-    for source in rule.get("from", [])
-    for expression in (source.get("podSelector") or {}).get("matchExpressions", [])
-    if expression.get("key") == "app.kubernetes.io/component"
-    for expression_value in expression.get("values", [])
-}
-if allowed_components != {"api", "object-storage-maintenance"}:
-    raise SystemExit(f"unexpected storage ingress subjects: {sorted(allowed_components)}")
-payload = {
-    "schema_version": 1,
-    "application_secret_holders": app_holders,
-    "root_secret_holders": root_holders,
-    "network_policy_allowed_components": sorted(allowed_components),
-    "oos_credential_issued": False,
-    "openproject_credential_issued": False,
-    "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-}
-pathlib.Path(sys.argv[1]).write_text(
-    json.dumps(payload, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8",
-)
-PY
+    "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" "${APP_LABEL}" "${PROFILE_ID}"
   rm -f "${pods_file}" "${network_policy_file}"
 }
 

@@ -6,6 +6,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 need_cmd k3s
 need_cmd python3
 need_cmd sha256sum
+require_storage_authority_contract
 confirm_exact "${CONFIRM:-}" "restore-wgcf-evidence" "WGCF evidence restore"
 
 backup_path="${DEVINT_BACKUP_FILE:-}"

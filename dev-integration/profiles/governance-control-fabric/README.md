@@ -56,8 +56,13 @@ The local object store is deliberately bounded:
 - the API credential can list, read, and write the profile bucket but cannot
   delete objects
 - bucket versioning preserves prior object versions when a key is reused
+- a credential digest on the API and storage Pod templates restarts only those
+  workloads when operator-scoped credential material changes
 - activation fails closed unless the routed Security evidence-custody review
   is declared by the profile and present in the workspace
+- storage-affecting lifecycle actions also fail closed until the active
+  workspace registry carries the exact Platform acceptance, actions, and
+  stage-handoff gates declared by this profile
 - retention and deletion remain explicit lifecycle operations rather than
   automatic cleanup
 - the local profile uses namespace-internal HTTP and a local-path PVC; it does
@@ -99,6 +104,11 @@ Use the shared platform runner:
 `reset` requires `CONFIRM=reset-wgcf-evidence`. `restore` requires
 `CONFIRM=restore-wgcf-evidence` plus `DEVINT_BACKUP_FILE` pointing to a backup
 inside the operator-scoped profile state or reset archive.
+
+`up`, `smoke`, `down`, `backup`, `restore`, and `reset` refuse to run when the
+workspace authority registry or its referenced Platform acceptance record is
+missing or stale. `status` and `access` remain available for read-only operator
+orientation while activation is denied.
 
 ## Smoke Scope
 

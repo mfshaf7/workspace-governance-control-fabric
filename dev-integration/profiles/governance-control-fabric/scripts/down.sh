@@ -4,6 +4,8 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 need_cmd k3s
+need_cmd python3
+require_storage_authority_contract
 scale_runtime 0
 echo "profile: ${PROFILE_ID}"
 echo "namespace: ${NAMESPACE}"

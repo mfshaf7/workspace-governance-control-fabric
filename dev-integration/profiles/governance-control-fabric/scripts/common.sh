@@ -479,6 +479,8 @@ spec:
         app.kubernetes.io/name: ${APP_LABEL}
         app.kubernetes.io/component: api
         devint.profile: ${PROFILE_ID}
+      annotations:
+        devint.workspace/storage-credentials-sha256: $(storage_credentials_digest)
     spec:
       serviceAccountName: ${COMPONENT_NAME}
       securityContext:
@@ -573,7 +575,9 @@ EOF
 
 deploy_api() {
   validate_temporal_worker_activation
+  require_storage_authority_contract
   require_storage_security_review
+  ensure_storage_credentials
   render_runtime_manifest
   write_temporal_worker_status
   kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
