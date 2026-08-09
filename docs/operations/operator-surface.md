@@ -169,6 +169,8 @@ workloads. The `up` action uses that application identity to prove a same-key
 overwrite cannot make the accepted bytes unreachable, restores the accepted
 payload as current, and writes a receipt bound to the accepted object version
 ID. Shared smoke verifies that pinned version without mutating storage.
+It also recreates and removes bounded network-probe Jobs so each smoke run
+proves current CNI enforcement rather than trusting an earlier `up` artifact.
 
 ## Temporal Activity Worker
 

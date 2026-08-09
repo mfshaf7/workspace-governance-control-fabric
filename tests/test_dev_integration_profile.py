@@ -272,6 +272,7 @@ class DevIntegrationProfileTests(TestCase):
         common_source = (SCRIPTS_ROOT / "common.sh").read_text(encoding="utf-8")
         reset_source = (SCRIPTS_ROOT / "reset.sh").read_text(encoding="utf-8")
         restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
+        smoke_source = (SCRIPTS_ROOT / "smoke.sh").read_text(encoding="utf-8")
         deploy_source = common_source.split("deploy_api() {", 1)[1].split("\n}", 1)[0]
 
         self.assertIn('"s3:GetObject","s3:GetObjectVersion","s3:PutObject"', storage_source)
@@ -287,10 +288,15 @@ class DevIntegrationProfileTests(TestCase):
         for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
             source = (SCRIPTS_ROOT / script_name).read_text(encoding="utf-8")
             self.assertIn("require_storage_authority_contract", source)
-        self.assertLess(
-            deploy_source.index('kubectl_cmd apply -f "${RUNTIME_MANIFEST}"'),
-            deploy_source.index("apply_storage_secrets"),
-        )
+        namespace_index = deploy_source.index('kubectl_cmd create namespace "${NAMESPACE}"')
+        secret_index = deploy_source.index("apply_storage_secrets")
+        runtime_index = deploy_source.index('kubectl_cmd apply -f "${RUNTIME_MANIFEST}"')
+        self.assertLess(namespace_index, secret_index)
+        self.assertLess(secret_index, runtime_index)
+        self.assertIn("verify_storage_network_enforcement", smoke_source)
+        self.assertNotIn("verify_storage_network_proof", smoke_source)
+        self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
+        self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
         self.assertIn('"reset-wgcf-evidence"', reset_source)
         self.assertIn('"restore-wgcf-evidence"', restore_source)
         for script_name in ("backup.sh", "restore.sh"):
@@ -555,6 +561,33 @@ class DevIntegrationProfileTests(TestCase):
             self.assertNotEqual(tampered.returncode, 0)
             self.assertIn("do not match", tampered.stderr)
 
+            manifest["objects"][0]["sha256"] = hashlib.sha256(body).hexdigest()
+            with tarfile.open(archived_backup, "w:gz") as bundle:
+                for name, content in (
+                    ("current/artifact/evidence.json", body),
+                    ("receipt-bound/storage-receipt.bin", body),
+                    ("receipt-records/storage-receipt.json", receipt_body),
+                ):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(content)
+                    bundle.addfile(member, io.BytesIO(content))
+                link = tarfile.TarInfo("current/linked-evidence.json")
+                link.type = tarfile.SYMTYPE
+                link.linkname = "artifact/evidence.json"
+                bundle.addfile(link)
+            manifest["archive_sha256"] = hashlib.sha256(archived_backup.read_bytes()).hexdigest()
+            archived_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+            unsafe_member = subprocess.run(
+                ["bash", "-c", archived_command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(unsafe_member.returncode, 0)
+            self.assertIn("unsupported member", unsafe_member.stderr)
+
     def test_reset_archives_recoverable_storage_backups(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-reset-archive-") as temp_dir:
@@ -627,6 +660,32 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
             self.assertEqual(Path(accepted.stdout.strip()), accepted_path)
+
+            accepted_path.write_bytes(b"existing recovery bundle")
+            existing_archive = subprocess.run(
+                ["bash", "-c", f"{command} {accepted_path}"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(existing_archive.returncode, 0)
+            self.assertIn("already exists", existing_archive.stderr)
+            accepted_path.unlink()
+
+            manifest_path = Path(f"{accepted_path}.manifest.json")
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            existing_manifest = subprocess.run(
+                ["bash", "-c", f"{command} {accepted_path}"],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(existing_manifest.returncode, 0)
+            self.assertIn("already exists", existing_manifest.stderr)
 
             rejected = subprocess.run(
                 ["bash", "-c", f"{command} {state_root / 'custom.tar.gz'}"],

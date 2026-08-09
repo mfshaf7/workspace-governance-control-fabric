@@ -146,7 +146,8 @@ The shared smoke path stays read-only and proves:
 
 Smoke must not write to governed stage or prod state. It must not mutate the
 persistent working ledger unless a separate disposable companion profile is
-approved for that purpose.
+approved for that purpose. Its transient allow/deny Jobs re-prove current CNI
+enforcement and are removed without writing WGCF ledger or object-store state.
 
 ## Stage Handoff Checks
 

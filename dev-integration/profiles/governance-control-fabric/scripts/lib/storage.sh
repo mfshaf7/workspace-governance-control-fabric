@@ -1,5 +1,23 @@
 #!/usr/bin/env bash
 
+STORAGE_BACKUP_STAGING_ARCHIVE=""
+STORAGE_BACKUP_STAGING_MANIFEST=""
+STORAGE_BACKUP_STAGING_RECEIPT=""
+
+cleanup_storage_backup_staging() {
+  local path=""
+  for path in "${STORAGE_BACKUP_STAGING_ARCHIVE:-}" \
+    "${STORAGE_BACKUP_STAGING_MANIFEST:-}" \
+    "${STORAGE_BACKUP_STAGING_RECEIPT:-}"; do
+    if [[ -n "${path}" ]]; then
+      rm -f -- "${path}"
+    fi
+  done
+  STORAGE_BACKUP_STAGING_ARCHIVE=""
+  STORAGE_BACKUP_STAGING_MANIFEST=""
+  STORAGE_BACKUP_STAGING_RECEIPT=""
+}
+
 generate_storage_secret() {
   python3 - <<'PY'
 import secrets
@@ -931,6 +949,9 @@ if not backup.name.endswith(".tar.gz"):
     raise SystemExit("WGCF evidence backup path must end with .tar.gz")
 if backup.is_symlink():
     raise SystemExit("WGCF evidence backup path may not be a symbolic link")
+manifest = pathlib.Path(f"{backup}.manifest.json")
+if backup.exists() or manifest.exists() or manifest.is_symlink():
+    raise SystemExit("WGCF evidence backup target or manifest already exists")
 print(backup_root / backup.name)
 PY
 }
@@ -983,8 +1004,9 @@ PY
 write_backup_manifest() {
   local backup_path="$1"
   local receipt_path="$2"
+  local published_path="$3"
   python3 - "${backup_path}" "${receipt_path}" "${PROFILE_ID}" \
-    "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+    "${NAMESPACE}" "${STORAGE_BUCKET}" "${published_path}" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -993,6 +1015,7 @@ import sys
 import tarfile
 
 archive = pathlib.Path(sys.argv[1]).resolve()
+published_archive = pathlib.Path(sys.argv[6]).resolve()
 members = {}
 with tarfile.open(archive, "r:gz") as bundle:
     for member in sorted(bundle.getmembers(), key=lambda item: item.name):
@@ -1057,7 +1080,7 @@ manifest = {
     "profile_id": sys.argv[3],
     "kubernetes_namespace": sys.argv[4],
     "bucket": sys.argv[5],
-    "backup_path": str(archive),
+    "backup_path": str(published_archive),
     "archive_sha256": archive_digest,
     "objects": objects,
     "receipt_bindings": receipt_bindings,
@@ -1076,7 +1099,7 @@ receipt = {
     "profile_id": sys.argv[3],
     "kubernetes_namespace": sys.argv[4],
     "bucket": sys.argv[5],
-    "backup_path": str(archive),
+    "backup_path": str(published_archive),
     "archive_sha256": archive_digest,
     "object_count": len(objects),
     "receipt_binding_count": len(receipt_bindings),
@@ -1099,17 +1122,30 @@ PY
 backup_evidence_storage() {
   local backup_path="$1"
   local receipt_path="$2"
+  local backup_name=""
   backup_path="$(validate_backup_output_path "${backup_path}")"
   wait_for_storage_ready
   mkdir -p "${BACKUPS_DIR}"
+  backup_name="$(basename "${backup_path}")"
+  STORAGE_BACKUP_STAGING_ARCHIVE="$(mktemp "${BACKUPS_DIR}/.${backup_name}.XXXXXX.partial")"
+  STORAGE_BACKUP_STAGING_MANIFEST="${STORAGE_BACKUP_STAGING_ARCHIVE}.manifest.json"
+  STORAGE_BACKUP_STAGING_RECEIPT="$(mktemp "${BACKUPS_DIR}/.${backup_name}.receipt.XXXXXX.partial")"
   create_storage_transfer_pod application
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c transfer -- /bin/sh -ec \
     'mc alias set storage '"'${STORAGE_ENDPOINT}'"' "$STORAGE_ACCESS_KEY" "$STORAGE_SECRET_KEY" >/dev/null; rm -rf /transfer/package; mkdir -p /transfer/package/current; mc mirror --overwrite storage/'"'${STORAGE_BUCKET}'"' /transfer/package/current >/dev/null'
   stage_receipt_bound_evidence
   kubectl_cmd -n "${NAMESPACE}" exec "pod/${STORAGE_TRANSFER_POD}" -c archive -- \
-    tar -C /transfer/package -czf - . >"${backup_path}"
+    tar -C /transfer/package -czf - . >"${STORAGE_BACKUP_STAGING_ARCHIVE}"
   delete_storage_transfer_pod
-  write_backup_manifest "${backup_path}" "${receipt_path}"
+  write_backup_manifest "${STORAGE_BACKUP_STAGING_ARCHIVE}" \
+    "${STORAGE_BACKUP_STAGING_RECEIPT}" "${backup_path}"
+  ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}" "${backup_path}.manifest.json"
+  if ! ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}" "${backup_path}"; then
+    rm -f -- "${backup_path}.manifest.json"
+    return 1
+  fi
+  mv -- "${STORAGE_BACKUP_STAGING_RECEIPT}" "${receipt_path}"
+  cleanup_storage_backup_staging
 }
 
 archive_storage_backups() {
@@ -1216,14 +1252,18 @@ for binding in manifest.get("receipt_bindings") or []:
 if not receipt_names:
     raise SystemExit("restore manifest contains no receipt-bound evidence")
 actual = {}
+seen_paths = set()
 with tarfile.open(backup, "r:gz") as bundle:
     for member in bundle.getmembers():
-        if not member.isfile():
-            continue
         archive_path = member.name.removeprefix("./")
         member_path = pathlib.PurePosixPath(archive_path)
-        if member_path.is_absolute() or ".." in member_path.parts or archive_path in actual:
+        if member_path.is_absolute() or ".." in member_path.parts or archive_path in seen_paths:
             raise SystemExit(f"restore archive contains an unsafe or duplicate path: {archive_path}")
+        seen_paths.add(archive_path)
+        if member.isdir():
+            continue
+        if not member.isfile():
+            raise SystemExit(f"restore archive contains an unsupported member: {archive_path}")
         source = bundle.extractfile(member)
         if source is None:
             raise SystemExit(f"restore archive member cannot be read: {archive_path}")

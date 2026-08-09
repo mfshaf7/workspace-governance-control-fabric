@@ -584,8 +584,10 @@ deploy_api() {
   ensure_storage_credentials
   render_runtime_manifest
   write_temporal_worker_status
-  kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
+  kubectl_cmd create namespace "${NAMESPACE}" --dry-run=client -o yaml | \
+    kubectl_cmd apply -f - >/dev/null
   apply_storage_secrets
+  kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
   kubectl_cmd -n "${NAMESPACE}" rollout status "statefulset/${POSTGRES_STATEFULSET}" --timeout=180s
   wait_for_storage_ready
   provision_storage

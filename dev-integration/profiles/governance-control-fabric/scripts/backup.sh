@@ -9,7 +9,7 @@ need_cmd sha256sum
 require_storage_authority_contract
 
 backup_path="${DEVINT_BACKUP_FILE:-${BACKUPS_DIR}/wgcf-evidence-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
-trap delete_storage_transfer_pod EXIT
+trap 'delete_storage_transfer_pod; cleanup_storage_backup_staging' EXIT
 backup_evidence_storage "${backup_path}" "${STORAGE_BACKUP_RECEIPT_FILE}"
 trap - EXIT
 

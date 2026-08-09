@@ -23,7 +23,7 @@ request_json "${RECEIPTS_FILE}" get /v1/receipts >/dev/null
 write_access_file
 verify_storage_seed receipt
 verify_storage_isolation
-verify_storage_network_proof
+verify_storage_network_enforcement
 
 cat >"${SMOKE_SUMMARY}" <<EOF
 governance-control-fabric dev-integration smoke (read-only)
