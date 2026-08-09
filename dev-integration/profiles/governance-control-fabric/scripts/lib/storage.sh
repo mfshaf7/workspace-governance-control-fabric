@@ -8,12 +8,6 @@ STORAGE_BACKUP_STAGING_MANIFEST=""
 STORAGE_BACKUP_STAGING_RECEIPT=""
 STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
 STORAGE_BACKUP_PUBLISHED_MANIFEST=""
-STORAGE_RESTORE_INPUT_DIR=""
-STORAGE_RESTORE_INPUT_ARCHIVE=""
-STORAGE_RESTORE_ARCHIVE_FD=""
-STORAGE_RESTORE_MANIFEST_FD=""
-STORAGE_RESTORE_VALIDATED_ARCHIVE=""
-STORAGE_RESTORE_VALIDATED_MANIFEST=""
 STORAGE_CREDENTIAL_ROTATION_DETECTED="false"
 STORAGE_RETIRED_ROOT_USER=""
 STORAGE_RETIRED_ROOT_PASSWORD=""
@@ -40,26 +34,6 @@ cleanup_storage_backup_staging() {
   STORAGE_BACKUP_STAGING_RECEIPT=""
   STORAGE_BACKUP_PUBLISHED_ARCHIVE=""
   STORAGE_BACKUP_PUBLISHED_MANIFEST=""
-}
-
-cleanup_storage_restore_input() {
-  if [[ -n "${STORAGE_RESTORE_ARCHIVE_FD:-}" ]]; then
-    exec {STORAGE_RESTORE_ARCHIVE_FD}<&-
-  fi
-  if [[ -n "${STORAGE_RESTORE_MANIFEST_FD:-}" ]]; then
-    exec {STORAGE_RESTORE_MANIFEST_FD}<&-
-  fi
-  if [[ -n "${STORAGE_RESTORE_INPUT_DIR:-}" \
-    && "${STORAGE_RESTORE_INPUT_DIR}" == "${STATE_ROOT}"/restore-input.* \
-    && -d "${STORAGE_RESTORE_INPUT_DIR}" ]]; then
-    rm -rf -- "${STORAGE_RESTORE_INPUT_DIR}"
-  fi
-  STORAGE_RESTORE_INPUT_DIR=""
-  STORAGE_RESTORE_INPUT_ARCHIVE=""
-  STORAGE_RESTORE_ARCHIVE_FD=""
-  STORAGE_RESTORE_MANIFEST_FD=""
-  STORAGE_RESTORE_VALIDATED_ARCHIVE=""
-  STORAGE_RESTORE_VALIDATED_MANIFEST=""
 }
 
 cleanup_storage_credential_retirement() {
@@ -1824,32 +1798,65 @@ archive_storage_backups() {
 validate_backup_for_restore() {
   local backup_path="$1"
   local manifest_path="${2:-${backup_path}.manifest.json}"
+  local input_mode="${3:-path}"
   python3 - "${backup_path}" "${manifest_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
     "${COMPONENT_NAME}" "${STORAGE_APP_SECRET}" \
     "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" \
-    "${PROFILE_ROOT}/scripts/lib" <<'PY'
+    "${PROFILE_ROOT}/scripts/lib" "${input_mode}" <<'PY'
+import fcntl
 import hashlib
 import json
+import os
 import pathlib
+import re
+import stat
 import sys
 import tarfile
 from urllib.parse import quote
 
-backup = pathlib.Path(sys.argv[1]).resolve()
-manifest_path = pathlib.Path(sys.argv[2]).resolve()
+backup = pathlib.Path(sys.argv[1])
+manifest_path = pathlib.Path(sys.argv[2])
 allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[3:5]]
 sys.path.insert(0, sys.argv[12])
 from verify_storage_versioning import validate_storage_receipt
 
-if not backup.is_file():
-    raise SystemExit(f"restore backup does not exist: {backup}")
-if not any(root == backup or root in backup.parents for root in allowed_roots):
-    raise SystemExit("restore backup must stay under the operator profile state or reset archive")
-if not manifest_path.is_file():
-    raise SystemExit(f"restore backup manifest is missing: {manifest_path}")
-if not any(root == manifest_path or root in manifest_path.parents for root in allowed_roots):
-    raise SystemExit("restore manifest must stay under the operator profile state or reset archive")
+def require_sealed_memfd(path: pathlib.Path, label: str) -> None:
+    match = re.fullmatch(r"/proc/self/fd/([0-9]+)", str(path))
+    if match is None:
+        raise SystemExit(f"sealed restore {label} is not descriptor-bound")
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise SystemExit(f"sealed restore {label} is not a regular file")
+        required = (
+            fcntl.F_SEAL_WRITE
+            | fcntl.F_SEAL_SHRINK
+            | fcntl.F_SEAL_GROW
+            | fcntl.F_SEAL_SEAL
+        )
+        if fcntl.fcntl(descriptor, fcntl.F_GET_SEALS) != required:
+            raise SystemExit(f"sealed restore {label} is not immutable")
+    finally:
+        os.close(descriptor)
+
+input_mode = sys.argv[13]
+if input_mode == "sealed":
+    require_sealed_memfd(backup, "archive")
+    require_sealed_memfd(manifest_path, "manifest")
+elif input_mode == "path":
+    backup = backup.resolve()
+    manifest_path = manifest_path.resolve()
+    if not backup.is_file():
+        raise SystemExit(f"restore backup does not exist: {backup}")
+    if not any(root == backup or root in backup.parents for root in allowed_roots):
+        raise SystemExit("restore backup must stay under the operator profile state or reset archive")
+    if not manifest_path.is_file():
+        raise SystemExit(f"restore backup manifest is missing: {manifest_path}")
+    if not any(root == manifest_path or root in manifest_path.parents for root in allowed_roots):
+        raise SystemExit("restore manifest must stay under the operator profile state or reset archive")
+else:
+    raise SystemExit("restore input mode is invalid")
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 if manifest.get("schema_version") != 2:
     raise SystemExit("restore backup must use the version-bound schema")
@@ -2031,68 +2038,6 @@ for receipt_name, binding in receipt_bindings.items():
         receipt_name=receipt_name,
     )
 PY
-}
-
-snapshot_backup_for_restore() {
-  local backup_path="$1"
-  ensure_state_dirs
-  cleanup_storage_restore_input
-  STORAGE_RESTORE_INPUT_DIR="$(mktemp -d "${STATE_ROOT}/restore-input.XXXXXX")"
-  chmod 700 "${STORAGE_RESTORE_INPUT_DIR}"
-  STORAGE_RESTORE_INPUT_ARCHIVE="${STORAGE_RESTORE_INPUT_DIR}/input.tar.gz"
-  python3 - "${backup_path}" "${STORAGE_RESTORE_INPUT_ARCHIVE}" \
-    "${STATE_ROOT}" "${ARCHIVE_ROOT}" <<'PY'
-import os
-import pathlib
-import stat
-import sys
-
-source_archive = pathlib.Path(sys.argv[1])
-target_archive = pathlib.Path(sys.argv[2])
-allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[3:5]]
-if not source_archive.is_absolute():
-    raise SystemExit("restore backup path must be absolute")
-
-def copy_regular_file(source: pathlib.Path, target: pathlib.Path) -> None:
-    resolved = source.resolve(strict=True)
-    if not any(root == resolved or root in resolved.parents for root in allowed_roots):
-        raise SystemExit("restore backup must stay under the operator profile state or reset archive")
-    source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
-    try:
-        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
-            raise SystemExit(f"restore input is not a regular file: {source}")
-        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            while True:
-                chunk = os.read(source_fd, 1024 * 1024)
-                if not chunk:
-                    break
-                remaining = memoryview(chunk)
-                while remaining:
-                    remaining = remaining[os.write(target_fd, remaining):]
-            os.fsync(target_fd)
-        finally:
-            os.close(target_fd)
-    finally:
-        os.close(source_fd)
-
-copy_regular_file(source_archive, target_archive)
-copy_regular_file(
-    pathlib.Path(f"{source_archive}.manifest.json"),
-    pathlib.Path(f"{target_archive}.manifest.json"),
-)
-PY
-}
-
-open_storage_restore_input() {
-  if [[ -z "${STORAGE_RESTORE_INPUT_ARCHIVE:-}" ]]; then
-    echo "Restore input snapshot is not prepared" >&2
-    return 1
-  fi
-  exec {STORAGE_RESTORE_ARCHIVE_FD}<"${STORAGE_RESTORE_INPUT_ARCHIVE}"
-  exec {STORAGE_RESTORE_MANIFEST_FD}<"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json"
-  STORAGE_RESTORE_VALIDATED_ARCHIVE="/proc/self/fd/${STORAGE_RESTORE_ARCHIVE_FD}"
-  STORAGE_RESTORE_VALIDATED_MANIFEST="/proc/self/fd/${STORAGE_RESTORE_MANIFEST_FD}"
 }
 
 restore_evidence_storage() {

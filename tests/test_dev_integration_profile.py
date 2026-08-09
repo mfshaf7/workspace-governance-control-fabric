@@ -518,7 +518,7 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("require_no_pending_storage_credential_rotation", restore_source)
         self.assertLess(
             restore_source.index("require_no_pending_storage_credential_rotation"),
-            restore_source.index("snapshot_backup_for_restore"),
+            restore_source.index("run_with_sealed_restore_inputs.py"),
         )
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
@@ -530,11 +530,7 @@ class DevIntegrationProfileTests(TestCase):
         )[1].split("\n}", 1)[0]
         self.assertIn("create_storage_transfer_pod root", empty_store_probe)
         self.assertLess(
-            restore_source.index("snapshot_backup_for_restore"),
-            restore_source.index("open_storage_restore_input"),
-        )
-        self.assertLess(
-            restore_source.index("open_storage_restore_input"),
+            restore_source.index("run_with_sealed_restore_inputs.py"),
             restore_source.index("validate_backup_for_restore"),
         )
         self.assertIn(
@@ -896,6 +892,19 @@ class DevIntegrationProfileTests(TestCase):
                     active_scope,
                 )
             receipt["governed_stage_or_prod_claim"] = False
+            receipt["version_preservation"]["restore_rebound"] = True
+            (package_root / "receipt-records/storage-receipt.json").write_text(
+                json.dumps(receipt),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(SystemExit, "unsupported version claims"):
+                VERSIONING_MODULE.rebind_receipts(
+                    storage,
+                    package_root,
+                    manifest,
+                    active_scope,
+                )
+            del receipt["version_preservation"]["restore_rebound"]
             (package_root / "receipt-records/storage-receipt.json").write_text(
                 json.dumps(receipt),
                 encoding="utf-8",
@@ -922,6 +931,15 @@ class DevIntegrationProfileTests(TestCase):
                 ),
             )
             self.assertEqual(rebound_receipt["object_version_id"], "version-2")
+            self.assertEqual(
+                rebound_receipt["pre_restore_version_preservation"],
+                {
+                    "accepted_version_preserved": True,
+                    "overwrite_version_id": "overwrite-version",
+                    "restored_version_id": "restored-version",
+                    "same_key_overwrite_proved": True,
+                },
+            )
             self.assertEqual(
                 rebound_receipt["restore_supersession"]["prior_storage_ref"],
                 old_ref,
@@ -1017,64 +1035,66 @@ class DevIntegrationProfileTests(TestCase):
             command = f"source {SCRIPTS_ROOT / 'common.sh'}; validate_backup_for_restore {backup}"
             original_archive = backup.read_bytes()
             original_manifest = manifest_path.read_bytes()
-            snapshot = subprocess.run(
-                [
-                    "bash",
-                    "-c",
+            verifier = Path(temp_dir) / "verify-sealed-restore.sh"
+            verifier.write_text(
+                "\n".join(
                     (
-                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
-                        f"snapshot_backup_for_restore {backup}; "
-                        'printf "%s\\n" "${STORAGE_RESTORE_INPUT_ARCHIVE}"'
-                    ),
+                        "#!/usr/bin/env bash",
+                        "set -euo pipefail",
+                        f"source {SCRIPTS_ROOT / 'common.sh'}",
+                        'printf tampered >"${ORIGINAL_BACKUP}"',
+                        'printf "{}\\n" >"${ORIGINAL_MANIFEST}"',
+                        'archive="/proc/self/fd/${WGCF_RESTORE_ARCHIVE_FD}"',
+                        'manifest="/proc/self/fd/${WGCF_RESTORE_MANIFEST_FD}"',
+                        'validate_backup_for_restore "${archive}" "${manifest}" sealed',
+                        "python3 - <<'PY'",
+                        "import errno",
+                        "import fcntl",
+                        "import os",
+                        "required = fcntl.F_SEAL_WRITE | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_SEAL",
+                        "for name in ('WGCF_RESTORE_ARCHIVE_FD', 'WGCF_RESTORE_MANIFEST_FD'):",
+                        "    descriptor = int(os.environ[name])",
+                        "    if fcntl.fcntl(descriptor, fcntl.F_GET_SEALS) != required:",
+                        "        raise SystemExit(f'{name} is not sealed')",
+                        "    try:",
+                        "        os.write(descriptor, b'tampered')",
+                        "    except OSError as error:",
+                        "        if error.errno != errno.EPERM:",
+                        "            raise",
+                        "    else:",
+                        "        raise SystemExit(f'{name} remained writable')",
+                        "print('sealed')",
+                        "PY",
+                        'sha256sum "${archive}" "${manifest}"',
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            verifier.chmod(0o700)
+            sealed = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPTS_ROOT / "lib/run_with_sealed_restore_inputs.py"),
+                    str(backup),
+                    str(state_root),
+                    str(state_root.parent.parent / "archive"),
+                    str(verifier),
                 ],
                 cwd=REPO_ROOT,
-                env=env,
+                env={
+                    **env,
+                    "ORIGINAL_BACKUP": str(backup),
+                    "ORIGINAL_MANIFEST": str(manifest_path),
+                },
                 text=True,
                 capture_output=True,
                 check=False,
             )
-            self.assertEqual(snapshot.returncode, 0, snapshot.stderr)
-            snapshot_path = Path(snapshot.stdout.strip())
-            backup.write_bytes(b"changed after snapshot")
-            manifest_path.write_text("{}\n", encoding="utf-8")
-            self.assertEqual(snapshot_path.read_bytes(), original_archive)
-            self.assertEqual(
-                Path(f"{snapshot_path}.manifest.json").read_bytes(),
-                original_manifest,
-            )
-            backup.write_bytes(original_archive)
-            manifest_path.write_bytes(original_manifest)
-            descriptor_bound = subprocess.run(
-                [
-                    "bash",
-                    "-c",
-                    (
-                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
-                        f"snapshot_backup_for_restore {backup}; "
-                        "open_storage_restore_input; "
-                        "validate_backup_for_restore "
-                        '"${STORAGE_RESTORE_VALIDATED_ARCHIVE}" '
-                        '"${STORAGE_RESTORE_VALIDATED_MANIFEST}"; '
-                        'mv "${STORAGE_RESTORE_INPUT_ARCHIVE}" '
-                        '"${STORAGE_RESTORE_INPUT_ARCHIVE}.replaced"; '
-                        'printf tampered >"${STORAGE_RESTORE_INPUT_ARCHIVE}"; '
-                        'mv "${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json" '
-                        '"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json.replaced"; '
-                        'printf "{}\\n" >"${STORAGE_RESTORE_INPUT_ARCHIVE}.manifest.json"; '
-                        'sha256sum "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" '
-                        '"${STORAGE_RESTORE_VALIDATED_MANIFEST}"'
-                    ),
-                ],
-                cwd=REPO_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            self.assertEqual(descriptor_bound.returncode, 0, descriptor_bound.stderr)
-            descriptor_digests = [
-                line.split()[0] for line in descriptor_bound.stdout.splitlines()
-            ]
+            self.assertEqual(sealed.returncode, 0, sealed.stderr)
+            sealed_output = sealed.stdout.splitlines()
+            self.assertEqual(sealed_output[0], "sealed")
+            descriptor_digests = [line.split()[0] for line in sealed_output[1:]]
             self.assertEqual(
                 descriptor_digests,
                 [
@@ -1082,6 +1102,8 @@ class DevIntegrationProfileTests(TestCase):
                     hashlib.sha256(original_manifest).hexdigest(),
                 ],
             )
+            backup.write_bytes(original_archive)
+            manifest_path.write_bytes(original_manifest)
             valid = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,

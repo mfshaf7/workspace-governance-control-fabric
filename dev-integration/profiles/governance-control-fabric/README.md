@@ -131,7 +131,10 @@ Before clearing profile state, confirmed reset validates every evidence backup
 bundle against its adjacent manifest, then moves the complete backup directory
 into the operator-scoped reset archive. Restore validates
 the current allowed location, archive digest, every current object, and every
-receipt-bound version before mutation. It then creates a new immutable version,
+receipt-bound version before mutation. The selected archive and manifest are
+copied into kernel-sealed, descriptor-bound memory files before validation;
+the same immutable descriptors remain the restore inputs for the complete
+transaction. Restore then creates a new immutable version,
 reissues the local receipt to that version, records an old-to-new supersession
 map, and restores the backed-up current object. The original absolute backup
 path remains provenance rather than recovery authority.

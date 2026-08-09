@@ -147,8 +147,11 @@ make devint-promote-check PROFILE=governance-control-fabric
 `down` preserves PostgreSQL and object-storage PVCs. `backup` records current
 objects and exact receipt-bound bytes without credentials, and writes only
 under the reset-archived profile backup directory. `restore` validates the
-archive and every object against its manifest before mutation, captures a
-pre-restore backup when the receipt-bound live version is present, creates new server-assigned object versions, rebinds each
+archive and every object against its manifest before mutation. Validation and
+restore consume the same kernel-sealed, descriptor-bound archive and manifest,
+so path replacement or in-place writes cannot change the accepted bytes during
+the transaction. Restore captures a pre-restore backup when the receipt-bound
+live version is present, creates new server-assigned object versions, rebinds each
 receipt to its new immutable version with an explicit supersession map, and
 then proves restored content addresses. `reset` is destructive and fails closed
 without the exact confirmation above. Before clearing profile state, confirmed

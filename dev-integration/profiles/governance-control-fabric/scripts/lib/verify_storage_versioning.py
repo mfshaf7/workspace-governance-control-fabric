@@ -324,7 +324,7 @@ def validate_storage_receipt(
     version_id: str,
     content_digest: str,
     receipt_name: str,
-) -> None:
+) -> dict:
     expected = {
         "schema_version": 2,
         "receipt_type": "dev-integration-storage",
@@ -369,14 +369,28 @@ def validate_storage_receipt(
     ):
         raise SystemExit(f"restore receipt has invalid version preservation: {receipt_name}")
     if version_preservation.get("same_key_overwrite_proved") is True:
+        expected_version_keys = {
+            "accepted_version_preserved",
+            "same_key_overwrite_proved",
+            "overwrite_version_id",
+            "restored_version_id",
+        }
         required_version_fields = ("overwrite_version_id", "restored_version_id")
     elif version_preservation.get("restore_rebound") is True:
+        expected_version_keys = {
+            "accepted_version_preserved",
+            "restore_rebound",
+            "rebound_object_version_id",
+            "restored_current_version_id",
+        }
         required_version_fields = (
             "rebound_object_version_id",
             "restored_current_version_id",
         )
     else:
         raise SystemExit(f"restore receipt has unsupported version proof: {receipt_name}")
+    if set(version_preservation) != expected_version_keys:
+        raise SystemExit(f"restore receipt has unsupported version claims: {receipt_name}")
     if not all(
         isinstance(version_preservation.get(field), str)
         and version_preservation[field]
@@ -396,6 +410,7 @@ def validate_storage_receipt(
             or not any(rotation.get(field) is True for field in denial_fields)
         ):
             raise SystemExit(f"restore receipt has invalid credential rotation: {receipt_name}")
+    return {key: version_preservation[key] for key in sorted(expected_version_keys)}
 
 
 def assert_credentials_denied(client: S3Client, object_key: str) -> dict:
@@ -476,7 +491,7 @@ def rebind_receipts(
         )
         if binding.get("prior_storage_ref") != expected_prior_ref:
             raise SystemExit(f"restore manifest prior reference is invalid: {receipt_name}")
-        validate_storage_receipt(
+        prior_version_preservation = validate_storage_receipt(
             receipt,
             active_scope=active_scope,
             object_key=object_key,
@@ -518,7 +533,6 @@ def rebind_receipts(
             object_key,
             rebound_version_id,
         )
-        prior_version_preservation = receipt["version_preservation"]
         receipt = {
             "schema_version": 2,
             "receipt_type": "dev-integration-storage",

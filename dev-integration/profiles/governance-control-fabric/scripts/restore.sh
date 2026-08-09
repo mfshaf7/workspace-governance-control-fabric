@@ -15,12 +15,19 @@ if [[ -z "${backup_path}" ]]; then
   echo "refused: set DEVINT_BACKUP_FILE to an operator-scoped WGCF evidence backup" >&2
   exit 2
 fi
-trap 'delete_storage_transfer_pod; cleanup_storage_backup_staging; cleanup_storage_restore_input' EXIT
-snapshot_backup_for_restore "${backup_path}"
-open_storage_restore_input
+
+if [[ "${WGCF_RESTORE_INPUTS_SEALED:-}" != "1" ]]; then
+  exec python3 "${PROFILE_ROOT}/scripts/lib/run_with_sealed_restore_inputs.py" \
+    "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" "$0"
+fi
+
+readonly STORAGE_RESTORE_VALIDATED_ARCHIVE="/proc/self/fd/${WGCF_RESTORE_ARCHIVE_FD:?}"
+readonly STORAGE_RESTORE_VALIDATED_MANIFEST="/proc/self/fd/${WGCF_RESTORE_MANIFEST_FD:?}"
+trap 'delete_storage_transfer_pod; cleanup_storage_backup_staging' EXIT
 validate_backup_for_restore \
   "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" \
-  "${STORAGE_RESTORE_VALIDATED_MANIFEST}"
+  "${STORAGE_RESTORE_VALIDATED_MANIFEST}" \
+  sealed
 verify_storage_isolation
 verify_storage_network_enforcement
 pre_restore_path="${BACKUPS_DIR}/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
@@ -49,7 +56,6 @@ refresh_storage_receipt_isolation
 verify_storage_seed receipt
 write_restore_receipt "${STORAGE_RESTORE_VALIDATED_ARCHIVE}" "${pre_restore_path}" \
   "${backup_path}" "${pre_restore_state}"
-cleanup_storage_restore_input
 trap - EXIT
 
 printf 'WGCF evidence restore completed from %s\n' "${backup_path}"
