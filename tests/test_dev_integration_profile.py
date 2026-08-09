@@ -2338,6 +2338,22 @@ class DevIntegrationProfileTests(TestCase):
                     self.assertNotEqual(changed_identity.returncode, 0)
                     self.assertIn("fixed authority identity", changed_identity.stderr)
                     activation_contract[field] = original_value
+            for field in ("required_actions", "required_stage_checks"):
+                with self.subTest(authority_capability_field=field):
+                    original_value = activation_contract[field]
+                    activation_contract[field] = []
+                    env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+                    weakened_capabilities = subprocess.run(
+                        ["bash", "-c", command],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(weakened_capabilities.returncode, 0)
+                    self.assertIn("fixed authority identity or capabilities", weakened_capabilities.stderr)
+                    activation_contract[field] = original_value
             env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
 
             subprocess.run(

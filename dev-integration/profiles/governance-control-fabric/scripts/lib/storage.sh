@@ -449,13 +449,23 @@ expected_acceptance_ref = (
     "repo://platform-engineering/docs/records/change-records/"
     "2026-08-09-wgcf-devint-evidence-storage.md"
 )
+expected_required_actions = ["up", "smoke", "down", "reset", "backup", "restore"]
+expected_required_stage_checks = [
+    "profile-scoped evidence storage availability",
+    "storage credential and network isolation",
+    "version-bound content digest and storage receipt verification",
+    "content-address-preserving backup and receipt-rebinding restore",
+    "explicit retention and deletion boundary",
+]
 if (
     binding["repo"] != expected_authority_repo
     or binding["path"] != expected_authority_path
     or binding["profile_id"] != expected_profile_id
     or binding["platform_acceptance_ref"] != expected_acceptance_ref
+    or binding["required_actions"] != expected_required_actions
+    or binding["required_stage_checks"] != expected_required_stage_checks
 ):
-    raise SystemExit("WGCF evidence storage profile changes its fixed authority identity")
+    raise SystemExit("WGCF evidence storage profile changes its fixed authority identity or capabilities")
 
 governance_repo = pathlib.Path(
     repo_paths.get(expected_authority_repo, workspace_root / expected_authority_repo)
