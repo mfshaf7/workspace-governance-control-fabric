@@ -73,6 +73,20 @@ class FakeUnversionedStorage(FakeVersionedStorage):
         return super().get(object_key, version_id=version_id)
 
 
+class FakeDeniedStorage:
+    bucket = "wgcf-delivery-art-evidence"
+
+    def get(self, object_key: str) -> tuple[bytes, str]:
+        del object_key
+        raise VERSIONING_MODULE.HTTPError(
+            "http://storage.invalid",
+            403,
+            "Access denied",
+            {},
+            None,
+        )
+
+
 class DevIntegrationProfileTests(TestCase):
     def test_profile_declares_k3s_api_runtime(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
@@ -347,6 +361,7 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(proof["accepted_version_id"], "version-1")
         self.assertEqual(proof["overwrite_version_id"], "version-2")
         self.assertEqual(proof["restored_version_id"], "version-3")
+
         self.assertTrue(proof["same_key_overwrite_proved"])
         self.assertTrue(proof["accepted_version_preserved"])
         self.assertEqual(storage.get("ignored", version_id="version-1")[0], body)
@@ -371,6 +386,19 @@ class DevIntegrationProfileTests(TestCase):
         )
         self.assertEqual(later_verification["accepted_sha256"], expected_digest)
         self.assertFalse(later_verification["current_matches_accepted"])
+
+    def test_retired_storage_credentials_must_fail_authentication(self) -> None:
+        proof = VERSIONING_MODULE.assert_credentials_denied(
+            FakeDeniedStorage(),
+            "profile-proof/evidence-custody-v1.json",
+        )
+
+        self.assertTrue(proof["authentication_denied"])
+        with self.assertRaisesRegex(SystemExit, "still authenticates"):
+            VERSIONING_MODULE.assert_credentials_denied(
+                FakeVersionedStorage(b"still-authorized"),
+                "profile-proof/evidence-custody-v1.json",
+            )
 
     def test_unversioned_seed_is_materialized_before_overwrite_proof(self) -> None:
         body = b'{"evidence":"accepted"}'
@@ -427,23 +455,35 @@ class DevIntegrationProfileTests(TestCase):
                 "schema_version": 2,
                 "receipt_type": "dev-integration-storage",
                 "profile_id": "governance-control-fabric",
+                "kubernetes_namespace": "devint-governance-control-fabric-test",
                 "bucket": "wgcf-delivery-art-evidence",
                 "object_key": "profile-proof/evidence.json",
                 "object_version_id": "old-version",
                 "content_sha256": expected_digest,
                 "storage_ref": old_ref,
+                "service_identity_ref": (
+                    "kubernetes://devint-governance-control-fabric-test/"
+                    "serviceaccount/workspace-governance-control-fabric-api"
+                ),
+                "application_secret_ref": (
+                    "kubernetes://devint-governance-control-fabric-test/secret/"
+                    "workspace-governance-control-fabric-object-storage-api"
+                ),
             }
             (package_root / "receipt-records/storage-receipt.json").write_text(
                 json.dumps(receipt),
                 encoding="utf-8",
             )
             manifest = {
+                "profile_id": "governance-control-fabric",
+                "kubernetes_namespace": "devint-governance-control-fabric-test",
                 "bucket": "wgcf-delivery-art-evidence",
                 "receipt_bindings": [
                     {
                         "receipt_name": "storage-receipt",
                         "object_key": "profile-proof/evidence.json",
                         "prior_object_version_id": "old-version",
+                        "prior_storage_ref": old_ref,
                         "content_sha256": expected_digest,
                         "body_archive_path": "receipt-bound/storage-receipt.bin",
                         "receipt_archive_path": "receipt-records/storage-receipt.json",
@@ -452,7 +492,19 @@ class DevIntegrationProfileTests(TestCase):
                 ],
             }
 
-            result = VERSIONING_MODULE.rebind_receipts(storage, package_root, manifest)
+            active_scope = {
+                "profile_id": "governance-control-fabric",
+                "kubernetes_namespace": "devint-governance-control-fabric-test",
+                "bucket": "wgcf-delivery-art-evidence",
+                "service_identity_ref": receipt["service_identity_ref"],
+                "application_secret_ref": receipt["application_secret_ref"],
+            }
+            result = VERSIONING_MODULE.rebind_receipts(
+                storage,
+                package_root,
+                manifest,
+                active_scope,
+            )
 
             mapping = result["receipt_rebindings"][0]
             self.assertEqual(mapping["prior_object_version_id"], "old-version")
@@ -474,6 +526,15 @@ class DevIntegrationProfileTests(TestCase):
                 old_ref,
             )
 
+            wrong_scope = {**active_scope, "profile_id": "wrong-profile"}
+            with self.assertRaisesRegex(SystemExit, "active storage scope"):
+                VERSIONING_MODULE.rebind_receipts(
+                    storage,
+                    package_root,
+                    manifest,
+                    wrong_scope,
+                )
+
     def test_restore_preflight_rejects_manifest_object_tampering(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-restore-") as temp_dir:
@@ -484,10 +545,21 @@ class DevIntegrationProfileTests(TestCase):
             receipt = {
                 "schema_version": 2,
                 "receipt_type": "dev-integration-storage",
+                "profile_id": "governance-control-fabric",
+                "kubernetes_namespace": "devint-governance-control-fabric-test",
+                "bucket": "wgcf-delivery-art-evidence",
                 "object_key": "artifact/evidence.json",
                 "object_version_id": "version-before-backup",
                 "content_sha256": hashlib.sha256(body).hexdigest(),
                 "storage_ref": "wgcf-storage://governance-control-fabric/wgcf-delivery-art-evidence/artifact/evidence.json?versionId=version-before-backup",
+                "service_identity_ref": (
+                    "kubernetes://devint-governance-control-fabric-test/"
+                    "serviceaccount/workspace-governance-control-fabric-api"
+                ),
+                "application_secret_ref": (
+                    "kubernetes://devint-governance-control-fabric-test/secret/"
+                    "workspace-governance-control-fabric-object-storage-api"
+                ),
             }
             receipt_body = json.dumps(receipt).encode()
             with tarfile.open(backup, "w:gz") as bundle:
@@ -587,6 +659,23 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(valid.returncode, 0, valid.stderr)
+
+            manifest["receipt_bindings"][0]["prior_object_version_id"] = "wrong-version"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            wrong_binding = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(wrong_binding.returncode, 0)
+            self.assertIn("invalid prior storage reference", wrong_binding.stderr)
+            manifest["receipt_bindings"][0]["prior_object_version_id"] = (
+                "version-before-backup"
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
             archive_dir = Path(temp_dir) / "archives/governance-control-fabric/test-operator/reset-proof"
             archive_dir.mkdir(parents=True)
@@ -1098,6 +1187,65 @@ class DevIntegrationProfileTests(TestCase):
             api_name="wgcf-api",
         )
         self.assertEqual(controllers, {("wgcf-api-abc", "replica-set-uid")})
+
+        provision_job = {
+            "kind": "Job",
+            "metadata": {
+                "name": "wgcf-provision",
+                "uid": "provision-uid",
+                "labels": {
+                    "app.kubernetes.io/name": "wgcf",
+                    "app.kubernetes.io/component": "object-storage-maintenance",
+                    "devint.profile": "governance-control-fabric",
+                },
+            },
+            "spec": {
+                "backoffLimit": 2,
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app.kubernetes.io/name": "wgcf",
+                            "app.kubernetes.io/component": "object-storage-maintenance",
+                            "devint.profile": "governance-control-fabric",
+                        },
+                    },
+                    "spec": {
+                        "serviceAccountName": "wgcf-maintenance",
+                        "restartPolicy": "Never",
+                        "containers": [
+                            {
+                                "name": "provision",
+                                "image": "minio/mc:pinned",
+                                "imagePullPolicy": "IfNotPresent",
+                                "command": ["/bin/sh", "-ec"],
+                                "args": ["provision"],
+                                "env": [],
+                                "volumeMounts": [],
+                            },
+                        ],
+                        "volumes": [],
+                    },
+                },
+            },
+        }
+        self.assertEqual(
+            ISOLATION_MODULE.job_identity(
+                [provision_job],
+                provision_job,
+                name="wgcf-provision",
+            ),
+            ("wgcf-provision", "provision-uid"),
+        )
+        replaced_job = json.loads(json.dumps(provision_job))
+        replaced_job["spec"]["template"]["spec"]["containers"][0]["args"] = [
+            "exfiltrate"
+        ]
+        with self.assertRaisesRegex(ValueError, "recorded provision template"):
+            ISOLATION_MODULE.job_identity(
+                [replaced_job],
+                provision_job,
+                name="wgcf-provision",
+            )
 
         pod = {
             "metadata": {

@@ -413,7 +413,7 @@ wait_for_storage_ready() {
 provision_storage() {
   kubectl_cmd -n "${NAMESPACE}" delete job "${STORAGE_PROVISION_JOB}" \
     --ignore-not-found=true >/dev/null
-  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+  cat <<EOF | kubectl_cmd apply -f - -o json >"${STORAGE_PROVISION_JOB_IDENTITY_FILE}"
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -709,7 +709,8 @@ verify_storage_isolation() {
   python3 "${PROFILE_ROOT}/scripts/lib/verify_storage_isolation.py" \
     "${STORAGE_ISOLATION_FILE}" "${pods_file}" \
     "${network_policy_file}" "${deployment_file}" "${replica_sets_file}" \
-    "${stateful_set_file}" "${jobs_file}" "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
+    "${stateful_set_file}" "${jobs_file}" "${STORAGE_PROVISION_JOB_IDENTITY_FILE}" \
+    "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
     "${STORAGE_PROVISION_JOB}" "${COMPONENT_NAME}" \
     "${STORAGE_SERVICE_ACCOUNT}" "${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}" \
     "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" "${APP_LABEL}" "${PROFILE_ID}"
@@ -924,6 +925,14 @@ spec:
           value: ${STORAGE_ENDPOINT}
         - name: WGCF_EVIDENCE_STORAGE_BUCKET
           value: ${STORAGE_BUCKET}
+        - name: WGCF_EVIDENCE_PROFILE_ID
+          value: ${PROFILE_ID}
+        - name: WGCF_EVIDENCE_KUBERNETES_NAMESPACE
+          value: ${NAMESPACE}
+        - name: WGCF_EVIDENCE_SERVICE_IDENTITY_REF
+          value: kubernetes://${NAMESPACE}/serviceaccount/${COMPONENT_NAME}
+        - name: WGCF_EVIDENCE_APPLICATION_SECRET_REF
+          value: kubernetes://${NAMESPACE}/secret/${STORAGE_APP_SECRET}
         - name: WGCF_EVIDENCE_STORAGE_ACCESS_KEY
           valueFrom:
             secretKeyRef:
@@ -1226,12 +1235,14 @@ archive_storage_backups() {
 validate_backup_for_restore() {
   local backup_path="$1"
   python3 - "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
-    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" <<'PY'
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
+    "${COMPONENT_NAME}" "${STORAGE_APP_SECRET}" <<'PY'
 import hashlib
 import json
 import pathlib
 import sys
 import tarfile
+from urllib.parse import quote
 
 backup = pathlib.Path(sys.argv[1]).resolve()
 allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[2:4]]
@@ -1263,13 +1274,23 @@ if manifest.get("version_ids_preserved") is not False:
 if manifest.get("restore_requires_receipt_rebinding") is not True:
     raise SystemExit("restore manifest does not require receipt rebinding")
 expected = {}
+object_keys = set()
 for item in manifest.get("objects") or []:
     object_key = item.get("object_key")
     archive_path = item.get("archive_path")
     digest = item.get("sha256")
     size = item.get("size")
-    if not isinstance(object_key, str) or not object_key or object_key in expected:
+    object_path = pathlib.PurePosixPath(object_key) if isinstance(object_key, str) else None
+    if (
+        not isinstance(object_key, str)
+        or not object_key
+        or object_key in object_keys
+        or object_path is None
+        or object_path.is_absolute()
+        or ".." in object_path.parts
+    ):
         raise SystemExit("restore manifest contains an invalid or duplicate object key")
+    object_keys.add(object_key)
     if archive_path != f"current/{object_key}":
         raise SystemExit(f"restore manifest contains an invalid current object path: {object_key}")
     if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
@@ -1279,28 +1300,62 @@ if not expected:
     raise SystemExit("restore manifest contains no objects")
 
 receipt_names = set()
+receipt_bindings = {}
 for binding in manifest.get("receipt_bindings") or []:
     receipt_name = binding.get("receipt_name")
     object_key = binding.get("object_key")
     if not isinstance(receipt_name, str) or not receipt_name or receipt_name in receipt_names:
         raise SystemExit("restore manifest contains an invalid or duplicate receipt binding")
     receipt_names.add(receipt_name)
+    object_path = pathlib.PurePosixPath(object_key) if isinstance(object_key, str) else None
+    if (
+        not isinstance(object_key, str)
+        or not object_key
+        or object_path is None
+        or object_path.is_absolute()
+        or ".." in object_path.parts
+    ):
+        raise SystemExit(f"restore manifest contains an invalid bound object: {receipt_name}")
     if binding.get("current_archive_path") != f"current/{object_key}":
         raise SystemExit(f"restore manifest receipt binding has no current object: {receipt_name}")
+    if binding.get("current_archive_path") not in expected:
+        raise SystemExit(f"restore manifest receipt binding targets an unknown object: {receipt_name}")
     body_path = binding.get("body_archive_path")
     receipt_path = binding.get("receipt_archive_path")
     if body_path != f"receipt-bound/{receipt_name}.bin":
         raise SystemExit(f"restore manifest contains an invalid bound body path: {receipt_name}")
     if receipt_path != f"receipt-records/{receipt_name}.json":
         raise SystemExit(f"restore manifest contains an invalid receipt path: {receipt_name}")
-    expected[body_path] = (binding.get("content_sha256"), binding.get("body_size"))
-    expected[receipt_path] = (
-        binding.get("receipt_record_sha256"),
-        binding.get("receipt_record_size"),
-    )
+    content_digest = binding.get("content_sha256")
+    body_size = binding.get("body_size")
+    receipt_digest = binding.get("receipt_record_sha256")
+    receipt_size = binding.get("receipt_record_size")
+    prior_version_id = binding.get("prior_object_version_id")
+    prior_storage_ref = binding.get("prior_storage_ref")
+    if (
+        not isinstance(content_digest, str)
+        or len(content_digest) != 64
+        or not isinstance(body_size, int)
+        or body_size < 0
+        or not isinstance(receipt_digest, str)
+        or len(receipt_digest) != 64
+        or not isinstance(receipt_size, int)
+        or receipt_size < 0
+        or not isinstance(prior_version_id, str)
+        or not prior_version_id
+        or not isinstance(prior_storage_ref, str)
+        or not prior_storage_ref
+    ):
+        raise SystemExit(f"restore manifest contains invalid receipt evidence: {receipt_name}")
+    if body_path in expected or receipt_path in expected:
+        raise SystemExit(f"restore manifest contains duplicate receipt paths: {receipt_name}")
+    expected[body_path] = (content_digest, body_size)
+    expected[receipt_path] = (receipt_digest, receipt_size)
+    receipt_bindings[receipt_name] = binding
 if not receipt_names:
     raise SystemExit("restore manifest contains no receipt-bound evidence")
 actual = {}
+archive_bodies = {}
 seen_paths = set()
 with tarfile.open(backup, "r:gz") as bundle:
     for member in bundle.getmembers():
@@ -1317,9 +1372,44 @@ with tarfile.open(backup, "r:gz") as bundle:
         if source is None:
             raise SystemExit(f"restore archive member cannot be read: {archive_path}")
         body = source.read()
+        archive_bodies[archive_path] = body
         actual[archive_path] = (hashlib.sha256(body).hexdigest(), len(body))
 if actual != expected:
     raise SystemExit("restore archive objects do not match the signed manifest evidence")
+
+for receipt_name, binding in receipt_bindings.items():
+    receipt_path = binding["receipt_archive_path"]
+    try:
+        receipt = json.loads(archive_bodies[receipt_path].decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"restore receipt record is invalid: {receipt_name}") from error
+    object_key = binding["object_key"]
+    prior_version_id = binding["prior_object_version_id"]
+    expected_ref = (
+        f"wgcf-storage://{sys.argv[4]}/{sys.argv[6]}/{object_key}"
+        f"?versionId={quote(prior_version_id, safe='-_.~')}"
+    )
+    expected_receipt = {
+        "schema_version": 2,
+        "receipt_type": "dev-integration-storage",
+        "profile_id": sys.argv[4],
+        "kubernetes_namespace": sys.argv[5],
+        "bucket": sys.argv[6],
+        "object_key": object_key,
+        "object_version_id": prior_version_id,
+        "content_sha256": binding["content_sha256"],
+        "storage_ref": expected_ref,
+        "service_identity_ref": (
+            f"kubernetes://{sys.argv[5]}/serviceaccount/{sys.argv[7]}"
+        ),
+        "application_secret_ref": (
+            f"kubernetes://{sys.argv[5]}/secret/{sys.argv[8]}"
+        ),
+    }
+    if binding["prior_storage_ref"] != expected_ref:
+        raise SystemExit(f"restore manifest has an invalid prior storage reference: {receipt_name}")
+    if any(receipt.get(key) != value for key, value in expected_receipt.items()):
+        raise SystemExit(f"restore receipt does not match its backup binding: {receipt_name}")
 PY
 }
 

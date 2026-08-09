@@ -276,13 +276,51 @@ def _storage_ref(profile_id: str, bucket: str, object_key: str, version_id: str)
     )
 
 
-def rebind_receipts(client: S3Client, package_root: Path, manifest: dict) -> dict:
+def assert_credentials_denied(client: S3Client, object_key: str) -> dict:
+    try:
+        client.get(object_key)
+    except HTTPError as error:
+        if error.code in {401, 403}:
+            return {
+                "bucket": client.bucket,
+                "object_key": object_key,
+                "authentication_denied": True,
+            }
+        raise SystemExit(
+            f"retired credential returned unexpected HTTP status {error.code}"
+        ) from error
+    raise SystemExit("retired storage credential still authenticates")
+
+
+def rebind_receipts(
+    client: S3Client,
+    package_root: Path,
+    manifest: dict,
+    active_scope: dict[str, str],
+) -> dict:
     package_root = package_root.resolve()
     bindings = manifest.get("receipt_bindings")
     if not isinstance(bindings, list) or not bindings:
         raise SystemExit("restore manifest has no receipt-bound evidence")
-    if manifest.get("bucket") != client.bucket:
-        raise SystemExit("restore manifest bucket does not match the storage client")
+    required_scope = {
+        "profile_id",
+        "kubernetes_namespace",
+        "bucket",
+        "service_identity_ref",
+        "application_secret_ref",
+    }
+    if set(active_scope) != required_scope or not all(
+        isinstance(active_scope[key], str) and active_scope[key]
+        for key in required_scope
+    ):
+        raise SystemExit("active restore scope is incomplete")
+    if active_scope["bucket"] != client.bucket:
+        raise SystemExit("active restore bucket does not match the storage client")
+    for field in ("profile_id", "kubernetes_namespace", "bucket"):
+        if manifest.get(field) != active_scope[field]:
+            raise SystemExit(
+                f"restore manifest {field} does not match the active storage scope"
+            )
 
     rebound_root = package_root / "rebound-receipts"
     rebound_root.mkdir(parents=True, exist_ok=True)
@@ -308,11 +346,27 @@ def rebind_receipts(client: S3Client, package_root: Path, manifest: dict) -> dic
             raise SystemExit(f"receipt-bound backup digest mismatch: {receipt_name}")
 
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        expected_prior_ref = _storage_ref(
+            active_scope["profile_id"],
+            active_scope["bucket"],
+            object_key,
+            prior_version_id,
+        )
         expected_receipt_fields = {
+            "schema_version": 2,
+            "receipt_type": "dev-integration-storage",
+            "profile_id": active_scope["profile_id"],
+            "kubernetes_namespace": active_scope["kubernetes_namespace"],
+            "bucket": active_scope["bucket"],
             "object_key": object_key,
             "object_version_id": prior_version_id,
             "content_sha256": expected_digest,
+            "storage_ref": expected_prior_ref,
+            "service_identity_ref": active_scope["service_identity_ref"],
+            "application_secret_ref": active_scope["application_secret_ref"],
         }
+        if binding.get("prior_storage_ref") != expected_prior_ref:
+            raise SystemExit(f"restore manifest prior reference is invalid: {receipt_name}")
         if any(receipt.get(key) != value for key, value in expected_receipt_fields.items()):
             raise SystemExit(f"receipt record does not match its backup binding: {receipt_name}")
 
@@ -344,8 +398,8 @@ def rebind_receipts(client: S3Client, package_root: Path, manifest: dict) -> dic
         )
         prior_storage_ref = receipt.get("storage_ref")
         new_storage_ref = _storage_ref(
-            receipt["profile_id"],
-            receipt["bucket"],
+            active_scope["profile_id"],
+            active_scope["bucket"],
             object_key,
             rebound_version_id,
         )
@@ -387,19 +441,41 @@ def rebind_receipts(client: S3Client, package_root: Path, manifest: dict) -> dic
 
 
 def main() -> int:
-    if len(sys.argv) not in {4, 5}:
+    if len(sys.argv) not in {3, 4, 5}:
         raise SystemExit(
             "usage: verify_storage_versioning.py "
             "preserve-overwrite|verify EXPECTED_SHA256 OBJECT_KEY [VERSION_ID], or "
-            "rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
+            "expect-denied OBJECT_KEY, or rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
         )
     mode = sys.argv[1]
+    if mode == "expect-denied" and len(sys.argv) == 3:
+        result = assert_credentials_denied(S3Client(), sys.argv[2])
+        print(json.dumps(result, sort_keys=True))
+        return 0
     if mode == "rebind" and len(sys.argv) == 5:
         if "MINIO_ROOT_USER" in os.environ or "MINIO_ROOT_PASSWORD" in os.environ:
             raise SystemExit("root storage credentials must not be exposed to the verifier")
         package_root = Path(sys.argv[2])
         manifest = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8"))
-        result = rebind_receipts(S3Client(), package_root, manifest)
+        client = S3Client()
+        result = rebind_receipts(
+            client,
+            package_root,
+            manifest,
+            {
+                "profile_id": os.environ["WGCF_EVIDENCE_PROFILE_ID"],
+                "kubernetes_namespace": os.environ[
+                    "WGCF_EVIDENCE_KUBERNETES_NAMESPACE"
+                ],
+                "bucket": client.bucket,
+                "service_identity_ref": os.environ[
+                    "WGCF_EVIDENCE_SERVICE_IDENTITY_REF"
+                ],
+                "application_secret_ref": os.environ[
+                    "WGCF_EVIDENCE_APPLICATION_SECRET_REF"
+                ],
+            },
+        )
         Path(sys.argv[4]).write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

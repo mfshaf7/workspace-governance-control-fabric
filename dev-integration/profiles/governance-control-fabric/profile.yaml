@@ -74,6 +74,7 @@ session:
     - readiness.json
     - database-migration.txt
     - storage-provision.txt
+    - storage-provision-job.json
     - storage-version-proof.json
     - storage-network-enforcement.txt
     - storage-receipt.json

@@ -110,11 +110,70 @@ def api_replica_set_identities(
     return identities
 
 
-def job_identity(jobs: list[dict[str, Any]], *, name: str) -> tuple[str, str]:
+def _provision_job_signature(job: dict[str, Any]) -> dict[str, Any]:
+    metadata = job.get("metadata") or {}
+    spec = job.get("spec") or {}
+    template = spec.get("template") or {}
+    template_metadata = template.get("metadata") or {}
+    pod_spec = template.get("spec") or {}
+    source_label_keys = (
+        "app.kubernetes.io/name",
+        "app.kubernetes.io/component",
+        "devint.profile",
+    )
+
+    def source_labels(labels: dict[str, Any]) -> dict[str, Any]:
+        return {key: labels.get(key) for key in source_label_keys}
+
+    containers = [
+        {
+            key: container.get(key)
+            for key in (
+                "name",
+                "image",
+                "imagePullPolicy",
+                "command",
+                "args",
+                "env",
+                "volumeMounts",
+            )
+        }
+        for container in pod_spec.get("containers") or []
+    ]
+    volumes = [
+        {
+            "name": volume.get("name"),
+            "configMap": {"name": (volume.get("configMap") or {}).get("name")},
+        }
+        for volume in pod_spec.get("volumes") or []
+    ]
+    return {
+        "metadata_labels": source_labels(metadata.get("labels") or {}),
+        "backoff_limit": spec.get("backoffLimit"),
+        "template_labels": source_labels(template_metadata.get("labels") or {}),
+        "service_account": pod_spec.get("serviceAccountName"),
+        "restart_policy": pod_spec.get("restartPolicy"),
+        "containers": containers,
+        "volumes": volumes,
+    }
+
+
+def job_identity(
+    jobs: list[dict[str, Any]],
+    recorded_job: dict[str, Any],
+    *,
+    name: str,
+) -> tuple[str, str]:
     matches = [job for job in jobs if (job.get("metadata") or {}).get("name") == name]
     if len(matches) != 1:
         raise ValueError(f"expected Job controller {name} is unavailable")
-    return controller_identity(matches[0], kind="Job", name=name)
+    live_identity = controller_identity(matches[0], kind="Job", name=name)
+    recorded_identity = controller_identity(recorded_job, kind="Job", name=name)
+    if live_identity != recorded_identity:
+        raise ValueError(f"Job controller {name} does not match the recorded provision identity")
+    if _provision_job_signature(matches[0]) != _provision_job_signature(recorded_job):
+        raise ValueError(f"Job controller {name} does not match the recorded provision template")
+    return live_identity
 
 
 def validate_network_policy(
@@ -165,6 +224,7 @@ def verify_isolation(
     replica_sets: list[dict[str, Any]],
     stateful_set: dict[str, Any],
     jobs: list[dict[str, Any]],
+    recorded_provision_job: dict[str, Any],
     *,
     api_name: str,
     storage_name: str,
@@ -187,7 +247,11 @@ def verify_isolation(
         kind="StatefulSet",
         name=storage_name,
     )
-    provision_controller = job_identity(jobs, name=provision_name)
+    provision_controller = job_identity(
+        jobs,
+        recorded_provision_job,
+        name=provision_name,
+    )
     pod_refs = {
         (pod.get("metadata") or {}).get("name", ""): collect_secret_refs(pod)
         for pod in pods
@@ -244,7 +308,7 @@ def verify_isolation(
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 17:
+    if len(argv) != 18:
         raise SystemExit("expected output, pod, policy, workload, credential, and profile arguments")
     (
         output_path,
@@ -254,7 +318,8 @@ def main(argv: list[str]) -> int:
         replica_sets_path,
         stateful_set_path,
         jobs_path,
-    ) = map(Path, argv[:7])
+        recorded_provision_job_path,
+    ) = map(Path, argv[:8])
     payload = verify_isolation(
         json.loads(pods_path.read_text(encoding="utf-8"))["items"],
         json.loads(policy_path.read_text(encoding="utf-8")),
@@ -262,16 +327,17 @@ def main(argv: list[str]) -> int:
         json.loads(replica_sets_path.read_text(encoding="utf-8"))["items"],
         json.loads(stateful_set_path.read_text(encoding="utf-8")),
         json.loads(jobs_path.read_text(encoding="utf-8"))["items"],
-        api_name=argv[7],
-        storage_name=argv[8],
-        provision_name=argv[9],
-        api_service_account=argv[10],
-        storage_service_account=argv[11],
-        maintenance_service_account=argv[12],
-        app_secret=argv[13],
-        root_secret=argv[14],
-        app_label=argv[15],
-        profile_id=argv[16],
+        json.loads(recorded_provision_job_path.read_text(encoding="utf-8")),
+        api_name=argv[8],
+        storage_name=argv[9],
+        provision_name=argv[10],
+        api_service_account=argv[11],
+        storage_service_account=argv[12],
+        maintenance_service_account=argv[13],
+        app_secret=argv[14],
+        root_secret=argv[15],
+        app_label=argv[16],
+        profile_id=argv[17],
     )
     output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
