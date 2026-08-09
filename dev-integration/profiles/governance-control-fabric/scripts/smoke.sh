@@ -44,7 +44,8 @@ checks:
 - database migration: ${DATABASE_MIGRATION_FILE}
 - validation planner dry run: ${VALIDATION_PLAN_FILE}
 - receipt and ledger metadata read: ${RECEIPTS_FILE}
-- evidence object digest read: ${STATE_ROOT}/storage-verification.json
+- version-bound evidence object digest read: ${STORAGE_VERIFICATION_FILE}
+- same-key overwrite preservation proof: ${STORAGE_VERSION_PROOF_FILE}
 - storage credential and network isolation: ${STORAGE_ISOLATION_FILE}
 - storage receipt: ${STORAGE_RECEIPT_FILE}
 

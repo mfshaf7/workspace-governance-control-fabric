@@ -94,6 +94,8 @@ readonly PROFILE_PROMOTION_NOTES="${STATE_ROOT}/profile-promotion-notes.md"
 readonly RUNTIME_MANIFEST="${RENDERED_DIR}/wgcf-api-runtime.yaml"
 readonly STORAGE_CREDENTIALS_ENV="${STATE_ROOT}/storage-credentials.env"
 readonly STORAGE_PROVISION_FILE="${STATE_ROOT}/storage-provision.txt"
+readonly STORAGE_VERSION_PROOF_FILE="${STATE_ROOT}/storage-version-proof.json"
+readonly STORAGE_VERIFICATION_FILE="${STATE_ROOT}/storage-verification.json"
 readonly STORAGE_RECEIPT_FILE="${STATE_ROOT}/storage-receipt.json"
 readonly STORAGE_ISOLATION_FILE="${STATE_ROOT}/storage-isolation.json"
 readonly STORAGE_BACKUP_RECEIPT_FILE="${STATE_ROOT}/backup-receipt.json"
@@ -587,6 +589,7 @@ deploy_api() {
   provision_storage
   run_database_migration
   kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
+  prove_storage_version_preservation
   verify_storage_seed
   write_storage_receipt
   if [[ "${TEMPORAL_WORKER_ENABLED}" == "true" ]]; then

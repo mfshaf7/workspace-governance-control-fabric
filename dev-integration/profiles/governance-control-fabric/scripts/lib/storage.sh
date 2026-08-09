@@ -386,7 +386,7 @@ spec:
               mc mb --ignore-existing "storage/${STORAGE_BUCKET}"
               mc version enable "storage/${STORAGE_BUCKET}" >/dev/null
               cat >/tmp/api-policy.json <<'POLICY'
-              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}/*"]}]}
+              {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}"]},{"Effect":"Allow","Action":["s3:GetObject","s3:GetObjectVersion","s3:PutObject"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}/*"]}]}
               POLICY
               mc admin policy create storage wgcf-evidence-api /tmp/api-policy.json >/dev/null 2>&1 || true
               mc admin user add storage "\${STORAGE_APP_ACCESS_KEY}" "\${STORAGE_APP_SECRET_KEY}" >/dev/null
@@ -446,129 +446,88 @@ EOF
   fi
 }
 
-verify_storage_seed() {
+prove_storage_version_preservation() {
   kubectl_cmd -n "${NAMESPACE}" exec -i "deployment/${API_DEPLOYMENT}" -- \
-    python - "$(storage_seed_digest)" >"${STATE_ROOT}/storage-verification.json" <<'PY'
-from datetime import datetime, timezone
-import hashlib
-import hmac
-import json
-import os
-import sys
-from urllib.error import HTTPError
-from urllib.parse import quote, urlsplit
-from urllib.request import Request, urlopen
-
-endpoint = os.environ["WGCF_EVIDENCE_STORAGE_ENDPOINT"].rstrip("/")
-bucket = os.environ["WGCF_EVIDENCE_STORAGE_BUCKET"]
-access_key = os.environ["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]
-secret_key = os.environ["WGCF_EVIDENCE_STORAGE_SECRET_KEY"]
-object_key = "profile-proof/evidence-custody-v1.json"
-expected_digest = sys.argv[1]
-
-assert "MINIO_ROOT_USER" not in os.environ
-assert "MINIO_ROOT_PASSWORD" not in os.environ
-
-parsed = urlsplit(endpoint)
-host = parsed.netloc
-canonical_uri = f"/{quote(bucket, safe='')}/{quote(object_key, safe='/')}"
-now = datetime.now(timezone.utc)
-amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-date_stamp = now.strftime("%Y%m%d")
-payload_hash = hashlib.sha256(b"").hexdigest()
-canonical_headers = (
-    f"host:{host}\n"
-    f"x-amz-content-sha256:{payload_hash}\n"
-    f"x-amz-date:{amz_date}\n"
-)
-signed_headers = "host;x-amz-content-sha256;x-amz-date"
-scope = f"{date_stamp}/us-east-1/s3/aws4_request"
-
-def sign(key: bytes, message: str) -> bytes:
-    return hmac.new(key, message.encode(), hashlib.sha256).digest()
-
-def signed_request(method: str) -> Request:
-    canonical_request = "\n".join(
-        [method, canonical_uri, "", canonical_headers, signed_headers, payload_hash]
-    )
-    string_to_sign = "\n".join([
-        "AWS4-HMAC-SHA256",
-        amz_date,
-        scope,
-        hashlib.sha256(canonical_request.encode()).hexdigest(),
-    ])
-    date_key = sign(("AWS4" + secret_key).encode(), date_stamp)
-    region_key = sign(date_key, "us-east-1")
-    service_key = sign(region_key, "s3")
-    signing_key = sign(service_key, "aws4_request")
-    signature = hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
-    authorization = (
-        f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, "
-        f"SignedHeaders={signed_headers}, Signature={signature}"
-    )
-    return Request(
-        f"{endpoint}{canonical_uri}",
-        headers={
-            "Authorization": authorization,
-            "Host": host,
-            "x-amz-content-sha256": payload_hash,
-            "x-amz-date": amz_date,
-        },
-        method=method,
-    )
-
-with urlopen(signed_request("GET"), timeout=20) as response:
-    body = response.read()
-actual_digest = hashlib.sha256(body).hexdigest()
-if actual_digest != expected_digest:
-    raise SystemExit(f"storage seed digest mismatch: {actual_digest}")
-delete_denied = False
-try:
-    urlopen(signed_request("DELETE"), timeout=20)
-except HTTPError as error:
-    delete_denied = error.code == 403
-if not delete_denied:
-    raise SystemExit("application storage credential unexpectedly permits object deletion")
-print(json.dumps({
-    "bucket": bucket,
-    "object_key": object_key,
-    "sha256": actual_digest,
-    "application_credential_read": True,
-    "application_credential_delete_denied": delete_denied,
-    "root_credential_absent": True,
-}, indent=2, sort_keys=True))
-PY
+    python - preserve-overwrite "$(storage_seed_digest)" "${STORAGE_SEED_KEY}" \
+    <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py" \
+    >"${STORAGE_VERSION_PROOF_FILE}"
 }
 
-write_storage_receipt() {
-  python3 - "${STORAGE_RECEIPT_FILE}" "${STATE_ROOT}/storage-verification.json" \
-    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
-    "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
-from datetime import datetime, timezone
+verify_storage_seed() {
+  if [[ ! -f "${STORAGE_VERSION_PROOF_FILE}" ]]; then
+    echo "Storage version-preservation proof is missing; run the profile up action" >&2
+    return 1
+  fi
+  local accepted_version_id
+  accepted_version_id="$(python3 - "${STORAGE_VERSION_PROOF_FILE}" <<'PY'
 import json
 import pathlib
 import sys
 
+proof = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+version_id = proof.get("accepted_version_id")
+if not isinstance(version_id, str) or not version_id or version_id == "null":
+    raise SystemExit("storage version-preservation proof has no accepted version ID")
+print(version_id)
+PY
+)"
+  kubectl_cmd -n "${NAMESPACE}" exec -i "deployment/${API_DEPLOYMENT}" -- \
+    python - verify "$(storage_seed_digest)" "${STORAGE_SEED_KEY}" \
+    "${accepted_version_id}" \
+    <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py" \
+    >"${STORAGE_VERIFICATION_FILE}"
+}
+
+write_storage_receipt() {
+  python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_VERIFICATION_FILE}" \
+    "${STORAGE_VERSION_PROOF_FILE}" "${PROFILE_ID}" "${NAMESPACE}" \
+    "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" \
+    "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
+from datetime import datetime, timezone
+import json
+import pathlib
+import sys
+from urllib.parse import quote
+
 verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-expected_digest = sys.argv[7]
-if verification.get("sha256") != expected_digest:
+proof = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+expected_digest = sys.argv[8]
+accepted_version_id = proof.get("accepted_version_id")
+if verification.get("accepted_sha256") != expected_digest:
     raise SystemExit("storage verification does not bind the expected content digest")
+if not isinstance(accepted_version_id, str) or not accepted_version_id:
+    raise SystemExit("storage version proof does not bind an accepted object version")
+if verification.get("accepted_version_id") != accepted_version_id:
+    raise SystemExit("storage verification and version proof bind different object versions")
+if not proof.get("same_key_overwrite_proved") or not proof.get("accepted_version_preserved"):
+    raise SystemExit("storage version proof does not preserve accepted evidence after overwrite")
+version_query = quote(accepted_version_id, safe="-_.~")
 payload = {
-    "schema_version": 1,
+    "schema_version": 2,
     "receipt_type": "dev-integration-storage",
-    "profile_id": sys.argv[3],
-    "kubernetes_namespace": sys.argv[4],
-    "bucket": sys.argv[5],
-    "object_key": sys.argv[6],
+    "profile_id": sys.argv[4],
+    "kubernetes_namespace": sys.argv[5],
+    "bucket": sys.argv[6],
+    "object_key": sys.argv[7],
+    "object_version_id": accepted_version_id,
     "content_sha256": expected_digest,
-    "storage_ref": f"wgcf-storage://{sys.argv[3]}/{sys.argv[5]}/{sys.argv[6]}",
-    "service_identity_ref": f"kubernetes://{sys.argv[4]}/serviceaccount/{sys.argv[9]}",
-    "application_secret_ref": f"kubernetes://{sys.argv[4]}/secret/{sys.argv[8]}",
+    "storage_ref": (
+        f"wgcf-storage://{sys.argv[4]}/{sys.argv[6]}/{sys.argv[7]}"
+        f"?versionId={version_query}"
+    ),
+    "service_identity_ref": f"kubernetes://{sys.argv[5]}/serviceaccount/{sys.argv[10]}",
+    "application_secret_ref": f"kubernetes://{sys.argv[5]}/secret/{sys.argv[9]}",
     "root_credential_exposed_to_api": False,
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
     "network_exposure": "namespace-local-network-policy",
     "object_versioning": "enabled",
+    "version_preservation": {
+        "same_key_overwrite_proved": True,
+        "accepted_version_preserved": True,
+        "overwrite_version_id": proof["overwrite_version_id"],
+        "restored_version_id": proof["restored_version_id"],
+    },
     "transport_encryption": "not-governed-dev-integration-http",
     "at_rest_encryption": "not-governed-local-path-pvc",
     "governed_stage_or_prod_claim": False,

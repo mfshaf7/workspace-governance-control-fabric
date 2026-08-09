@@ -53,9 +53,11 @@ The local object store is deliberately bounded:
 - the MinIO root credential is confined to the storage workload and explicit
   storage-maintenance jobs
 - OOS and OpenProject receive no object-store credential
-- the API credential can list, read, and write the profile bucket but cannot
-  delete objects
-- bucket versioning preserves prior object versions when a key is reused
+- the API credential can list, read, write, and retrieve explicit versions in
+  the profile bucket but cannot delete objects
+- `up` proves that a same-key overwrite leaves the receipt-bound version
+  retrievable, restores the accepted payload as current, and records the
+  accepted version ID in a version-qualified storage reference
 - a credential digest on the API and storage Pod templates restarts only those
   workloads when operator-scoped credential material changes
 - activation fails closed unless the routed Security evidence-custody review
@@ -128,7 +130,8 @@ The shared smoke path stays read-only and proves:
 - receipt and ledger metadata read
 - profile-scoped evidence storage availability
 - storage credential and network isolation
-- seeded object digest and storage receipt verification
+- seeded object digest, accepted version ID, same-key overwrite preservation,
+  and version-qualified storage receipt verification
 
 Smoke must not write to governed stage or prod state. It must not mutate the
 persistent working ledger unless a separate disposable companion profile is
@@ -146,7 +149,7 @@ The governed `stage` handoff is not ready until it proves:
 - receipt and ledger metadata read
 - profile-scoped evidence storage availability
 - storage credential and network isolation
-- content digest and storage receipt verification
+- version-bound content digest and storage receipt verification
 - content-address-preserving backup and restore
 - explicit retention and deletion boundary
 - governed encryption identity and Security approval

@@ -36,7 +36,7 @@ authority:
     required_stage_checks:
       - profile-scoped evidence storage availability
       - storage credential and network isolation
-      - content digest and storage receipt verification
+      - version-bound content digest and storage receipt verification
       - content-address-preserving backup and restore
       - explicit retention and deletion boundary
 testing:
@@ -68,6 +68,7 @@ session:
     - readiness.json
     - database-migration.txt
     - storage-provision.txt
+    - storage-version-proof.json
     - storage-receipt.json
     - storage-isolation.json
     - smoke-summary.txt
@@ -84,7 +85,7 @@ stage_handoff:
     - receipt and ledger metadata read
     - profile-scoped evidence storage availability
     - storage credential and network isolation
-    - content digest and storage receipt verification
+    - version-bound content digest and storage receipt verification
     - content-address-preserving backup and restore
     - explicit retention and deletion boundary
     - governed encryption identity and Security approval

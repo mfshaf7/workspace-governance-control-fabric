@@ -26,6 +26,51 @@ ISOLATION_SPEC = importlib.util.spec_from_file_location(
 assert ISOLATION_SPEC and ISOLATION_SPEC.loader
 ISOLATION_MODULE = importlib.util.module_from_spec(ISOLATION_SPEC)
 ISOLATION_SPEC.loader.exec_module(ISOLATION_MODULE)
+VERSIONING_MODULE_PATH = SCRIPTS_ROOT / "lib/verify_storage_versioning.py"
+VERSIONING_SPEC = importlib.util.spec_from_file_location(
+    "verify_storage_versioning",
+    VERSIONING_MODULE_PATH,
+)
+assert VERSIONING_SPEC and VERSIONING_SPEC.loader
+VERSIONING_MODULE = importlib.util.module_from_spec(VERSIONING_SPEC)
+VERSIONING_SPEC.loader.exec_module(VERSIONING_MODULE)
+
+
+class FakeVersionedStorage:
+    bucket = "wgcf-delivery-art-evidence"
+
+    def __init__(self, body: bytes) -> None:
+        self.versions = [("version-1", body)]
+
+    def get(self, object_key: str, *, version_id: str | None = None) -> tuple[bytes, str]:
+        del object_key
+        if version_id is None:
+            return self.versions[-1][1], self.versions[-1][0]
+        for candidate_version, body in self.versions:
+            if candidate_version == version_id:
+                return body, candidate_version
+        raise AssertionError(f"unknown object version: {version_id}")
+
+    def put(self, object_key: str, body: bytes) -> str:
+        del object_key
+        version_id = f"version-{len(self.versions) + 1}"
+        self.versions.append((version_id, body))
+        return version_id
+
+    def delete_is_denied(self, object_key: str) -> bool:
+        del object_key
+        return True
+
+
+class FakeUnversionedStorage(FakeVersionedStorage):
+    def __init__(self, body: bytes) -> None:
+        self.unversioned_body = body
+        self.versions = []
+
+    def get(self, object_key: str, *, version_id: str | None = None) -> tuple[bytes, str]:
+        if not self.versions and version_id is None:
+            return self.unversioned_body, ""
+        return super().get(object_key, version_id=version_id)
 
 
 class DevIntegrationProfileTests(TestCase):
@@ -227,9 +272,12 @@ class DevIntegrationProfileTests(TestCase):
         restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
         deploy_source = common_source.split("deploy_api() {", 1)[1].split("\n}", 1)[0]
 
-        self.assertIn('"s3:GetObject","s3:PutObject"', storage_source)
+        self.assertIn('"s3:GetObject","s3:GetObjectVersion","s3:PutObject"', storage_source)
         self.assertNotIn("s3:DeleteObject", storage_source)
         self.assertIn("mc version enable", storage_source)
+        self.assertIn("prove_storage_version_preservation", deploy_source)
+        self.assertIn('"object_version_id": accepted_version_id', storage_source)
+        self.assertIn("?versionId={version_query}", storage_source)
         self.assertIn('get pods -o json', storage_source)
         self.assertIn("require_storage_authority_contract", common_source)
         for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
@@ -243,6 +291,62 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn('"restore-wgcf-evidence"', restore_source)
         for script_name in ("backup.sh", "restore.sh"):
             self.assertTrue(os.access(SCRIPTS_ROOT / script_name, os.X_OK))
+
+    def test_same_key_overwrite_preserves_receipt_bound_version(self) -> None:
+        body = b'{"evidence":"accepted"}'
+        expected_digest = hashlib.sha256(body).hexdigest()
+        storage = FakeVersionedStorage(body)
+
+        proof = VERSIONING_MODULE.preserve_overwrite(
+            storage,
+            "profile-proof/evidence-custody-v1.json",
+            expected_digest,
+        )
+
+        self.assertEqual(proof["accepted_version_id"], "version-1")
+        self.assertEqual(proof["overwrite_version_id"], "version-2")
+        self.assertEqual(proof["restored_version_id"], "version-3")
+        self.assertTrue(proof["same_key_overwrite_proved"])
+        self.assertTrue(proof["accepted_version_preserved"])
+        self.assertEqual(storage.get("ignored", version_id="version-1")[0], body)
+        self.assertEqual(storage.get("ignored")[0], body)
+
+        verification = VERSIONING_MODULE.verify(
+            storage,
+            "profile-proof/evidence-custody-v1.json",
+            expected_digest,
+            proof["accepted_version_id"],
+        )
+        self.assertEqual(verification["accepted_version_id"], "version-1")
+        self.assertTrue(verification["application_credential_version_read"])
+        self.assertTrue(verification["application_credential_delete_denied"])
+
+        storage.put("ignored", b'{"evidence":"later-current-value"}')
+        later_verification = VERSIONING_MODULE.verify(
+            storage,
+            "profile-proof/evidence-custody-v1.json",
+            expected_digest,
+            proof["accepted_version_id"],
+        )
+        self.assertEqual(later_verification["accepted_sha256"], expected_digest)
+        self.assertFalse(later_verification["current_matches_accepted"])
+
+    def test_unversioned_seed_is_materialized_before_overwrite_proof(self) -> None:
+        body = b'{"evidence":"accepted"}'
+        expected_digest = hashlib.sha256(body).hexdigest()
+        storage = FakeUnversionedStorage(body)
+
+        proof = VERSIONING_MODULE.preserve_overwrite(
+            storage,
+            "profile-proof/evidence-custody-v1.json",
+            expected_digest,
+        )
+
+        self.assertTrue(proof["accepted_version_materialized"])
+        self.assertEqual(proof["accepted_version_id"], "version-1")
+        self.assertEqual(proof["overwrite_version_id"], "version-2")
+        self.assertEqual(proof["restored_version_id"], "version-3")
+        self.assertEqual(storage.get("ignored", version_id="version-1")[0], body)
 
     def test_restore_preflight_rejects_manifest_object_tampering(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
