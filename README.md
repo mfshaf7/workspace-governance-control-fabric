@@ -213,6 +213,14 @@ counts, and returns an operator-safe receipt plus ledger event. If the input
 plan is blocked or requires operator review, execution is suppressed and the
 receipt outcome records that state instead of claiming success.
 
+The dev-integration profile provisions bounded versioned object storage and an
+API workload identity as infrastructure for the Delivery ART artifact registry.
+Validation-run stdout/stderr is command output and intentionally remains local;
+it is not an approved artifact class for that registry. Registry persistence is
+introduced by Workspace Delivery ART #810 and remains limited to the artifact
+classes accepted by the routed Security review. Until that consumer lands, the
+profile seed proves storage and identity behavior only, not registry operation.
+
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
 `wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`
 writes raw stdout/stderr to local artifact files, writes a compact receipt JSON

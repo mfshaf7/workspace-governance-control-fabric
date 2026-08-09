@@ -1,7 +1,7 @@
 schema_version: 1
 profile_id: governance-control-fabric
 lane_class: governed-devint
-summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata store, and disabled-by-default Temporal activity worker.
+summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata, isolated evidence storage, and disabled-by-default Temporal activity worker.
 runtime:
   platform: local-k3s
   state_model: persistent
@@ -11,7 +11,44 @@ runtime:
     - workspace-governance-control-fabric-api
     - workspace-governance-control-fabric-service
     - workspace-governance-control-fabric-postgresql
+    - workspace-governance-control-fabric-object-storage
     - workspace-governance-control-fabric-temporal-activity
+persistence:
+  justification: WGCF evidence-custody proof must survive normal local runtime suspension and restart while preserving artifact content addresses.
+  retained_data_scope: Operator-scoped WGCF metadata, content-addressed Delivery ART evidence objects, storage receipts, and backup or restore receipts for local dev-integration only.
+  suspend_resume_semantics: Down scales API, PostgreSQL, object storage, and optional worker processes to zero while preserving operator-scoped PVCs and profile artifacts; up reconciles and resumes that state.
+  storage_size_or_class: 2Gi local-path PostgreSQL, object-storage, and Temporal evidence PVCs inside the operator-scoped local-k3s namespace.
+  reset_semantics: Reset requires exact operator confirmation and removes only the operator-scoped WGCF namespace and local profile state.
+  cutover_plan_when_upgrading: Any future storage format, encryption, identity, or runtime migration requires a recorded backup, digest-preserving restore, compatibility, and rollback plan.
+security:
+  activation_review_refs:
+    - repo: security-architecture
+      path: docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md
+      source_commit: 2ad9700c86dfd3a762bcfdb2aba17adbc814ce43
+      content_sha256: d0a16096a9ac3f26c85dbeca68364a566aeb9817cd56f7e730995db8ae367158
+authority:
+  activation_contract:
+    repo: workspace-governance
+    path: contracts/developer-integration-profiles.yaml
+    profile_id: governance-control-fabric
+    authority_source_commit: 564a63aadbf1214da827503525ba030f38e17e79
+    authority_content_sha256: c23f42c3040d4376af46bcec2ff53d3e6810540ab34e4b97ae00dab78a427da6
+    platform_acceptance_ref: repo://platform-engineering/docs/records/change-records/2026-08-09-wgcf-devint-evidence-storage.md
+    platform_acceptance_source_commit: 9cf9c20483287fa6fd170b1af25a30bb64cd5fa3
+    platform_acceptance_content_sha256: c774d14cdd6c52a5661243be4031b85a9e65021f590075eba6b5455c6b5073fb
+    required_actions:
+      - up
+      - smoke
+      - down
+      - reset
+      - backup
+      - restore
+    required_stage_checks:
+      - profile-scoped evidence storage availability
+      - storage credential and network isolation
+      - version-bound content digest and storage receipt verification
+      - content-address-preserving backup and receipt-rebinding restore
+      - explicit retention and deletion boundary
 testing:
   smoke:
     mutation_mode: read-only
@@ -21,7 +58,7 @@ source_repos:
   - repo: workspace-governance
     purpose: Authority contracts, runtime-lane policy, component inventory, and validation rules consumed by the control fabric.
   - repo: platform-engineering
-    purpose: Local-k3s dev-integration runner, PostgreSQL runtime dependency, runtime access path, and future stage handoff owner.
+    purpose: Local-k3s dev-integration runner, PostgreSQL and object-storage runtime acceptance, runtime access path, and future stage handoff owner.
 commands:
   up: dev-integration/profiles/governance-control-fabric/scripts/up.sh
   status: dev-integration/profiles/governance-control-fabric/scripts/status.sh
@@ -29,6 +66,8 @@ commands:
   smoke: dev-integration/profiles/governance-control-fabric/scripts/smoke.sh
   down: dev-integration/profiles/governance-control-fabric/scripts/down.sh
   reset: dev-integration/profiles/governance-control-fabric/scripts/reset.sh
+  backup: dev-integration/profiles/governance-control-fabric/scripts/backup.sh
+  restore: dev-integration/profiles/governance-control-fabric/scripts/restore.sh
   promote_check: dev-integration/profiles/governance-control-fabric/scripts/promote-check.sh
 session:
   required_artifacts:
@@ -38,6 +77,12 @@ session:
     - api-health.json
     - readiness.json
     - database-migration.txt
+    - storage-provision.txt
+    - storage-provision-job.json
+    - storage-version-proof.json
+    - storage-network-enforcement.txt
+    - storage-receipt.json
+    - storage-isolation.json
     - smoke-summary.txt
     - promotion-report.yaml
 stage_handoff:
@@ -50,3 +95,9 @@ stage_handoff:
     - database migration
     - validation planner dry run
     - receipt and ledger metadata read
+    - profile-scoped evidence storage availability
+    - storage credential and network isolation
+    - version-bound content digest and storage receipt verification
+    - content-address-preserving backup and receipt-rebinding restore
+    - explicit retention and deletion boundary
+    - governed encryption identity and Security approval
