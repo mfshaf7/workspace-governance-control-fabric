@@ -794,6 +794,10 @@ wait_for_storage_ready() {
 }
 
 provision_storage() {
+  local preserve_recovery_state=false
+  if [[ -f "${STORAGE_RECEIPT_FILE}" ]]; then
+    preserve_recovery_state=true
+  fi
   kubectl_cmd -n "${NAMESPACE}" delete job "${STORAGE_PROVISION_JOB}" \
     --ignore-not-found=true >/dev/null
   cat <<EOF | kubectl_cmd apply -f - -o json >"${STORAGE_PROVISION_JOB_IDENTITY_FILE}"
@@ -839,14 +843,22 @@ spec:
               mc admin user add storage "\${STORAGE_APP_ACCESS_KEY}" "\${STORAGE_APP_SECRET_KEY}" >/dev/null
               mc admin policy attach storage wgcf-evidence-api --user "\${STORAGE_APP_ACCESS_KEY}" >/dev/null
               seed_created=false
+              seed_deferred=false
               if ! mc stat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" >/dev/null 2>&1; then
-                mc cp /seed/evidence-custody-v1.json "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" >/dev/null
-                seed_created=true
+                if [ '${preserve_recovery_state}' = true ]; then
+                  seed_deferred=true
+                else
+                  mc cp /seed/evidence-custody-v1.json "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" >/dev/null
+                  seed_created=true
+                fi
               fi
-              actual_digest="\$(mc cat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" | sha256sum)"
-              actual_digest="\${actual_digest%% *}"
-              printf 'bucket=%s\nobject_key=%s\nsha256=%s\nseed_created=%s\nversioning=%s\n' \
-                '${STORAGE_BUCKET}' '${STORAGE_SEED_KEY}' "\${actual_digest}" "\${seed_created}" enabled
+              actual_digest=deferred
+              if [ "\${seed_deferred}" = false ]; then
+                actual_digest="\$(mc cat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" | sha256sum)"
+                actual_digest="\${actual_digest%% *}"
+              fi
+              printf 'bucket=%s\nobject_key=%s\nsha256=%s\nseed_created=%s\nseed_deferred=%s\nversioning=%s\n' \
+                '${STORAGE_BUCKET}' '${STORAGE_SEED_KEY}' "\${actual_digest}" "\${seed_created}" "\${seed_deferred}" enabled
           env:
             - name: STORAGE_ROOT_USER
               valueFrom:
@@ -881,7 +893,14 @@ EOF
     "job/${STORAGE_PROVISION_JOB}" --timeout=180s
   kubectl_cmd -n "${NAMESPACE}" logs "job/${STORAGE_PROVISION_JOB}" \
     >"${STORAGE_PROVISION_FILE}"
-  if ! grep -q "sha256=$(storage_seed_digest)" "${STORAGE_PROVISION_FILE}"; then
+  if [[ "${preserve_recovery_state}" == "true" ]] && \
+    grep -q '^seed_deferred=true$' "${STORAGE_PROVISION_FILE}"; then
+    if ! grep -q '^sha256=deferred$' "${STORAGE_PROVISION_FILE}"; then
+      cat "${STORAGE_PROVISION_FILE}" >&2
+      echo "Provisioned recovery state contains an unexpected seed digest" >&2
+      return 1
+    fi
+  elif ! grep -q "sha256=$(storage_seed_digest)" "${STORAGE_PROVISION_FILE}"; then
     cat "${STORAGE_PROVISION_FILE}" >&2
     echo "Provisioned storage seed digest does not match the profile contract" >&2
     return 1

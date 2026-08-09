@@ -840,6 +840,13 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn('STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"', storage_source)
         self.assertIn('STORAGE_BACKUP_PUBLISHED_MANIFEST="${backup_path}.manifest.json"', storage_source)
         self.assertIn("require_empty_storage_for_receipt_loss()", storage_source)
+        provision_body = storage_source.split("provision_storage() {", 1)[1].split(
+            "\n}", 1
+        )[0]
+        self.assertIn('if [[ -f "${STORAGE_RECEIPT_FILE}" ]]', provision_body)
+        self.assertIn("preserve_recovery_state=true", provision_body)
+        self.assertIn("seed_deferred=true", provision_body)
+        self.assertIn("sha256=deferred", provision_body)
         empty_store_probe = storage_source.split(
             "require_empty_storage_for_receipt_loss() {", 1
         )[1].split("\n}", 1)[0]
