@@ -50,6 +50,7 @@ readonly STORAGE_SERVICE_ACCOUNT="${STORAGE_STATEFULSET}"
 readonly STORAGE_MAINTENANCE_SERVICE_ACCOUNT="${STORAGE_STATEFULSET}-maintenance"
 readonly STORAGE_PROVISION_JOB="${STORAGE_STATEFULSET}-provision"
 readonly STORAGE_TRANSFER_POD="${STORAGE_STATEFULSET}-transfer"
+readonly STORAGE_CREDENTIAL_RETIREMENT_POD="${STORAGE_STATEFULSET}-credential-retirement"
 readonly STORAGE_IMAGE="${DEVINT_WGCF_STORAGE_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
 readonly STORAGE_CLIENT_IMAGE="${DEVINT_WGCF_STORAGE_CLIENT_IMAGE:-minio/mc:RELEASE.2025-04-16T18-13-26Z}"
 readonly STORAGE_VOLUME_SIZE="${DEVINT_WGCF_STORAGE_VOLUME_SIZE:-2Gi}"
@@ -103,6 +104,7 @@ readonly STORAGE_ISOLATION_FILE="${STATE_ROOT}/storage-isolation.json"
 readonly STORAGE_BACKUP_RECEIPT_FILE="${STATE_ROOT}/backup-receipt.json"
 readonly STORAGE_RESTORE_RECEIPT_FILE="${STATE_ROOT}/restore-receipt.json"
 readonly STORAGE_RECEIPT_REBINDING_FILE="${STATE_ROOT}/storage-receipt-rebindings.json"
+readonly STORAGE_CREDENTIAL_RETIREMENT_FILE="${STATE_ROOT}/storage-credential-retirement.json"
 
 source "${PROFILE_ROOT}/scripts/lib/storage.sh"
 
@@ -583,6 +585,7 @@ deploy_api() {
   require_storage_authority_contract
   require_storage_security_review
   ensure_storage_credentials
+  capture_storage_credentials_for_rotation
   render_runtime_manifest
   write_temporal_worker_status
   kubectl_cmd create namespace "${NAMESPACE}" --dry-run=client -o yaml | \
@@ -594,6 +597,7 @@ deploy_api() {
   provision_storage
   run_database_migration
   kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
+  verify_retired_storage_credentials
   prove_storage_version_preservation
   verify_storage_seed
   verify_storage_network_enforcement

@@ -20,11 +20,11 @@ def _quote(value: str) -> str:
 
 
 class S3Client:
-    def __init__(self) -> None:
+    def __init__(self, *, access_key: str | None = None, secret_key: str | None = None) -> None:
         self.endpoint = os.environ["WGCF_EVIDENCE_STORAGE_ENDPOINT"].rstrip("/")
         self.bucket = os.environ["WGCF_EVIDENCE_STORAGE_BUCKET"]
-        self.access_key = os.environ["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]
-        self.secret_key = os.environ["WGCF_EVIDENCE_STORAGE_SECRET_KEY"]
+        self.access_key = access_key or os.environ["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]
+        self.secret_key = secret_key or os.environ["WGCF_EVIDENCE_STORAGE_SECRET_KEY"]
         parsed = urlsplit(self.endpoint)
         self.host = parsed.netloc
 
@@ -445,11 +445,23 @@ def main() -> int:
         raise SystemExit(
             "usage: verify_storage_versioning.py "
             "preserve-overwrite|verify EXPECTED_SHA256 OBJECT_KEY [VERSION_ID], or "
-            "expect-denied OBJECT_KEY, or rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
+            "expect-denied|expect-denied-stdin OBJECT_KEY, or "
+            "rebind PACKAGE_ROOT MANIFEST_PATH OUTPUT_PATH"
         )
     mode = sys.argv[1]
     if mode == "expect-denied" and len(sys.argv) == 3:
         result = assert_credentials_denied(S3Client(), sys.argv[2])
+        print(json.dumps(result, sort_keys=True))
+        return 0
+    if mode == "expect-denied-stdin" and len(sys.argv) == 3:
+        access_key = sys.stdin.readline().rstrip("\n")
+        secret_key = sys.stdin.readline().rstrip("\n")
+        if not access_key or not secret_key:
+            raise SystemExit("retired credential input is incomplete")
+        result = assert_credentials_denied(
+            S3Client(access_key=access_key, secret_key=secret_key),
+            sys.argv[2],
+        )
         print(json.dumps(result, sort_keys=True))
         return 0
     if mode == "rebind" and len(sys.argv) == 5:

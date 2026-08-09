@@ -8,6 +8,11 @@ STORAGE_BACKUP_STAGING_MANIFEST=""
 STORAGE_BACKUP_STAGING_RECEIPT=""
 STORAGE_RESTORE_INPUT_DIR=""
 STORAGE_RESTORE_INPUT_ARCHIVE=""
+STORAGE_CREDENTIAL_ROTATION_DETECTED="false"
+STORAGE_RETIRED_ROOT_USER=""
+STORAGE_RETIRED_ROOT_PASSWORD=""
+STORAGE_RETIRED_APP_ACCESS_KEY=""
+STORAGE_RETIRED_APP_SECRET_KEY=""
 
 cleanup_storage_backup_staging() {
   local path=""
@@ -31,6 +36,18 @@ cleanup_storage_restore_input() {
   fi
   STORAGE_RESTORE_INPUT_DIR=""
   STORAGE_RESTORE_INPUT_ARCHIVE=""
+}
+
+cleanup_storage_credential_retirement() {
+  if [[ "${STORAGE_CREDENTIAL_ROTATION_DETECTED:-false}" == "true" ]]; then
+    kubectl_cmd -n "${NAMESPACE}" delete pod "${STORAGE_CREDENTIAL_RETIREMENT_POD}" \
+      --ignore-not-found=true --wait=true >/dev/null 2>&1 || true
+  fi
+  STORAGE_CREDENTIAL_ROTATION_DETECTED="false"
+  STORAGE_RETIRED_ROOT_USER=""
+  STORAGE_RETIRED_ROOT_PASSWORD=""
+  STORAGE_RETIRED_APP_ACCESS_KEY=""
+  STORAGE_RETIRED_APP_SECRET_KEY=""
 }
 
 generate_storage_secret() {
@@ -67,6 +84,191 @@ load_storage_credentials() {
     echo "WGCF storage application identity is immutable; rotate only its secret" >&2
     return 1
   fi
+}
+
+read_live_storage_secret() {
+  local secret_name="$1"
+  local first_key="$2"
+  local second_key="$3"
+  local secret_json=""
+  if ! secret_json="$(
+    kubectl_cmd -n "${NAMESPACE}" get secret "${secret_name}" \
+      -o json --ignore-not-found
+  )"; then
+    return 1
+  fi
+  if [[ -z "${secret_json}" ]]; then
+    return 3
+  fi
+  python3 -c '
+import base64
+import json
+import sys
+
+payload = json.load(sys.stdin)
+data = payload.get("data") or {}
+for key in sys.argv[1:]:
+    encoded = data.get(key)
+    if not isinstance(encoded, str) or not encoded:
+        raise SystemExit(f"live storage Secret is missing {key}")
+    print(base64.b64decode(encoded).decode("utf-8"))
+' "${first_key}" "${second_key}" <<<"${secret_json}"
+}
+
+capture_storage_credentials_for_rotation() {
+  local -a live_values=()
+  local live_output=""
+  local read_status=0
+  load_storage_credentials
+  rm -f -- "${STORAGE_CREDENTIAL_RETIREMENT_FILE}"
+
+  if live_output="$(
+    read_live_storage_secret "${STORAGE_ROOT_SECRET}" root-user root-password
+  )" && [[ -n "${live_output}" ]]; then
+    mapfile -t live_values <<<"${live_output}"
+    if [[ "${#live_values[@]}" -ne 2 ]]; then
+      echo "live storage root Secret has an invalid shape" >&2
+      return 1
+    fi
+    if [[ "${live_values[0]}" != "${STORAGE_ROOT_USER}" \
+      || "${live_values[1]}" != "${STORAGE_ROOT_PASSWORD}" ]]; then
+      STORAGE_CREDENTIAL_ROTATION_DETECTED="true"
+      STORAGE_RETIRED_ROOT_USER="${live_values[0]}"
+      STORAGE_RETIRED_ROOT_PASSWORD="${live_values[1]}"
+    fi
+  else
+    read_status=$?
+    if [[ "${read_status}" -ne 3 ]]; then
+      return "${read_status}"
+    fi
+  fi
+
+  live_values=()
+  live_output=""
+  if live_output="$(
+    read_live_storage_secret "${STORAGE_APP_SECRET}" access-key secret-key
+  )" && [[ -n "${live_output}" ]]; then
+    mapfile -t live_values <<<"${live_output}"
+    if [[ "${#live_values[@]}" -ne 2 ]]; then
+      echo "live storage application Secret has an invalid shape" >&2
+      return 1
+    fi
+    if [[ "${live_values[0]}" != "${STORAGE_APP_ACCESS_KEY}" \
+      || "${live_values[1]}" != "${STORAGE_APP_SECRET_KEY}" ]]; then
+      STORAGE_CREDENTIAL_ROTATION_DETECTED="true"
+      STORAGE_RETIRED_APP_ACCESS_KEY="${live_values[0]}"
+      STORAGE_RETIRED_APP_SECRET_KEY="${live_values[1]}"
+    fi
+  else
+    read_status=$?
+    if [[ "${read_status}" -ne 3 ]]; then
+      return "${read_status}"
+    fi
+  fi
+}
+
+create_storage_credential_retirement_pod() {
+  kubectl_cmd -n "${NAMESPACE}" delete pod "${STORAGE_CREDENTIAL_RETIREMENT_POD}" \
+    --ignore-not-found=true --wait=true >/dev/null
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${STORAGE_CREDENTIAL_RETIREMENT_POD}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-maintenance
+    devint.profile: ${PROFILE_ID}
+spec:
+  serviceAccountName: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
+  restartPolicy: Never
+  containers:
+    - name: verifier
+      image: ${API_IMAGE}
+      imagePullPolicy: IfNotPresent
+      command:
+        - /bin/sh
+        - -ec
+      args:
+        - sleep 3600
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+EOF
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=Ready \
+    "pod/${STORAGE_CREDENTIAL_RETIREMENT_POD}" --timeout=120s
+  kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_CREDENTIAL_RETIREMENT_POD}" -- \
+    python -c 'import pathlib, sys; pathlib.Path("/tmp/verify-storage-versioning.py").write_bytes(sys.stdin.buffer.read())' \
+    <"${PROFILE_ROOT}/scripts/lib/verify_storage_versioning.py"
+}
+
+prove_retired_storage_credential_denied() {
+  local access_key="$1"
+  local secret_key="$2"
+  local output_path="$3"
+  {
+    printf '%s\n' "${access_key}"
+    printf '%s\n' "${secret_key}"
+  } | kubectl_cmd -n "${NAMESPACE}" exec -i "pod/${STORAGE_CREDENTIAL_RETIREMENT_POD}" -- \
+    env WGCF_EVIDENCE_STORAGE_ENDPOINT="${STORAGE_ENDPOINT}" \
+      WGCF_EVIDENCE_STORAGE_BUCKET="${STORAGE_BUCKET}" \
+      python /tmp/verify-storage-versioning.py expect-denied-stdin "${STORAGE_SEED_KEY}" \
+      >"${output_path}"
+}
+
+verify_retired_storage_credentials() {
+  local root_proof=""
+  local app_proof=""
+  if [[ "${STORAGE_CREDENTIAL_ROTATION_DETECTED}" != "true" ]]; then
+    return
+  fi
+
+  root_proof="$(mktemp "${STATE_ROOT}/.retired-root.XXXXXX.json")"
+  app_proof="$(mktemp "${STATE_ROOT}/.retired-app.XXXXXX.json")"
+  create_storage_credential_retirement_pod
+  if [[ -n "${STORAGE_RETIRED_ROOT_USER}" ]]; then
+    prove_retired_storage_credential_denied \
+      "${STORAGE_RETIRED_ROOT_USER}" "${STORAGE_RETIRED_ROOT_PASSWORD}" "${root_proof}"
+  fi
+  if [[ -n "${STORAGE_RETIRED_APP_ACCESS_KEY}" ]]; then
+    prove_retired_storage_credential_denied \
+      "${STORAGE_RETIRED_APP_ACCESS_KEY}" "${STORAGE_RETIRED_APP_SECRET_KEY}" "${app_proof}"
+  fi
+  python3 - "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" "${root_proof}" "${app_proof}" <<'PY'
+from datetime import datetime, timezone
+import json
+import pathlib
+import sys
+
+def denied(path_value: str):
+    path = pathlib.Path(path_value)
+    if not path.is_file() or path.stat().st_size == 0:
+        return None
+    return json.loads(path.read_text(encoding="utf-8")).get("authentication_denied") is True
+
+root_denied = denied(sys.argv[2])
+app_denied = denied(sys.argv[3])
+if root_denied is False or app_denied is False:
+    raise SystemExit("retired storage credential denial proof is incomplete")
+if root_denied is not True and app_denied is not True:
+    raise SystemExit("credential rotation was recorded without a retired credential")
+payload = {
+    "schema_version": 1,
+    "rotation_detected": True,
+    "retired_root_credential_authentication_denied": root_denied,
+    "retired_application_credential_authentication_denied": app_denied,
+    "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+}
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps(payload, indent=2, sort_keys=True) + "\n",
+    encoding="utf-8",
+)
+PY
+  rm -f -- "${root_proof}" "${app_proof}"
+  cleanup_storage_credential_retirement
 }
 
 storage_credentials_digest() {
@@ -577,7 +779,7 @@ write_storage_receipt() {
     "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
     "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" \
-    "${STORAGE_ISOLATION_FILE}" <<'PY'
+    "${STORAGE_ISOLATION_FILE}" "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
@@ -592,6 +794,7 @@ if receipt_path.is_file():
     prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
 network_proof = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").splitlines()
 isolation = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
+rotation_proof_path = pathlib.Path(sys.argv[13])
 expected_network_proof = {
     "maintenance_storage_connectivity=allowed",
     "unauthorized_storage_connectivity=denied",
@@ -651,6 +854,25 @@ payload = {
     "governed_stage_or_prod_claim": False,
     "verified_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
 }
+if rotation_proof_path.is_file():
+    rotation_proof = json.loads(rotation_proof_path.read_text(encoding="utf-8"))
+    if rotation_proof.get("rotation_detected") is not True:
+        raise SystemExit("storage credential rotation proof is invalid")
+    for field in (
+        "retired_root_credential_authentication_denied",
+        "retired_application_credential_authentication_denied",
+    ):
+        if rotation_proof.get(field) not in {None, True}:
+            raise SystemExit("storage credential rotation did not revoke every prior credential")
+    if not any(
+        rotation_proof.get(field) is True
+        for field in (
+            "retired_root_credential_authentication_denied",
+            "retired_application_credential_authentication_denied",
+        )
+    ):
+        raise SystemExit("storage credential rotation proof contains no retired credential")
+    payload["credential_rotation"] = rotation_proof
 if (
     isinstance(prior_receipt, dict)
     and prior_receipt.get("object_version_id") == accepted_version_id
@@ -1281,16 +1503,18 @@ for item in manifest.get("objects") or []:
     digest = item.get("sha256")
     size = item.get("size")
     object_path = pathlib.PurePosixPath(object_key) if isinstance(object_key, str) else None
+    canonical_object_key = object_path.as_posix() if object_path is not None else None
     if (
         not isinstance(object_key, str)
         or not object_key
-        or object_key in object_keys
+        or canonical_object_key != object_key
+        or canonical_object_key in object_keys
         or object_path is None
         or object_path.is_absolute()
         or ".." in object_path.parts
     ):
         raise SystemExit("restore manifest contains an invalid or duplicate object key")
-    object_keys.add(object_key)
+    object_keys.add(canonical_object_key)
     if archive_path != f"current/{object_key}":
         raise SystemExit(f"restore manifest contains an invalid current object path: {object_key}")
     if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
@@ -1304,14 +1528,22 @@ receipt_bindings = {}
 for binding in manifest.get("receipt_bindings") or []:
     receipt_name = binding.get("receipt_name")
     object_key = binding.get("object_key")
-    if not isinstance(receipt_name, str) or not receipt_name or receipt_name in receipt_names:
+    if (
+        not isinstance(receipt_name, str)
+        or not receipt_name
+        or receipt_name in receipt_names
+        or "/" in receipt_name
+        or receipt_name in {".", ".."}
+    ):
         raise SystemExit("restore manifest contains an invalid or duplicate receipt binding")
     receipt_names.add(receipt_name)
     object_path = pathlib.PurePosixPath(object_key) if isinstance(object_key, str) else None
+    canonical_object_key = object_path.as_posix() if object_path is not None else None
     if (
         not isinstance(object_key, str)
         or not object_key
         or object_path is None
+        or canonical_object_key != object_key
         or object_path.is_absolute()
         or ".." in object_path.parts
     ):

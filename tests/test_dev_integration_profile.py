@@ -326,10 +326,16 @@ class DevIntegrationProfileTests(TestCase):
             source = (SCRIPTS_ROOT / script_name).read_text(encoding="utf-8")
             self.assertIn("require_storage_authority_contract", source)
         namespace_index = deploy_source.index('kubectl_cmd create namespace "${NAMESPACE}"')
+        rotation_capture_index = deploy_source.index("capture_storage_credentials_for_rotation")
         secret_index = deploy_source.index("apply_storage_secrets")
         runtime_index = deploy_source.index('kubectl_cmd apply -f "${RUNTIME_MANIFEST}"')
+        rotation_proof_index = deploy_source.index("verify_retired_storage_credentials")
+        receipt_index = deploy_source.index("write_storage_receipt")
+        self.assertLess(rotation_capture_index, secret_index)
         self.assertLess(namespace_index, secret_index)
         self.assertLess(secret_index, runtime_index)
+        self.assertLess(rotation_proof_index, receipt_index)
+        self.assertIn("expect-denied-stdin", storage_source)
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
@@ -674,6 +680,45 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("invalid prior storage reference", wrong_binding.stderr)
             manifest["receipt_bindings"][0]["prior_object_version_id"] = (
                 "version-before-backup"
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            manifest["receipt_bindings"][0]["receipt_name"] = "nested/storage-receipt"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            unsafe_receipt_name = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(unsafe_receipt_name.returncode, 0)
+            self.assertIn("invalid or duplicate receipt binding", unsafe_receipt_name.stderr)
+            manifest["receipt_bindings"][0]["receipt_name"] = "storage-receipt"
+
+            manifest["objects"][0]["object_key"] = "artifact//evidence.json"
+            manifest["objects"][0]["archive_path"] = "current/artifact//evidence.json"
+            manifest["receipt_bindings"][0]["object_key"] = "artifact//evidence.json"
+            manifest["receipt_bindings"][0]["current_archive_path"] = (
+                "current/artifact//evidence.json"
+            )
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            noncanonical_object = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(noncanonical_object.returncode, 0)
+            self.assertIn("invalid or duplicate object key", noncanonical_object.stderr)
+            manifest["objects"][0]["object_key"] = "artifact/evidence.json"
+            manifest["objects"][0]["archive_path"] = "current/artifact/evidence.json"
+            manifest["receipt_bindings"][0]["object_key"] = "artifact/evidence.json"
+            manifest["receipt_bindings"][0]["current_archive_path"] = (
+                "current/artifact/evidence.json"
             )
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
