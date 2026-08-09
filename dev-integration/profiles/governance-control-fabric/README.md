@@ -136,8 +136,11 @@ copied into kernel-sealed, descriptor-bound memory files before validation;
 the same immutable descriptors remain the restore inputs for the complete
 transaction. Restore then creates a new immutable version,
 reissues the local receipt to that version, records an old-to-new supersession
-map, and restores the backed-up current object. The original absolute backup
-path remains provenance rather than recovery authority.
+map, and restores the backed-up current object. The restore receipt records
+`restored_from: sha256:<archive-digest>` instead of a mutable filesystem path.
+Match that content address to a retained bundle by comparing it with the
+adjacent manifest's `archive_sha256` or with `sha256sum <backup-file>`; the
+operator-selected path is not durable provenance or recovery authority.
 Preflight also requires the configured seed key and digest, including its bound
 receipt, before any object-store mutation.
 

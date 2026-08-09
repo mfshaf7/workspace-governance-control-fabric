@@ -153,7 +153,10 @@ so path replacement or in-place writes cannot change the accepted bytes during
 the transaction. Restore captures a pre-restore backup when the receipt-bound
 live version is present, creates new server-assigned object versions, rebinds each
 receipt to its new immutable version with an explicit supersession map, and
-then proves restored content addresses. `reset` is destructive and fails closed
+then proves restored content addresses. The restore receipt identifies its
+source as `sha256:<archive-digest>`; verify the retained bundle against that
+value using its adjacent manifest's `archive_sha256` or `sha256sum` rather than
+relying on the operator-selected path. `reset` is destructive and fails closed
 without the exact confirmation above. Before clearing profile state, confirmed
 reset validates every backup against its adjacent manifest, then preserves the
 complete backup directory in the operator-scoped reset archive with one atomic
