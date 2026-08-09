@@ -26,6 +26,7 @@ def _git_environment() -> dict[str, str]:
             ),
             "GIT_SSH_VARIANT": "ssh",
             "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
             "HOME": pwd.getpwuid(os.getuid()).pw_dir,
             "LC_ALL": "C",
         }
@@ -99,3 +100,22 @@ def require_landed_commit(repo_root: Path, repo_name: str, source_commit: str) -
     )
     if landed.returncode != 0:
         raise SystemExit(f"{repo_name} revision is not landed on origin/main")
+
+
+def read_source_file(repo_root: Path, source_commit: str, source_path: str) -> bytes:
+    result = subprocess.run(
+        [
+            GIT_EXECUTABLE,
+            "-C",
+            str(repo_root),
+            "show",
+            f"{source_commit}:{source_path}",
+        ],
+        check=False,
+        env=_git_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"Pinned source is unavailable: {source_commit}:{source_path}")
+    return result.stdout

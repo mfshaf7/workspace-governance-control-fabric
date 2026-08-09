@@ -370,11 +370,10 @@ require_storage_security_review() {
 import hashlib
 import json
 import pathlib
-import subprocess
 import sys
 
 sys.path.insert(0, sys.argv[4])
-from verify_landed_source import require_landed_commit
+from verify_landed_source import read_source_file, require_landed_commit
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -400,15 +399,8 @@ review_path = repo_root / expected_path
 if not (repo_root / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
 require_landed_commit(repo_root, expected_repo, source_commit)
-result = subprocess.run(
-    ["git", "-C", str(repo_root), "show", f"{source_commit}:{expected_path}"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    check=False,
-)
-if result.returncode != 0:
-    raise SystemExit("WGCF evidence storage Security review is unavailable at its pinned commit")
-actual_digest = hashlib.sha256(result.stdout).hexdigest()
+review_body = read_source_file(repo_root, source_commit, expected_path)
+actual_digest = hashlib.sha256(review_body).hexdigest()
 if actual_digest != expected_digest:
     raise SystemExit("WGCF evidence storage Security review commit does not match its pinned digest")
 PY
@@ -424,13 +416,12 @@ require_storage_authority_contract() {
 import hashlib
 import json
 import pathlib
-import subprocess
 import sys
 
 import yaml
 
 sys.path.insert(0, sys.argv[4])
-from verify_landed_source import require_landed_commit
+from verify_landed_source import read_source_file, require_landed_commit
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -451,8 +442,23 @@ required_binding_fields = {
 if set(binding) != required_binding_fields:
     raise SystemExit("WGCF evidence storage profile has an incomplete authority binding")
 
+expected_authority_repo = "workspace-governance"
+expected_authority_path = "contracts/developer-integration-profiles.yaml"
+expected_profile_id = "governance-control-fabric"
+expected_acceptance_ref = (
+    "repo://platform-engineering/docs/records/change-records/"
+    "2026-08-09-wgcf-devint-evidence-storage.md"
+)
+if (
+    binding["repo"] != expected_authority_repo
+    or binding["path"] != expected_authority_path
+    or binding["profile_id"] != expected_profile_id
+    or binding["platform_acceptance_ref"] != expected_acceptance_ref
+):
+    raise SystemExit("WGCF evidence storage profile changes its fixed authority identity")
+
 governance_repo = pathlib.Path(
-    repo_paths.get(binding["repo"], workspace_root / binding["repo"])
+    repo_paths.get(expected_authority_repo, workspace_root / expected_authority_repo)
 ).resolve()
 if not (governance_repo / ".git").exists():
     raise SystemExit(f"WGCF evidence storage authority repository is unavailable: {governance_repo}")
@@ -462,19 +468,12 @@ if not isinstance(authority_commit, str) or len(authority_commit) != 40:
     raise SystemExit("WGCF evidence storage authority has no immutable source commit")
 if not isinstance(authority_digest, str) or len(authority_digest) != 64:
     raise SystemExit("WGCF evidence storage authority has no content digest")
-require_landed_commit(governance_repo, binding["repo"], authority_commit)
-result = subprocess.run(
-    ["git", "-C", str(governance_repo), "show", f"{authority_commit}:{binding['path']}"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    check=False,
-)
-if result.returncode != 0:
-    raise SystemExit("WGCF evidence storage authority registry is unavailable at its pinned commit")
-if hashlib.sha256(result.stdout).hexdigest() != authority_digest:
+require_landed_commit(governance_repo, expected_authority_repo, authority_commit)
+registry_body = read_source_file(governance_repo, authority_commit, expected_authority_path)
+if hashlib.sha256(registry_body).hexdigest() != authority_digest:
     raise SystemExit("WGCF evidence storage authority commit does not match its pinned digest")
-registry = yaml.safe_load(result.stdout) or {}
-registered_profile = (registry.get("profiles") or {}).get(binding["profile_id"])
+registry = yaml.safe_load(registry_body) or {}
+registered_profile = (registry.get("profiles") or {}).get(expected_profile_id)
 if not isinstance(registered_profile, dict):
     raise SystemExit("WGCF evidence storage is not registered by workspace authority")
 if registered_profile.get("lifecycle") != "active":
@@ -508,15 +507,8 @@ try:
 except ValueError as error:
     raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
 require_landed_commit(platform_repo, "platform-engineering", source_commit)
-result = subprocess.run(
-    ["git", "-C", str(platform_repo), "show", f"{source_commit}:{acceptance_relpath}"],
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    check=False,
-)
-if result.returncode != 0:
-    raise SystemExit("WGCF evidence storage Platform acceptance is unavailable at its pinned commit")
-actual_digest = hashlib.sha256(result.stdout).hexdigest()
+acceptance_body = read_source_file(platform_repo, source_commit, acceptance_relpath)
+actual_digest = hashlib.sha256(acceptance_body).hexdigest()
 if actual_digest != expected_digest:
     raise SystemExit("WGCF evidence storage Platform acceptance commit does not match its pinned digest")
 
@@ -971,7 +963,8 @@ isolation = json.loads(pathlib.Path(sys.argv[13]).read_text(encoding="utf-8"))
 rotation_proof_path = pathlib.Path(sys.argv[14])
 expected_network_proof = {
     "maintenance_storage_connectivity=allowed",
-    "unauthorized_storage_connectivity=denied",
+    "unselected_storage_connectivity=denied",
+    "label_selected_storage_connectivity=allowed-with-default-service-account",
     "api_storage_connectivity=allowed-by-version-read",
 }
 if set(network_proof) != expected_network_proof:
@@ -1014,7 +1007,8 @@ payload = {
     "network_enforcement": {
         "api_allowed": True,
         "maintenance_allowed": True,
-        "unauthorized_pod_denied": True,
+        "unselected_pod_denied": True,
+        "label_selector_is_workload_identity": False,
     },
     "object_versioning": "enabled",
     "version_preservation": {
@@ -1086,7 +1080,8 @@ isolation = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 network_proof = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8").splitlines()
 if set(network_proof) != {
     "maintenance_storage_connectivity=allowed",
-    "unauthorized_storage_connectivity=denied",
+    "unselected_storage_connectivity=denied",
+    "label_selected_storage_connectivity=allowed-with-default-service-account",
     "api_storage_connectivity=allowed-by-version-read",
 }:
     raise SystemExit("storage network-enforcement proof is incomplete")
@@ -1101,7 +1096,8 @@ receipt["credential_isolation_verified_at"] = isolation.get("verified_at")
 receipt["network_enforcement"] = {
     "api_allowed": True,
     "maintenance_allowed": True,
-    "unauthorized_pod_denied": True,
+    "unselected_pod_denied": True,
+    "label_selector_is_workload_identity": False,
 }
 pathlib.Path(sys.argv[4]).write_text(
     json.dumps(receipt, indent=2, sort_keys=True) + "\n",
@@ -1150,7 +1146,9 @@ verify_storage_isolation() {
 verify_storage_network_enforcement() {
   local allow_job="${PROFILE_ID}-storage-net-allow"
   local deny_job="${PROFILE_ID}-storage-net-deny"
-  kubectl_cmd -n "${NAMESPACE}" delete job "${allow_job}" "${deny_job}" \
+  local selector_probe_job="${PROFILE_ID}-storage-net-selector-probe"
+  kubectl_cmd -n "${NAMESPACE}" delete job \
+    "${allow_job}" "${deny_job}" "${selector_probe_job}" \
     --ignore-not-found=true >/dev/null
   cat <<EOF | kubectl_cmd apply -f - >/dev/null
 apiVersion: batch/v1
@@ -1219,6 +1217,8 @@ spec:
         app.kubernetes.io/component: object-storage-denial-proof
         devint.profile: ${PROFILE_ID}
     spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
       restartPolicy: Never
       containers:
         - name: network-deny
@@ -1233,10 +1233,50 @@ spec:
               try:
                   connection = socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=5)
               except OSError:
-                  print("unauthorized_storage_connectivity=denied")
+                  print("unselected_storage_connectivity=denied")
               else:
                   connection.close()
                   raise SystemExit("unselected pod unexpectedly reached evidence storage")
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${selector_probe_job}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: api
+    devint.profile: ${PROFILE_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: api
+        devint.profile: ${PROFILE_ID}
+    spec:
+      serviceAccountName: default
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      containers:
+        - name: network-selector-probe
+          image: ${API_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+          args:
+            - |
+              import socket
+              with socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=5):
+                  pass
+              print("label_selected_storage_connectivity=allowed-with-default-service-account")
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -1247,13 +1287,17 @@ EOF
     "job/${allow_job}" --timeout=90s
   kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete \
     "job/${deny_job}" --timeout=90s
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete \
+    "job/${selector_probe_job}" --timeout=90s
   {
     kubectl_cmd -n "${NAMESPACE}" logs "job/${allow_job}"
     kubectl_cmd -n "${NAMESPACE}" logs "job/${deny_job}"
+    kubectl_cmd -n "${NAMESPACE}" logs "job/${selector_probe_job}"
     printf 'api_storage_connectivity=allowed-by-version-read\n'
   } >"${STORAGE_NETWORK_ENFORCEMENT_FILE}"
   verify_storage_network_proof
-  kubectl_cmd -n "${NAMESPACE}" delete job "${allow_job}" "${deny_job}" \
+  kubectl_cmd -n "${NAMESPACE}" delete job \
+    "${allow_job}" "${deny_job}" "${selector_probe_job}" \
     --ignore-not-found=true >/dev/null
 }
 
@@ -1264,7 +1308,9 @@ verify_storage_network_proof() {
   fi
   grep -qx 'maintenance_storage_connectivity=allowed' \
     "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
-  grep -qx 'unauthorized_storage_connectivity=denied' \
+  grep -qx 'unselected_storage_connectivity=denied' \
+    "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
+  grep -qx 'label_selected_storage_connectivity=allowed-with-default-service-account' \
     "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
   grep -qx 'api_storage_connectivity=allowed-by-version-read' \
     "${STORAGE_NETWORK_ENFORCEMENT_FILE}"

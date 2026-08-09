@@ -84,7 +84,8 @@ def valid_storage_receipt(
         "network_enforcement": {
             "api_allowed": True,
             "maintenance_allowed": True,
-            "unauthorized_pod_denied": True,
+            "unselected_pod_denied": True,
+            "label_selector_is_workload_identity": False,
         },
         "object_versioning": "enabled",
         "version_preservation": {
@@ -263,12 +264,65 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("GIT_CONFIG_COUNT", env)
         self.assertNotIn("GIT_CONFIG_KEY_0", env)
         self.assertNotIn("GIT_CONFIG_VALUE_0", env)
+        self.assertEqual(env["GIT_NO_REPLACE_OBJECTS"], "1")
         self.assertEqual(env["GIT_SSH_VARIANT"], "ssh")
         self.assertIn("/usr/bin/ssh -F /dev/null", env["GIT_SSH_COMMAND"])
         self.assertIn("-oProxyCommand=none", env["GIT_SSH_COMMAND"])
         self.assertIn("-oProxyJump=none", env["GIT_SSH_COMMAND"])
         self.assertNotEqual(env["HOME"], "/tmp/fabricated-home")
         self.assertEqual(LANDED_SOURCE_MODULE.GIT_EXECUTABLE, "/usr/bin/git")
+
+    def test_landed_source_reads_ignore_git_replacement_refs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="wgcf-landed-source-replace-") as temp_dir:
+            repo_root = Path(temp_dir) / "authority"
+            subprocess.run(["git", "init", "-q", str(repo_root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo_root), "config", "user.name", "Test"],
+                check=True,
+            )
+            authority_path = repo_root / "authority.txt"
+            authority_path.write_text("approved\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo_root), "add", "authority.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "commit", "-qm", "approved authority"],
+                check=True,
+            )
+            approved_commit = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+
+            authority_path.write_text("forged\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo_root), "add", "authority.txt"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo_root), "commit", "-qm", "forged authority"],
+                check=True,
+            )
+            forged_commit = subprocess.run(
+                ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "-C", str(repo_root), "replace", approved_commit, forged_commit],
+                check=True,
+            )
+
+            self.assertEqual(
+                LANDED_SOURCE_MODULE.read_source_file(
+                    repo_root,
+                    approved_commit,
+                    "authority.txt",
+                ),
+                b"approved\n",
+            )
 
     def profile_scripts_with_local_git_transport(self, temp_root: Path) -> Path:
         profile_root = temp_root / ".test-profile"
@@ -624,7 +678,14 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("verify_storage_network_enforcement", deploy_source)
         self.assertIn('"object_version_id": accepted_version_id', storage_source)
         self.assertIn("?versionId={version_query}", storage_source)
-        self.assertIn('"unauthorized_pod_denied": True', storage_source)
+        self.assertIn('"unselected_pod_denied": True', storage_source)
+        self.assertIn('"label_selector_is_workload_identity": False', storage_source)
+        self.assertIn(
+            "label_selected_storage_connectivity=allowed-with-default-service-account",
+            storage_source,
+        )
+        self.assertIn("serviceAccountName: default", storage_source)
+        self.assertIn("automountServiceAccountToken: false", storage_source)
         self.assertIn('get pods -o json', storage_source)
         self.assertIn("require_storage_authority_contract", common_source)
         for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
@@ -2251,6 +2312,33 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            fixed_authority_identity = {
+                "repo": "fabricated-governance",
+                "path": "contracts/fabricated-profiles.yaml",
+                "profile_id": "fabricated-profile",
+                "platform_acceptance_ref": (
+                    "repo://platform-engineering/docs/records/change-records/"
+                    "fabricated-acceptance.md"
+                ),
+            }
+            for field, fabricated_value in fixed_authority_identity.items():
+                with self.subTest(authority_identity_field=field):
+                    original_value = activation_contract[field]
+                    activation_contract[field] = fabricated_value
+                    env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+                    changed_identity = subprocess.run(
+                        ["bash", "-c", command],
+                        cwd=REPO_ROOT,
+                        env=env,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(changed_identity.returncode, 0)
+                    self.assertIn("fixed authority identity", changed_identity.stderr)
+                    activation_contract[field] = original_value
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
 
             subprocess.run(
                 [

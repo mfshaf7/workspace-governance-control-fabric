@@ -356,7 +356,8 @@ def validate_storage_receipt(
     if receipt.get("network_enforcement") != {
         "api_allowed": True,
         "maintenance_allowed": True,
-        "unauthorized_pod_denied": True,
+        "unselected_pod_denied": True,
+        "label_selector_is_workload_identity": False,
     }:
         raise SystemExit(f"restore receipt has invalid network claims: {receipt_name}")
     for field in ("credential_isolation_verified_at", "verified_at"):
@@ -555,7 +556,8 @@ def rebind_receipts(
             "network_enforcement": {
                 "api_allowed": True,
                 "maintenance_allowed": True,
-                "unauthorized_pod_denied": True,
+                "unselected_pod_denied": True,
+                "label_selector_is_workload_identity": False,
             },
             "object_versioning": "enabled",
             "pre_restore_version_preservation": prior_version_preservation,
