@@ -275,6 +275,14 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotEqual(env["HOME"], "/tmp/fabricated-home")
         self.assertEqual(LANDED_SOURCE_MODULE.GIT_EXECUTABLE, "/usr/bin/git")
 
+        with self.assertRaisesRegex(SystemExit, "literal full commit ID"):
+            LANDED_SOURCE_MODULE.read_landed_source_file(
+                Path("/unread"),
+                "workspace-governance",
+                "refs/heads/" + "a" * 29,
+                "contracts/developer-integration-profiles.yaml",
+            )
+
     def test_landed_source_reads_ignore_git_replacement_refs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="wgcf-landed-source-replace-") as temp_dir:
             repo_root = Path(temp_dir) / "authority"

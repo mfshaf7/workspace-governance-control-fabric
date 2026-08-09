@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import pwd
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -78,6 +79,8 @@ def read_landed_source_file(
     source_commit: str,
     source_path: str,
 ) -> bytes:
+    if re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
+        raise SystemExit(f"{repo_name} authority revision must be a literal full commit ID")
     expected_urls = {
         f"git@github.com:mfshaf7/{repo_name}.git",
         f"ssh://git@github.com/mfshaf7/{repo_name}.git",
