@@ -1663,7 +1663,7 @@ if not seed_object_seen:
 
 receipt_names = set()
 receipt_bindings = {}
-seed_receipt_seen = False
+primary_seed_receipt_seen = False
 for binding in manifest.get("receipt_bindings") or []:
     receipt_name = binding.get("receipt_name")
     object_key = binding.get("object_key")
@@ -1723,14 +1723,14 @@ for binding in manifest.get("receipt_bindings") or []:
     expected[body_path] = (content_digest, body_size)
     expected[receipt_path] = (receipt_digest, receipt_size)
     receipt_bindings[receipt_name] = binding
-    if object_key == seed_key:
-        if content_digest != seed_digest:
-            raise SystemExit("restore manifest seed receipt does not match the configured seed digest")
-        seed_receipt_seen = True
+    if receipt_name == "storage-receipt":
+        if object_key != seed_key or content_digest != seed_digest:
+            raise SystemExit("restore primary storage receipt does not bind the configured seed")
+        primary_seed_receipt_seen = True
 if not receipt_names:
     raise SystemExit("restore manifest contains no receipt-bound evidence")
-if not seed_receipt_seen:
-    raise SystemExit("restore manifest does not contain a receipt for the configured seed")
+if not primary_seed_receipt_seen:
+    raise SystemExit("restore manifest does not contain the primary storage receipt")
 actual = {}
 archive_bodies = {}
 seen_paths = set()

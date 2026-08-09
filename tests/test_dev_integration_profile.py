@@ -860,21 +860,35 @@ class DevIntegrationProfileTests(TestCase):
             substituted_receipt_body = json.dumps(substituted_receipt).encode()
             with tarfile.open(backup, "w:gz") as bundle:
                 for name, content in (
+                    (f"current/{object_key}", body),
                     (f"current/{substituted_key}", body),
                     ("receipt-bound/storage-receipt.bin", body),
                     ("receipt-records/storage-receipt.json", substituted_receipt_body),
+                    ("receipt-bound/seed-receipt.bin", body),
+                    ("receipt-records/seed-receipt.json", receipt_body),
                 ):
                     member = tarfile.TarInfo(name)
                     member.size = len(content)
                     bundle.addfile(member, io.BytesIO(content))
             substituted_manifest = json.loads(json.dumps(manifest))
+            substituted_manifest["objects"].append(
+                {
+                    "object_key": substituted_key,
+                    "archive_path": f"current/{substituted_key}",
+                    "sha256": hashlib.sha256(body).hexdigest(),
+                    "size": len(body),
+                }
+            )
+            seed_binding = json.loads(
+                json.dumps(substituted_manifest["receipt_bindings"][0])
+            )
+            seed_binding["receipt_name"] = "seed-receipt"
+            seed_binding["receipt_archive_path"] = "receipt-records/seed-receipt.json"
+            seed_binding["body_archive_path"] = "receipt-bound/seed-receipt.bin"
+            substituted_manifest["receipt_bindings"].append(seed_binding)
             substituted_manifest["archive_sha256"] = hashlib.sha256(
                 backup.read_bytes()
             ).hexdigest()
-            substituted_manifest["objects"][0]["object_key"] = substituted_key
-            substituted_manifest["objects"][0]["archive_path"] = (
-                f"current/{substituted_key}"
-            )
             substituted_binding = substituted_manifest["receipt_bindings"][0]
             substituted_binding["object_key"] = substituted_key
             substituted_binding["current_archive_path"] = f"current/{substituted_key}"
@@ -893,7 +907,7 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertNotEqual(substituted_seed.returncode, 0)
-            self.assertIn("configured seed object", substituted_seed.stderr)
+            self.assertIn("primary storage receipt", substituted_seed.stderr)
             backup.write_bytes(original_archive)
             manifest_path.write_bytes(original_manifest)
 
