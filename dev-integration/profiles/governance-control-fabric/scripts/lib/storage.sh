@@ -35,22 +35,35 @@ storage_credentials_digest() {
 
 require_storage_security_review() {
   python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
+import hashlib
 import json
 import pathlib
 import sys
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
-expected = {
-    "repo": "security-architecture",
-    "path": "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md",
-}
+expected_repo = "security-architecture"
+expected_path = "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md"
 refs = (profile.get("security") or {}).get("activation_review_refs") or []
-if expected not in refs:
+matches = [
+    item for item in refs
+    if item.get("repo") == expected_repo and item.get("path") == expected_path
+]
+if len(matches) != 1:
     raise SystemExit("WGCF evidence storage requires the approved Security activation review reference")
-review_path = workspace_root / expected["repo"] / expected["path"]
+review_ref = matches[0]
+source_commit = review_ref.get("source_commit")
+expected_digest = review_ref.get("content_sha256")
+if not isinstance(source_commit, str) or len(source_commit) != 40:
+    raise SystemExit("WGCF evidence storage Security review has no immutable source commit")
+if not isinstance(expected_digest, str) or len(expected_digest) != 64:
+    raise SystemExit("WGCF evidence storage Security review has no content digest")
+review_path = workspace_root / expected_repo / expected_path
 if not review_path.is_file():
     raise SystemExit(f"WGCF evidence storage Security review is unavailable: {review_path}")
+actual_digest = hashlib.sha256(review_path.read_bytes()).hexdigest()
+if actual_digest != expected_digest:
+    raise SystemExit("WGCF evidence storage Security review content does not match its pinned digest")
 PY
 }
 
@@ -480,9 +493,9 @@ PY
 
 write_storage_receipt() {
   python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_VERIFICATION_FILE}" \
-    "${STORAGE_VERSION_PROOF_FILE}" "${PROFILE_ID}" "${NAMESPACE}" \
-    "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" "$(storage_seed_digest)" \
-    "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
+    "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
+    "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
+    "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
@@ -491,7 +504,15 @@ from urllib.parse import quote
 
 verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 proof = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-expected_digest = sys.argv[8]
+network_proof = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").splitlines()
+expected_network_proof = {
+    "maintenance_storage_connectivity=allowed",
+    "unauthorized_storage_connectivity=denied",
+    "api_storage_connectivity=allowed-by-version-read",
+}
+if set(network_proof) != expected_network_proof:
+    raise SystemExit("storage network-enforcement proof is incomplete")
+expected_digest = sys.argv[9]
 accepted_version_id = proof.get("accepted_version_id")
 if verification.get("accepted_sha256") != expected_digest:
     raise SystemExit("storage verification does not bind the expected content digest")
@@ -505,22 +526,27 @@ version_query = quote(accepted_version_id, safe="-_.~")
 payload = {
     "schema_version": 2,
     "receipt_type": "dev-integration-storage",
-    "profile_id": sys.argv[4],
-    "kubernetes_namespace": sys.argv[5],
-    "bucket": sys.argv[6],
-    "object_key": sys.argv[7],
+    "profile_id": sys.argv[5],
+    "kubernetes_namespace": sys.argv[6],
+    "bucket": sys.argv[7],
+    "object_key": sys.argv[8],
     "object_version_id": accepted_version_id,
     "content_sha256": expected_digest,
     "storage_ref": (
-        f"wgcf-storage://{sys.argv[4]}/{sys.argv[6]}/{sys.argv[7]}"
+        f"wgcf-storage://{sys.argv[5]}/{sys.argv[7]}/{sys.argv[8]}"
         f"?versionId={version_query}"
     ),
-    "service_identity_ref": f"kubernetes://{sys.argv[5]}/serviceaccount/{sys.argv[10]}",
-    "application_secret_ref": f"kubernetes://{sys.argv[5]}/secret/{sys.argv[9]}",
+    "service_identity_ref": f"kubernetes://{sys.argv[6]}/serviceaccount/{sys.argv[11]}",
+    "application_secret_ref": f"kubernetes://{sys.argv[6]}/secret/{sys.argv[10]}",
     "root_credential_exposed_to_api": False,
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
     "network_exposure": "namespace-local-network-policy",
+    "network_enforcement": {
+        "api_allowed": True,
+        "maintenance_allowed": True,
+        "unauthorized_pod_denied": True,
+    },
     "object_versioning": "enabled",
     "version_preservation": {
         "same_key_overwrite_proved": True,
@@ -553,6 +579,129 @@ verify_storage_isolation() {
     "${STORAGE_SERVICE_ACCOUNT}" "${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}" \
     "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" "${APP_LABEL}" "${PROFILE_ID}"
   rm -f "${pods_file}" "${network_policy_file}"
+}
+
+verify_storage_network_enforcement() {
+  local allow_job="${PROFILE_ID}-storage-net-allow"
+  local deny_job="${PROFILE_ID}-storage-net-deny"
+  kubectl_cmd -n "${NAMESPACE}" delete job "${allow_job}" "${deny_job}" \
+    --ignore-not-found=true >/dev/null
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${allow_job}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-maintenance
+    devint.profile: ${PROFILE_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: object-storage-maintenance
+        devint.profile: ${PROFILE_ID}
+    spec:
+      serviceAccountName: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
+      restartPolicy: Never
+      containers:
+        - name: network-allow
+          image: ${API_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+          args:
+            - |
+              import socket
+              import time
+              for attempt in range(10):
+                  try:
+                      with socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=3):
+                          pass
+                  except OSError:
+                      if attempt == 9:
+                          raise
+                      time.sleep(1)
+                  else:
+                      print("maintenance_storage_connectivity=allowed")
+                      break
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${deny_job}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-denial-proof
+    devint.profile: ${PROFILE_ID}
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ${APP_LABEL}
+        app.kubernetes.io/component: object-storage-denial-proof
+        devint.profile: ${PROFILE_ID}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: network-deny
+          image: ${API_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -c
+          args:
+            - |
+              import socket
+              try:
+                  connection = socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=5)
+              except OSError:
+                  print("unauthorized_storage_connectivity=denied")
+              else:
+                  connection.close()
+                  raise SystemExit("unselected pod unexpectedly reached evidence storage")
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+EOF
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete \
+    "job/${allow_job}" --timeout=90s
+  kubectl_cmd -n "${NAMESPACE}" wait --for=condition=complete \
+    "job/${deny_job}" --timeout=90s
+  {
+    kubectl_cmd -n "${NAMESPACE}" logs "job/${allow_job}"
+    kubectl_cmd -n "${NAMESPACE}" logs "job/${deny_job}"
+    printf 'api_storage_connectivity=allowed-by-version-read\n'
+  } >"${STORAGE_NETWORK_ENFORCEMENT_FILE}"
+  verify_storage_network_proof
+  kubectl_cmd -n "${NAMESPACE}" delete job "${allow_job}" "${deny_job}" \
+    --ignore-not-found=true >/dev/null
+}
+
+verify_storage_network_proof() {
+  if [[ ! -f "${STORAGE_NETWORK_ENFORCEMENT_FILE}" ]]; then
+    echo "Storage network-enforcement proof is missing; run the profile up action" >&2
+    return 1
+  fi
+  grep -qx 'maintenance_storage_connectivity=allowed' \
+    "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
+  grep -qx 'unauthorized_storage_connectivity=denied' \
+    "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
+  grep -qx 'api_storage_connectivity=allowed-by-version-read' \
+    "${STORAGE_NETWORK_ENFORCEMENT_FILE}"
 }
 
 create_storage_transfer_pod() {

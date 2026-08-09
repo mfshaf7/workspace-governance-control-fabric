@@ -61,7 +61,8 @@ The local object store is deliberately bounded:
 - a credential digest on the API and storage Pod templates restarts only those
   workloads when operator-scoped credential material changes
 - activation fails closed unless the routed Security evidence-custody review
-  is declared by the profile and present in the workspace
+  is declared by the profile, present in the workspace, and matches its pinned
+  content digest
 - storage-affecting lifecycle actions also fail closed until the active
   workspace registry carries the exact Platform acceptance, actions, and
   stage-handoff gates declared by this profile
@@ -130,6 +131,7 @@ The shared smoke path stays read-only and proves:
 - receipt and ledger metadata read
 - profile-scoped evidence storage availability
 - storage credential and network isolation
+- live API and maintenance connectivity plus unselected-Pod network denial
 - seeded object digest, accepted version ID, same-key overwrite preservation,
   and version-qualified storage receipt verification
 

@@ -96,6 +96,7 @@ readonly STORAGE_CREDENTIALS_ENV="${STATE_ROOT}/storage-credentials.env"
 readonly STORAGE_PROVISION_FILE="${STATE_ROOT}/storage-provision.txt"
 readonly STORAGE_VERSION_PROOF_FILE="${STATE_ROOT}/storage-version-proof.json"
 readonly STORAGE_VERIFICATION_FILE="${STATE_ROOT}/storage-verification.json"
+readonly STORAGE_NETWORK_ENFORCEMENT_FILE="${STATE_ROOT}/storage-network-enforcement.txt"
 readonly STORAGE_RECEIPT_FILE="${STATE_ROOT}/storage-receipt.json"
 readonly STORAGE_ISOLATION_FILE="${STATE_ROOT}/storage-isolation.json"
 readonly STORAGE_BACKUP_RECEIPT_FILE="${STATE_ROOT}/backup-receipt.json"
@@ -591,6 +592,7 @@ deploy_api() {
   kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
   prove_storage_version_preservation
   verify_storage_seed
+  verify_storage_network_enforcement
   write_storage_receipt
   if [[ "${TEMPORAL_WORKER_ENABLED}" == "true" ]]; then
     kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${TEMPORAL_WORKER_DEPLOYMENT}" --timeout=180s

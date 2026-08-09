@@ -154,7 +154,9 @@ reset archive so the documented restore path remains usable.
 
 Activation also fails closed unless the profile carries the routed
 `security-architecture` evidence-custody review and that review exists in the
-workspace. Storage-affecting lifecycle commands also require the active
+workspace with the pinned content digest. The `up` action proves the API and
+maintenance allow paths and an unselected-Pod denial against the live storage
+Service. Storage-affecting lifecycle commands also require the active
 `workspace-governance` profile entry to carry the exact Platform acceptance,
 actions, and handoff checks declared by the owner profile. This keeps a merged
 owner implementation dormant until workspace authority activates the same

@@ -23,6 +23,7 @@ request_json "${RECEIPTS_FILE}" get /v1/receipts >/dev/null
 write_access_file
 verify_storage_seed
 verify_storage_isolation
+verify_storage_network_proof
 
 cat >"${SMOKE_SUMMARY}" <<EOF
 governance-control-fabric dev-integration smoke (read-only)
@@ -47,6 +48,7 @@ checks:
 - version-bound evidence object digest read: ${STORAGE_VERIFICATION_FILE}
 - same-key overwrite preservation proof: ${STORAGE_VERSION_PROOF_FILE}
 - storage credential and network isolation: ${STORAGE_ISOLATION_FILE}
+- live storage network enforcement: ${STORAGE_NETWORK_ENFORCEMENT_FILE}
 - storage receipt: ${STORAGE_RECEIPT_FILE}
 
 raw validation execution is intentionally not run by shared smoke because this

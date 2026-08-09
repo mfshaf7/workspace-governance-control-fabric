@@ -108,6 +108,8 @@ class DevIntegrationProfileTests(TestCase):
                 {
                     "repo": "security-architecture",
                     "path": "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md",
+                    "source_commit": "2ad9700c86dfd3a762bcfdb2aba17adbc814ce43",
+                    "content_sha256": "d0a16096a9ac3f26c85dbeca68364a566aeb9817cd56f7e730995db8ae367158",
                 },
             ],
         )
@@ -276,8 +278,10 @@ class DevIntegrationProfileTests(TestCase):
         self.assertNotIn("s3:DeleteObject", storage_source)
         self.assertIn("mc version enable", storage_source)
         self.assertIn("prove_storage_version_preservation", deploy_source)
+        self.assertIn("verify_storage_network_enforcement", deploy_source)
         self.assertIn('"object_version_id": accepted_version_id', storage_source)
         self.assertIn("?versionId={version_query}", storage_source)
+        self.assertIn('"unauthorized_pod_denied": True', storage_source)
         self.assertIn('get pods -o json', storage_source)
         self.assertIn("require_storage_authority_contract", common_source)
         for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
@@ -484,7 +488,12 @@ class DevIntegrationProfileTests(TestCase):
                 / "security-architecture/docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md"
             )
             review_path.parent.mkdir(parents=True)
-            review_path.write_text("# Approved local evidence-custody review\n", encoding="utf-8")
+            review_body = b"# Approved local evidence-custody review\n"
+            review_path.write_bytes(review_body)
+            profile["security"]["activation_review_refs"][0]["content_sha256"] = (
+                hashlib.sha256(review_body).hexdigest()
+            )
+            profile["security"]["activation_review_refs"][0]["source_commit"] = "a" * 40
             env = {
                 **os.environ,
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
@@ -508,6 +517,18 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            review_path.write_text("# Changed review\n", encoding="utf-8")
+            changed = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(changed.returncode, 0)
+            self.assertIn("pinned digest", changed.stderr)
 
             review_path.unlink()
             denied = subprocess.run(
