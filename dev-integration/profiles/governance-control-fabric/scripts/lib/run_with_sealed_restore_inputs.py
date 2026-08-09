@@ -27,7 +27,7 @@ def _sealed_copy(
     *,
     name: str,
     allowed_roots: list[Path],
-) -> tuple[int, Path]:
+) -> int:
     if not source.is_absolute():
         raise SystemExit("restore backup path must be absolute")
     source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
@@ -50,7 +50,7 @@ def _sealed_copy(
             if fcntl.fcntl(sealed_fd, fcntl.F_GET_SEALS) != REQUIRED_SEALS:
                 raise SystemExit(f"restore input could not be sealed: {source}")
             os.set_inheritable(sealed_fd, True)
-            return sealed_fd, opened_path
+            return sealed_fd
         except BaseException:
             os.close(sealed_fd)
             raise
@@ -67,12 +67,12 @@ def main() -> int:
     backup_path = Path(sys.argv[1])
     allowed_roots = [Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve()]
     restore_script = Path(sys.argv[4]).resolve(strict=True)
-    archive_fd, selected_backup_path = _sealed_copy(
+    archive_fd = _sealed_copy(
         backup_path,
         name="wgcf-restore-archive",
         allowed_roots=allowed_roots,
     )
-    manifest_fd, _ = _sealed_copy(
+    manifest_fd = _sealed_copy(
         Path(f"{backup_path}.manifest.json"),
         name="wgcf-restore-manifest",
         allowed_roots=allowed_roots,
@@ -82,7 +82,6 @@ def main() -> int:
         "WGCF_RESTORE_INPUTS_SEALED": "1",
         "WGCF_RESTORE_ARCHIVE_FD": str(archive_fd),
         "WGCF_RESTORE_MANIFEST_FD": str(manifest_fd),
-        "WGCF_RESTORE_SELECTED_BACKUP_PATH": str(selected_backup_path),
     }
     os.execve(restore_script, [str(restore_script)], environment)
     raise RuntimeError("failed to execute restore with sealed inputs")

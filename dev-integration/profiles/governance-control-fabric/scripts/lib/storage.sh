@@ -978,35 +978,23 @@ write_storage_receipt() {
   local staged_path
   staged_path="$(mktemp "${STORAGE_RECEIPT_FILE}.XXXXXX.tmp")"
   chmod 600 "${staged_path}"
-  if ! python3 - "${staged_path}" "${STORAGE_RECEIPT_FILE}" \
-    "${STORAGE_VERIFICATION_FILE}" \
+  if ! python3 - "${staged_path}" "${STORAGE_VERIFICATION_FILE}" \
     "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
     "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" \
-    "${STORAGE_ISOLATION_FILE}" "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" \
-    "${PROFILE_ROOT}/scripts/lib" <<'PY'
+    "${STORAGE_ISOLATION_FILE}" "${STORAGE_CREDENTIAL_RETIREMENT_FILE}" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
 import sys
 from urllib.parse import quote
 
-sys.path.insert(0, sys.argv[15])
-from verify_storage_versioning import (  # noqa: E402
-    normalize_restore_supersession,
-    normalize_version_preservation,
-)
-
 receipt_path = pathlib.Path(sys.argv[1])
-prior_receipt_path = pathlib.Path(sys.argv[2])
-verification = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
-proof = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-prior_receipt = None
-if prior_receipt_path.is_file():
-    prior_receipt = json.loads(prior_receipt_path.read_text(encoding="utf-8"))
-network_proof = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8").splitlines()
-isolation = json.loads(pathlib.Path(sys.argv[13]).read_text(encoding="utf-8"))
-rotation_proof_path = pathlib.Path(sys.argv[14])
+verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+proof = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+network_proof = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").splitlines()
+isolation = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
+rotation_proof_path = pathlib.Path(sys.argv[13])
 expected_network_proof = {
     "maintenance_storage_connectivity=allowed",
     "unselected_storage_connectivity=denied",
@@ -1019,7 +1007,7 @@ if isolation.get("oos_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OOS credential")
 if isolation.get("openproject_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OpenProject credential")
-expected_digest = sys.argv[10]
+expected_digest = sys.argv[9]
 accepted_version_id = proof.get("accepted_version_id")
 if verification.get("accepted_sha256") != expected_digest:
     raise SystemExit("storage verification does not bind the expected content digest")
@@ -1033,18 +1021,18 @@ version_query = quote(accepted_version_id, safe="-_.~")
 payload = {
     "schema_version": 2,
     "receipt_type": "dev-integration-storage",
-    "profile_id": sys.argv[6],
-    "kubernetes_namespace": sys.argv[7],
-    "bucket": sys.argv[8],
-    "object_key": sys.argv[9],
+    "profile_id": sys.argv[5],
+    "kubernetes_namespace": sys.argv[6],
+    "bucket": sys.argv[7],
+    "object_key": sys.argv[8],
     "object_version_id": accepted_version_id,
     "content_sha256": expected_digest,
     "storage_ref": (
-        f"wgcf-storage://{sys.argv[6]}/{sys.argv[8]}/{sys.argv[9]}"
+        f"wgcf-storage://{sys.argv[5]}/{sys.argv[7]}/{sys.argv[8]}"
         f"?versionId={version_query}"
     ),
-    "service_identity_ref": f"kubernetes://{sys.argv[7]}/serviceaccount/{sys.argv[12]}",
-    "application_secret_ref": f"kubernetes://{sys.argv[7]}/secret/{sys.argv[11]}",
+    "service_identity_ref": f"kubernetes://{sys.argv[6]}/serviceaccount/{sys.argv[11]}",
+    "application_secret_ref": f"kubernetes://{sys.argv[6]}/secret/{sys.argv[10]}",
     "root_credential_exposed_to_api": False,
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
@@ -1087,44 +1075,6 @@ if rotation_proof_path.is_file():
     ):
         raise SystemExit("storage credential rotation proof contains no retired credential")
     payload["credential_rotation"] = rotation_proof
-if (
-    isinstance(prior_receipt, dict)
-    and prior_receipt.get("object_version_id") == accepted_version_id
-    and prior_receipt.get("content_sha256") == expected_digest
-):
-    historical_fields = ("restore_supersession", "pre_restore_version_preservation")
-    if any(field in prior_receipt for field in historical_fields):
-        if not all(field in prior_receipt for field in historical_fields):
-            raise SystemExit("prior storage receipt has incomplete restore history")
-        current_version_history = normalize_version_preservation(
-            prior_receipt.get("version_preservation"),
-            "prior storage receipt",
-        )
-        if (
-            current_version_history.get("restore_rebound") is not True
-            or current_version_history.get("rebound_object_version_id")
-            != payload["object_version_id"]
-        ):
-            raise SystemExit("prior storage receipt restore history is inconsistent")
-        payload["pre_restore_version_preservation"] = normalize_version_preservation(
-            prior_receipt["pre_restore_version_preservation"],
-            "prior storage receipt",
-        )
-        payload["restore_supersession"] = normalize_restore_supersession(
-            prior_receipt["restore_supersession"],
-            active_scope={
-                "profile_id": payload["profile_id"],
-                "bucket": payload["bucket"],
-            },
-            object_key=payload["object_key"],
-            current_version_id=payload["object_version_id"],
-            restored_current_version_id=current_version_history[
-                "restored_current_version_id"
-            ],
-            content_digest=payload["content_sha256"],
-            current_storage_ref=payload["storage_ref"],
-            receipt_name="prior storage receipt",
-        )
 receipt_path.write_text(
     json.dumps(payload, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
@@ -2192,11 +2142,10 @@ PY
 write_restore_receipt() {
   local backup_path="$1"
   local pre_restore_path="$2"
-  local selected_backup_path="$3"
   python3 - "${STORAGE_RESTORE_RECEIPT_FILE}" "${backup_path}" \
     "${pre_restore_path}" "${STORAGE_RECEIPT_REBINDING_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" \
-    "${selected_backup_path}" "${4}" <<'PY'
+    "${3}" <<'PY'
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -2208,10 +2157,7 @@ import tempfile
 backup = pathlib.Path(sys.argv[2])
 pre_restore_value = sys.argv[3]
 pre_restore = pathlib.Path(pre_restore_value).resolve() if pre_restore_value else None
-selected_backup = pathlib.Path(sys.argv[8])
-if not selected_backup.is_absolute():
-    raise SystemExit("restore receipt source path must be absolute")
-pre_restore_state = sys.argv[9]
+pre_restore_state = sys.argv[8]
 if pre_restore_state not in {"backup-created", "empty-live-store"}:
     raise SystemExit("restore receipt has an invalid pre-restore state")
 if (pre_restore is None) != (pre_restore_state == "empty-live-store"):
@@ -2219,14 +2165,15 @@ if (pre_restore is None) != (pre_restore_state == "empty-live-store"):
 rebindings = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 if rebindings.get("receipt_identity_rebound") is not True:
     raise SystemExit("restore receipt rebinding proof is incomplete")
+archive_digest = hashlib.sha256(backup.read_bytes()).hexdigest()
 payload = {
     "schema_version": 2,
     "receipt_type": "dev-integration-storage-restore",
     "profile_id": sys.argv[5],
     "kubernetes_namespace": sys.argv[6],
     "bucket": sys.argv[7],
-    "restored_from": str(selected_backup),
-    "restored_archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+    "restored_from": f"sha256:{archive_digest}",
+    "restored_archive_sha256": archive_digest,
     "pre_restore_state": pre_restore_state,
     "pre_restore_backup": str(pre_restore) if pre_restore is not None else None,
     "pre_restore_archive_sha256": (

@@ -776,6 +776,9 @@ class DevIntegrationProfileTests(TestCase):
         common_source = (SCRIPTS_ROOT / "common.sh").read_text(encoding="utf-8")
         reset_source = (SCRIPTS_ROOT / "reset.sh").read_text(encoding="utf-8")
         restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
+        sealed_restore_source = (
+            SCRIPTS_ROOT / "lib/run_with_sealed_restore_inputs.py"
+        ).read_text(encoding="utf-8")
         smoke_source = (SCRIPTS_ROOT / "smoke.sh").read_text(encoding="utf-8")
         backup_source = (SCRIPTS_ROOT / "backup.sh").read_text(encoding="utf-8")
         deploy_source = common_source.split("deploy_api() {", 1)[1].split("\n}", 1)[0]
@@ -859,6 +862,15 @@ class DevIntegrationProfileTests(TestCase):
             '"${STORAGE_RESTORE_VALIDATED_ARCHIVE}"',
             restore_source,
         )
+        self.assertNotIn("WGCF_RESTORE_SELECTED_BACKUP_PATH", sealed_restore_source)
+        self.assertNotIn("WGCF_RESTORE_SELECTED_BACKUP_PATH", restore_source)
+        restore_receipt_body = storage_source.split("write_restore_receipt() {", 1)[1]
+        self.assertIn('"restored_from": f"sha256:{archive_digest}"', restore_receipt_body)
+        storage_receipt_body = storage_source.split("write_storage_receipt() {", 1)[1].split(
+            "\n}", 1
+        )[0]
+        self.assertNotIn("pre_restore_version_preservation", storage_receipt_body)
+        self.assertNotIn("restore_supersession", storage_receipt_body)
         restore_index = restore_source.index("restore_evidence_storage")
         self.assertLess(restore_source.index("verify_storage_isolation"), restore_index)
         self.assertLess(
@@ -1388,10 +1400,8 @@ class DevIntegrationProfileTests(TestCase):
                         "#!/usr/bin/env bash",
                         "set -euo pipefail",
                         f"source {SCRIPTS_ROOT / 'common.sh'}",
-                        'mv "${ORIGINAL_BACKUP}" "${ORIGINAL_BACKUP}.moved"',
-                        'ln -s "${ORIGINAL_MANIFEST}" "${ORIGINAL_BACKUP}"',
+                        'printf tampered >"${ORIGINAL_BACKUP}"',
                         'printf "{}\\n" >"${ORIGINAL_MANIFEST}"',
-                        'test "${WGCF_RESTORE_SELECTED_BACKUP_PATH}" = "${ORIGINAL_BACKUP}"',
                         'archive="/proc/self/fd/${WGCF_RESTORE_ARCHIVE_FD}"',
                         'manifest="/proc/self/fd/${WGCF_RESTORE_MANIFEST_FD}"',
                         'validate_backup_for_restore "${archive}" "${manifest}" sealed',
@@ -1450,7 +1460,6 @@ class DevIntegrationProfileTests(TestCase):
                     hashlib.sha256(original_manifest).hexdigest(),
                 ],
             )
-            backup.unlink()
             backup.write_bytes(original_archive)
             manifest_path.write_bytes(original_manifest)
             valid = subprocess.run(
@@ -1899,7 +1908,7 @@ class DevIntegrationProfileTests(TestCase):
             }
             command = (
                 f"source {SCRIPTS_ROOT / 'common.sh'}; "
-                f"write_restore_receipt {selected_backup} '' {selected_backup} empty-live-store"
+                f"write_restore_receipt {selected_backup} '' empty-live-store"
             )
             result = subprocess.run(
                 ["bash", "-c", command],
@@ -1916,6 +1925,8 @@ class DevIntegrationProfileTests(TestCase):
             self.assertEqual(receipt["pre_restore_state"], "empty-live-store")
             self.assertIsNone(receipt["pre_restore_backup"])
             self.assertIsNone(receipt["pre_restore_archive_sha256"])
+            selected_digest = hashlib.sha256(selected_backup.read_bytes()).hexdigest()
+            self.assertEqual(receipt["restored_from"], f"sha256:{selected_digest}")
 
     def test_restore_receipt_hashes_the_inherited_archive_descriptor(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
@@ -1953,7 +1964,7 @@ class DevIntegrationProfileTests(TestCase):
                 command = (
                     f"source {SCRIPTS_ROOT / 'common.sh'}; "
                     f"write_restore_receipt /proc/self/fd/{archive_fd} '' "
-                    f"{selected_backup} empty-live-store"
+                    "empty-live-store"
                 )
                 result = subprocess.run(
                     ["bash", "-c", command],
@@ -1974,6 +1985,10 @@ class DevIntegrationProfileTests(TestCase):
             self.assertEqual(
                 receipt["restored_archive_sha256"],
                 hashlib.sha256(archive_body).hexdigest(),
+            )
+            self.assertEqual(
+                receipt["restored_from"],
+                f"sha256:{hashlib.sha256(archive_body).hexdigest()}",
             )
 
     def test_backup_output_is_confined_to_the_archived_backups_directory(self) -> None:
