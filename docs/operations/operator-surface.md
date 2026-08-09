@@ -148,7 +148,9 @@ make devint-promote-check PROFILE=governance-control-fabric
 digests without credentials. `restore` validates the archive and every object
 against its manifest before mutation, captures a pre-restore backup, and then
 proves restored content addresses. `reset` is destructive and fails closed
-without the exact confirmation above.
+without the exact confirmation above. Before clearing profile state, confirmed
+reset preserves existing backup bundles and manifests in the operator-scoped
+reset archive so the documented restore path remains usable.
 
 Activation also fails closed unless the profile carries the routed
 `security-architecture` evidence-custody review and that review exists in the

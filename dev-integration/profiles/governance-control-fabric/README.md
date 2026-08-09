@@ -105,6 +105,12 @@ Use the shared platform runner:
 `CONFIRM=restore-wgcf-evidence` plus `DEVINT_BACKUP_FILE` pointing to a backup
 inside the operator-scoped profile state or reset archive.
 
+Before clearing profile state, confirmed reset moves existing evidence backup
+bundles and manifests into the operator-scoped reset archive. Restore validates
+the current allowed location, archive digest, and every object record; the
+original absolute backup path remains provenance rather than recovery
+authority.
+
 `up`, `smoke`, `down`, `backup`, `restore`, and `reset` refuse to run when the
 workspace authority registry or its referenced Platform acceptance record is
 missing or stale. `status` and `access` remain available for read-only operator

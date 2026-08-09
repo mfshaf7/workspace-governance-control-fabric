@@ -758,6 +758,32 @@ backup_evidence_storage() {
   write_backup_manifest "${backup_path}" "${receipt_path}"
 }
 
+archive_storage_backups() {
+  local archive_path=""
+  local -a backup_files=()
+  if [[ -d "${BACKUPS_DIR}" ]]; then
+    while IFS= read -r -d '' backup_file; do
+      backup_files+=("${backup_file}")
+    done < <(
+      find "${BACKUPS_DIR}" -maxdepth 1 -type f \
+        \( -name '*.tar.gz' -o -name '*.tar.gz.manifest.json' \) -print0
+    )
+  fi
+  if [[ "${#backup_files[@]}" -eq 0 ]]; then
+    return
+  fi
+
+  archive_path="${ARCHIVE_ROOT}/reset-$(date -u +%Y%m%dT%H%M%SZ)"
+  mkdir -p "${archive_path}"
+  for backup_file in "${backup_files[@]}"; do
+    mv -- "${backup_file}" "${archive_path}/"
+  done
+  if [[ -f "${STORAGE_BACKUP_RECEIPT_FILE}" ]]; then
+    cp "${STORAGE_BACKUP_RECEIPT_FILE}" "${archive_path}/latest-backup-receipt.json"
+  fi
+  printf '%s\n' "${archive_path}"
+}
+
 validate_backup_for_restore() {
   local backup_path="$1"
   python3 - "${backup_path}" "${STATE_ROOT}" "${ARCHIVE_ROOT}" \
@@ -780,8 +806,9 @@ if not manifest_path.is_file():
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 if manifest.get("archive_sha256") != hashlib.sha256(backup.read_bytes()).hexdigest():
     raise SystemExit("restore backup digest does not match its manifest")
-if pathlib.Path(manifest.get("backup_path", "")).resolve() != backup:
-    raise SystemExit("restore backup path does not match its manifest")
+recorded_backup_path = manifest.get("backup_path")
+if not isinstance(recorded_backup_path, str) or not pathlib.Path(recorded_backup_path).is_absolute():
+    raise SystemExit("restore backup manifest has invalid original-path provenance")
 if manifest.get("profile_id") != sys.argv[4]:
     raise SystemExit("restore backup belongs to a different profile")
 if manifest.get("kubernetes_namespace") != sys.argv[5]:

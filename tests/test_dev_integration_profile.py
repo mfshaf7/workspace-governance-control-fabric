@@ -247,7 +247,7 @@ class DevIntegrationProfileTests(TestCase):
     def test_restore_preflight_rejects_manifest_object_tampering(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-restore-") as temp_dir:
-            state_root = Path(temp_dir)
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
             backup = state_root / "backups/evidence.tar.gz"
             backup.parent.mkdir(parents=True)
             body = b"evidence-body"
@@ -296,10 +296,30 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertEqual(valid.returncode, 0, valid.stderr)
 
+            archive_dir = Path(temp_dir) / "archives/governance-control-fabric/test-operator/reset-proof"
+            archive_dir.mkdir(parents=True)
+            archived_backup = archive_dir / backup.name
+            archived_manifest = Path(f"{archived_backup}.manifest.json")
+            backup.rename(archived_backup)
+            manifest_path.rename(archived_manifest)
+            archived_command = (
+                f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                f"validate_backup_for_restore {archived_backup}"
+            )
+            archived = subprocess.run(
+                ["bash", "-c", archived_command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(archived.returncode, 0, archived.stderr)
+
             manifest["objects"][0]["sha256"] = "0" * 64
-            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            archived_manifest.write_text(json.dumps(manifest), encoding="utf-8")
             tampered = subprocess.run(
-                ["bash", "-c", command],
+                ["bash", "-c", archived_command],
                 cwd=REPO_ROOT,
                 env=env,
                 text=True,
@@ -308,6 +328,47 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(tampered.returncode, 0)
             self.assertIn("do not match", tampered.stderr)
+
+    def test_reset_archives_recoverable_storage_backups(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-reset-archive-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            backups_dir = state_root / "backups"
+            backups_dir.mkdir(parents=True)
+            backup = backups_dir / "evidence.tar.gz"
+            manifest = backups_dir / "evidence.tar.gz.manifest.json"
+            backup.write_bytes(b"archive")
+            manifest.write_text("{}\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; archive_storage_backups",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            archive_path = Path(result.stdout.strip())
+            self.assertTrue((archive_path / backup.name).is_file())
+            self.assertTrue((archive_path / manifest.name).is_file())
+            self.assertFalse(backup.exists())
 
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
