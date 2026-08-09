@@ -116,9 +116,14 @@ class S3Client:
             version_id = response.headers.get("x-amz-version-id", "")
         return version_id
 
-    def delete_is_denied(self, object_key: str) -> bool:
+    def delete_is_denied(
+        self,
+        object_key: str,
+        *,
+        version_id: str | None = None,
+    ) -> bool:
         try:
-            with self.request("DELETE", object_key) as response:
+            with self.request("DELETE", object_key, version_id=version_id) as response:
                 response.read()
         except HTTPError as error:
             return error.code == 403
@@ -244,6 +249,10 @@ def verify(
     current_digest = _digest(current_body)
     if not client.delete_is_denied(object_key):
         raise SystemExit("application storage credential unexpectedly permits object deletion")
+    if not client.delete_is_denied(object_key, version_id=accepted_version_id):
+        raise SystemExit(
+            "application storage credential unexpectedly permits receipt-bound version deletion"
+        )
 
     return {
         "bucket": client.bucket,
@@ -256,6 +265,7 @@ def verify(
         "application_credential_read": True,
         "application_credential_version_read": True,
         "application_credential_delete_denied": True,
+        "application_credential_version_delete_denied": True,
         "root_credential_absent": True,
     }
 

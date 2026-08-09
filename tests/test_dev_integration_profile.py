@@ -58,9 +58,26 @@ class FakeVersionedStorage:
         self.versions.append((version_id, body))
         return version_id
 
-    def delete_is_denied(self, object_key: str) -> bool:
+    def delete_is_denied(
+        self,
+        object_key: str,
+        *,
+        version_id: str | None = None,
+    ) -> bool:
         del object_key
+        del version_id
         return True
+
+
+class FakeVersionDeleteAllowedStorage(FakeVersionedStorage):
+    def delete_is_denied(
+        self,
+        object_key: str,
+        *,
+        version_id: str | None = None,
+    ) -> bool:
+        del object_key
+        return version_id is None
 
 
 class FakeUnversionedStorage(FakeVersionedStorage):
@@ -127,6 +144,14 @@ class DevIntegrationProfileTests(TestCase):
                     "content_sha256": "d0a16096a9ac3f26c85dbeca68364a566aeb9817cd56f7e730995db8ae367158",
                 },
             ],
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"]["authority_source_commit"],
+            "564a63aadbf1214da827503525ba030f38e17e79",
+        )
+        self.assertEqual(
+            profile["authority"]["activation_contract"]["authority_content_sha256"],
+            "c23f42c3040d4376af46bcec2ff53d3e6810540ab34e4b97ae00dab78a427da6",
         )
         self.assertEqual(
             profile["authority"]["activation_contract"]["platform_acceptance_ref"],
@@ -398,6 +423,15 @@ class DevIntegrationProfileTests(TestCase):
         self.assertEqual(verification["accepted_version_id"], "version-1")
         self.assertTrue(verification["application_credential_version_read"])
         self.assertTrue(verification["application_credential_delete_denied"])
+        self.assertTrue(verification["application_credential_version_delete_denied"])
+
+        with self.assertRaisesRegex(SystemExit, "receipt-bound version deletion"):
+            VERSIONING_MODULE.verify(
+                FakeVersionDeleteAllowedStorage(body),
+                "profile-proof/evidence-custody-v1.json",
+                expected_digest,
+                "version-1",
+            )
 
         storage.put("ignored", b'{"evidence":"later-current-value"}')
         later_verification = VERSIONING_MODULE.verify(
@@ -1225,6 +1259,14 @@ class DevIntegrationProfileTests(TestCase):
             '>"${STORAGE_RECEIPT_FILE}"',
             storage_source,
         )
+        self.assertIn(
+            'staged_path="$(mktemp "${STORAGE_RECEIPT_FILE}.XXXXXX.tmp")"',
+            storage_source,
+        )
+        self.assertEqual(
+            storage_source.count('mv -f -- "${staged_path}" "${STORAGE_RECEIPT_FILE}"'),
+            2,
+        )
 
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
@@ -1392,6 +1434,45 @@ class DevIntegrationProfileTests(TestCase):
                 yaml.safe_dump({"profiles": {"governance-control-fabric": registered_profile}}),
                 encoding="utf-8",
             )
+            governance_root = workspace_root / "workspace-governance"
+            subprocess.run(["git", "init", "-q", str(governance_root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(governance_root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(governance_root), "config", "user.name", "Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(governance_root), "add", registry_path.relative_to(governance_root)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(governance_root), "commit", "-qm", "authorize storage"],
+                check=True,
+            )
+            authority_commit = subprocess.run(
+                ["git", "-C", str(governance_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "update-ref",
+                    "refs/remotes/origin/main",
+                    authority_commit,
+                ],
+                check=True,
+            )
+            activation_contract["authority_source_commit"] = authority_commit
+            activation_contract["authority_content_sha256"] = hashlib.sha256(
+                registry_path.read_bytes()
+            ).hexdigest()
             env = {
                 **os.environ,
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
@@ -1420,6 +1501,57 @@ class DevIntegrationProfileTests(TestCase):
             registry_path.write_text(
                 yaml.safe_dump({"profiles": {"governance-control-fabric": registered_profile}}),
                 encoding="utf-8",
+            )
+            mutable_checkout = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(mutable_checkout.returncode, 0, mutable_checkout.stderr)
+
+            subprocess.run(
+                ["git", "-C", str(governance_root), "add", registry_path.relative_to(governance_root)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(governance_root), "commit", "-qm", "remove action"],
+                check=True,
+            )
+            unlanded_commit = subprocess.run(
+                ["git", "-C", str(governance_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            activation_contract["authority_source_commit"] = unlanded_commit
+            activation_contract["authority_content_sha256"] = hashlib.sha256(
+                registry_path.read_bytes()
+            ).hexdigest()
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+            unlanded = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(unlanded.returncode, 0)
+            self.assertIn("not landed on origin/main", unlanded.stderr)
+
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "update-ref",
+                    "refs/remotes/origin/main",
+                    unlanded_commit,
+                ],
+                check=True,
             )
             denied = subprocess.run(
                 ["bash", "-c", command],

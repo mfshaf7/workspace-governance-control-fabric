@@ -433,6 +433,8 @@ required_binding_fields = {
     "repo",
     "path",
     "profile_id",
+    "authority_source_commit",
+    "authority_content_sha256",
     "platform_acceptance_ref",
     "platform_acceptance_source_commit",
     "platform_acceptance_content_sha256",
@@ -445,10 +447,41 @@ if set(binding) != required_binding_fields:
 governance_repo = pathlib.Path(
     repo_paths.get(binding["repo"], workspace_root / binding["repo"])
 ).resolve()
-registry_path = governance_repo / binding["path"]
-if not registry_path.is_file():
-    raise SystemExit(f"WGCF evidence storage authority registry is unavailable: {registry_path}")
-registry = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+if not (governance_repo / ".git").exists():
+    raise SystemExit(f"WGCF evidence storage authority repository is unavailable: {governance_repo}")
+authority_commit = binding["authority_source_commit"]
+authority_digest = binding["authority_content_sha256"]
+if not isinstance(authority_commit, str) or len(authority_commit) != 40:
+    raise SystemExit("WGCF evidence storage authority has no immutable source commit")
+if not isinstance(authority_digest, str) or len(authority_digest) != 64:
+    raise SystemExit("WGCF evidence storage authority has no content digest")
+landed = subprocess.run(
+    [
+        "git",
+        "-C",
+        str(governance_repo),
+        "merge-base",
+        "--is-ancestor",
+        authority_commit,
+        "refs/remotes/origin/main",
+    ],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+if landed.returncode != 0:
+    raise SystemExit("WGCF evidence storage authority revision is not landed on origin/main")
+result = subprocess.run(
+    ["git", "-C", str(governance_repo), "show", f"{authority_commit}:{binding['path']}"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    check=False,
+)
+if result.returncode != 0:
+    raise SystemExit("WGCF evidence storage authority registry is unavailable at its pinned commit")
+if hashlib.sha256(result.stdout).hexdigest() != authority_digest:
+    raise SystemExit("WGCF evidence storage authority commit does not match its pinned digest")
+registry = yaml.safe_load(result.stdout) or {}
 registered_profile = (registry.get("profiles") or {}).get(binding["profile_id"])
 if not isinstance(registered_profile, dict):
     raise SystemExit("WGCF evidence storage is not registered by workspace authority")
@@ -903,7 +936,11 @@ PY
 }
 
 write_storage_receipt() {
-  python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_VERIFICATION_FILE}" \
+  local staged_path
+  staged_path="$(mktemp "${STORAGE_RECEIPT_FILE}.XXXXXX.tmp")"
+  chmod 600 "${staged_path}"
+  if ! python3 - "${staged_path}" "${STORAGE_RECEIPT_FILE}" \
+    "${STORAGE_VERIFICATION_FILE}" \
     "${STORAGE_VERSION_PROOF_FILE}" "${STORAGE_NETWORK_ENFORCEMENT_FILE}" \
     "${PROFILE_ID}" "${NAMESPACE}" "${STORAGE_BUCKET}" "${STORAGE_SEED_KEY}" \
     "$(storage_seed_digest)" "${STORAGE_APP_SECRET}" "${COMPONENT_NAME}" \
@@ -914,15 +951,16 @@ import pathlib
 import sys
 from urllib.parse import quote
 
-verification = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
-proof = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
 receipt_path = pathlib.Path(sys.argv[1])
+prior_receipt_path = pathlib.Path(sys.argv[2])
+verification = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+proof = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
 prior_receipt = None
-if receipt_path.is_file():
-    prior_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-network_proof = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").splitlines()
-isolation = json.loads(pathlib.Path(sys.argv[12]).read_text(encoding="utf-8"))
-rotation_proof_path = pathlib.Path(sys.argv[13])
+if prior_receipt_path.is_file():
+    prior_receipt = json.loads(prior_receipt_path.read_text(encoding="utf-8"))
+network_proof = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8").splitlines()
+isolation = json.loads(pathlib.Path(sys.argv[13]).read_text(encoding="utf-8"))
+rotation_proof_path = pathlib.Path(sys.argv[14])
 expected_network_proof = {
     "maintenance_storage_connectivity=allowed",
     "unauthorized_storage_connectivity=denied",
@@ -934,7 +972,7 @@ if isolation.get("oos_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OOS credential")
 if isolation.get("openproject_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OpenProject credential")
-expected_digest = sys.argv[9]
+expected_digest = sys.argv[10]
 accepted_version_id = proof.get("accepted_version_id")
 if verification.get("accepted_sha256") != expected_digest:
     raise SystemExit("storage verification does not bind the expected content digest")
@@ -948,18 +986,18 @@ version_query = quote(accepted_version_id, safe="-_.~")
 payload = {
     "schema_version": 2,
     "receipt_type": "dev-integration-storage",
-    "profile_id": sys.argv[5],
-    "kubernetes_namespace": sys.argv[6],
-    "bucket": sys.argv[7],
-    "object_key": sys.argv[8],
+    "profile_id": sys.argv[6],
+    "kubernetes_namespace": sys.argv[7],
+    "bucket": sys.argv[8],
+    "object_key": sys.argv[9],
     "object_version_id": accepted_version_id,
     "content_sha256": expected_digest,
     "storage_ref": (
-        f"wgcf-storage://{sys.argv[5]}/{sys.argv[7]}/{sys.argv[8]}"
+        f"wgcf-storage://{sys.argv[6]}/{sys.argv[8]}/{sys.argv[9]}"
         f"?versionId={version_query}"
     ),
-    "service_identity_ref": f"kubernetes://{sys.argv[6]}/serviceaccount/{sys.argv[11]}",
-    "application_secret_ref": f"kubernetes://{sys.argv[6]}/secret/{sys.argv[10]}",
+    "service_identity_ref": f"kubernetes://{sys.argv[7]}/serviceaccount/{sys.argv[12]}",
+    "application_secret_ref": f"kubernetes://{sys.argv[7]}/secret/{sys.argv[11]}",
     "root_credential_exposed_to_api": False,
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
@@ -1014,16 +1052,28 @@ receipt_path.write_text(
     encoding="utf-8",
 )
 PY
+  then
+    rm -f "${staged_path}"
+    return 1
+  fi
+  if ! read_storage_receipt_binding "${staged_path}" >/dev/null; then
+    rm -f "${staged_path}"
+    return 1
+  fi
+  mv -f -- "${staged_path}" "${STORAGE_RECEIPT_FILE}"
 }
 
 refresh_storage_receipt_isolation() {
-  python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_ISOLATION_FILE}" <<'PY'
+  local staged_path
+  staged_path="$(mktemp "${STORAGE_RECEIPT_FILE}.XXXXXX.tmp")"
+  chmod 600 "${staged_path}"
+  if ! python3 - "${STORAGE_RECEIPT_FILE}" "${STORAGE_ISOLATION_FILE}" \
+    "${staged_path}" <<'PY'
 import json
 import pathlib
 import sys
 
-receipt_path = pathlib.Path(sys.argv[1])
-receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+receipt = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 isolation = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
 if isolation.get("oos_credential_issued") is not False:
     raise SystemExit("storage isolation proof issued an OOS credential")
@@ -1033,11 +1083,20 @@ receipt["root_credential_exposed_to_api"] = False
 receipt["oos_credential_issued"] = False
 receipt["openproject_credential_issued"] = False
 receipt["credential_isolation_verified_at"] = isolation.get("verified_at")
-receipt_path.write_text(
+pathlib.Path(sys.argv[3]).write_text(
     json.dumps(receipt, indent=2, sort_keys=True) + "\n",
     encoding="utf-8",
 )
 PY
+  then
+    rm -f "${staged_path}"
+    return 1
+  fi
+  if ! read_storage_receipt_binding "${staged_path}" >/dev/null; then
+    rm -f "${staged_path}"
+    return 1
+  fi
+  mv -f -- "${staged_path}" "${STORAGE_RECEIPT_FILE}"
 }
 
 verify_storage_isolation() {
