@@ -798,6 +798,12 @@ class DevIntegrationProfileTests(TestCase):
         )
         self.assertIn("serviceAccountName: default", storage_source)
         self.assertIn("automountServiceAccountToken: false", storage_source)
+        selector_probe_source = storage_source.split(
+            'name: ${selector_probe_job}', 1
+        )[1].split("EOF", 1)[0]
+        self.assertIn("import time", selector_probe_source)
+        self.assertIn("for attempt in range(10):", selector_probe_source)
+        self.assertIn("time.sleep(1)", selector_probe_source)
         self.assertIn('get pods -o json', storage_source)
         self.assertIn("require_storage_authority_contract", common_source)
         for script_name in ("backup.sh", "down.sh", "reset.sh", "restore.sh", "smoke.sh"):
