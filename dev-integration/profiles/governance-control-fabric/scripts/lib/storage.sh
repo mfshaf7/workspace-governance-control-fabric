@@ -397,6 +397,22 @@ repo_root = pathlib.Path(repo_paths.get(expected_repo, workspace_root / expected
 review_path = repo_root / expected_path
 if not (repo_root / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
+landed = subprocess.run(
+    [
+        "git",
+        "-C",
+        str(repo_root),
+        "merge-base",
+        "--is-ancestor",
+        source_commit,
+        "refs/remotes/origin/main",
+    ],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+if landed.returncode != 0:
+    raise SystemExit("WGCF evidence storage Security review revision is not landed on origin/main")
 result = subprocess.run(
     ["git", "-C", str(repo_root), "show", f"{source_commit}:{expected_path}"],
     stdout=subprocess.PIPE,
@@ -515,6 +531,22 @@ try:
     acceptance_relpath = acceptance_path.relative_to(platform_repo).as_posix()
 except ValueError as error:
     raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
+landed = subprocess.run(
+    [
+        "git",
+        "-C",
+        str(platform_repo),
+        "merge-base",
+        "--is-ancestor",
+        source_commit,
+        "refs/remotes/origin/main",
+    ],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+if landed.returncode != 0:
+    raise SystemExit("WGCF evidence storage Platform acceptance revision is not landed on origin/main")
 result = subprocess.run(
     ["git", "-C", str(platform_repo), "show", f"{source_commit}:{acceptance_relpath}"],
     stdout=subprocess.PIPE,
@@ -536,6 +568,21 @@ missing_checks = sorted(set(binding["required_stage_checks"]) - registered_check
 if missing_checks:
     raise SystemExit(f"WGCF evidence storage gates are not authorized: {missing_checks}")
 PY
+}
+
+require_no_pending_storage_credential_rotation() {
+  local pending_secret=""
+  if ! pending_secret="$(
+    kubectl_cmd -n "${NAMESPACE}" get secret \
+      "${STORAGE_CREDENTIAL_RETIREMENT_SECRET}" \
+      -o name --ignore-not-found
+  )"; then
+    return 1
+  fi
+  if [[ -n "${pending_secret}" ]]; then
+    echo "Storage credential retirement is pending; rerun the profile up action" >&2
+    return 1
+  fi
 }
 
 storage_seed_digest() {

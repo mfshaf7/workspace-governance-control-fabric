@@ -8,6 +8,7 @@ need_cmd python3
 need_cmd sha256sum
 require_storage_authority_contract
 ensure_state_dirs
+require_no_pending_storage_credential_rotation
 kubectl_cmd -n "${NAMESPACE}" rollout status "deployment/${API_DEPLOYMENT}" --timeout=180s
 wait_for_storage_ready
 

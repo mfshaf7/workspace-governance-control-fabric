@@ -379,6 +379,7 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn("STORAGE_CREDENTIAL_RETIREMENT_SECRET", storage_source)
         self.assertIn("verify_storage_network_enforcement", smoke_source)
         self.assertNotIn("verify_storage_network_proof", smoke_source)
+        self.assertIn("require_no_pending_storage_credential_rotation", smoke_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
         self.assertLess(
@@ -1268,6 +1269,58 @@ class DevIntegrationProfileTests(TestCase):
             2,
         )
 
+    def test_smoke_gate_rejects_pending_credential_retirement(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-smoke-rotation-") as temp_dir:
+            temp_root = Path(temp_dir)
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(temp_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(temp_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(temp_root / "state"),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            source = f"source {SCRIPTS_ROOT / 'common.sh'}; "
+            pending = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    source
+                    + "kubectl_cmd() { printf '%s\\n' "
+                    + "'secret/pending-storage-credential-retirement'; }; "
+                    + "require_no_pending_storage_credential_rotation",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(pending.returncode, 0)
+            self.assertIn("credential retirement is pending", pending.stderr)
+
+            clear = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    source
+                    + "kubectl_cmd() { return 0; }; "
+                    + "require_no_pending_storage_credential_rotation",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(clear.returncode, 0, clear.stderr)
+
     def test_storage_activation_requires_routed_security_review(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-security-") as temp_dir:
@@ -1301,6 +1354,17 @@ class DevIntegrationProfileTests(TestCase):
                 capture_output=True,
                 text=True,
             ).stdout.strip()
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(security_repo),
+                    "update-ref",
+                    "refs/remotes/origin/main",
+                    source_commit,
+                ],
+                check=True,
+            )
             profile["security"]["activation_review_refs"][0]["content_sha256"] = (
                 hashlib.sha256(review_body).hexdigest()
             )
@@ -1340,6 +1404,35 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertEqual(changed.returncode, 0, changed.stderr)
 
+            subprocess.run(["git", "-C", str(security_repo), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(security_repo), "commit", "-q", "-m", "change review"],
+                check=True,
+            )
+            unlanded_commit = subprocess.run(
+                ["git", "-C", str(security_repo), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            profile["security"]["activation_review_refs"][0]["source_commit"] = (
+                unlanded_commit
+            )
+            profile["security"]["activation_review_refs"][0]["content_sha256"] = (
+                hashlib.sha256(review_path.read_bytes()).hexdigest()
+            )
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+            unlanded = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(unlanded.returncode, 0)
+            self.assertIn("not landed on origin/main", unlanded.stderr)
+
             profile["security"]["activation_review_refs"][0]["source_commit"] = "a" * 40
             env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
             denied = subprocess.run(
@@ -1351,7 +1444,7 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertNotEqual(denied.returncode, 0)
-            self.assertIn("unavailable at its pinned commit", denied.stderr)
+            self.assertIn("not landed on origin/main", denied.stderr)
 
             profile["security"]["activation_review_refs"][0]["source_commit"] = source_commit
             profile["security"]["activation_review_refs"][0]["content_sha256"] = "0" * 64
@@ -1410,6 +1503,17 @@ class DevIntegrationProfileTests(TestCase):
                 text=True,
                 capture_output=True,
             ).stdout.strip()
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(platform_root),
+                    "update-ref",
+                    "refs/remotes/origin/main",
+                    acceptance_commit,
+                ],
+                check=True,
+            )
             activation_contract = profile["authority"]["activation_contract"]
             activation_contract["platform_acceptance_source_commit"] = acceptance_commit
             activation_contract["platform_acceptance_content_sha256"] = hashlib.sha256(
@@ -1496,6 +1600,44 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            acceptance_path.write_text("# Unlanded acceptance change\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(platform_root), "add", acceptance_path.relative_to(platform_root)],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(platform_root), "commit", "-qm", "change acceptance"],
+                check=True,
+            )
+            unlanded_acceptance_commit = subprocess.run(
+                ["git", "-C", str(platform_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            activation_contract["platform_acceptance_source_commit"] = (
+                unlanded_acceptance_commit
+            )
+            activation_contract["platform_acceptance_content_sha256"] = hashlib.sha256(
+                acceptance_path.read_bytes()
+            ).hexdigest()
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
+            unlanded_acceptance = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(unlanded_acceptance.returncode, 0)
+            self.assertIn("not landed on origin/main", unlanded_acceptance.stderr)
+            activation_contract["platform_acceptance_source_commit"] = acceptance_commit
+            activation_contract["platform_acceptance_content_sha256"] = hashlib.sha256(
+                b"# Accepted local boundary\n"
+            ).hexdigest()
+            env["DEVINT_PROFILE_JSON"] = json.dumps(profile)
 
             registered_profile["actions"].remove("smoke")
             registry_path.write_text(

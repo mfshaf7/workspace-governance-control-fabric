@@ -157,15 +157,15 @@ reset archive so the documented restore path remains usable.
 
 Activation also fails closed unless the profile carries the routed
 `security-architecture` evidence-custody review and that review exists in the
-workspace with the pinned content digest. The `up` action proves the API and
+landed `origin/main` history with the pinned content digest. The `up` action proves the API and
 maintenance allow paths and an unselected-Pod denial against the live storage
 Service. Storage-affecting lifecycle commands also require the
 `workspace-governance` profile entry at the owner profile's pinned commit and
 content digest to be landed on `origin/main` and to carry the exact Platform
 acceptance, actions, and handoff checks declared by the owner profile. This
 keeps a merged owner implementation dormant until landed workspace authority
-activates the same contract and the pinned Platform acceptance commit matches
-its declared digest. The API receives only the bucket-scoped application
+activates the same contract and the pinned, landed Platform acceptance commit
+matches its declared digest. The API receives only the bucket-scoped application
 credential; the storage root credential remains limited to the storage and
 named maintenance workloads. The root-user and application access-key names are immutable;
 rotation changes both secret values together and retains the prior pairs in a
@@ -178,6 +178,8 @@ proves the application identity cannot delete either the current object or the
 receipt-bound object version.
 It also recreates and removes bounded network-probe Jobs so each smoke run
 proves current CNI enforcement rather than trusting an earlier `up` artifact.
+Smoke fails closed while a credential-retirement Secret remains pending, so a
+read-only success cannot bypass an interrupted rotation's denial proof.
 
 ## Temporal Activity Worker
 
