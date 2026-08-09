@@ -2116,7 +2116,7 @@ import pathlib
 import sys
 import tempfile
 
-backup = pathlib.Path(sys.argv[2]).resolve()
+backup = pathlib.Path(sys.argv[2])
 pre_restore_value = sys.argv[3]
 pre_restore = pathlib.Path(pre_restore_value).resolve() if pre_restore_value else None
 selected_backup = pathlib.Path(sys.argv[8]).resolve()

@@ -1568,6 +1568,65 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIsNone(receipt["pre_restore_backup"])
             self.assertIsNone(receipt["pre_restore_archive_sha256"])
 
+    def test_restore_receipt_hashes_the_inherited_archive_descriptor(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-sealed-restore-") as temp_dir:
+            state_root = Path(temp_dir) / "governance-control-fabric/test-operator"
+            state_root.mkdir(parents=True)
+            selected_backup = state_root / "selected.tar.gz"
+            selected_backup.write_bytes(b"published-backup")
+            archive_body = b"sealed-archive"
+            archive_fd = os.memfd_create("wgcf-test-restore-archive")
+            try:
+                os.pwrite(archive_fd, archive_body, 0)
+                (state_root / "storage-receipt-rebindings.json").write_text(
+                    json.dumps(
+                        {
+                            "receipt_identity_rebound": True,
+                            "receipt_rebindings": [{"receipt_name": "storage-receipt"}],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                env = {
+                    **os.environ,
+                    "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                    "DEVINT_OPERATOR": "test-operator",
+                    "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                    "DEVINT_PROFILE_ID": "governance-control-fabric",
+                    "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                    "DEVINT_PROFILE_JSON": json.dumps(profile),
+                    "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                    "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                    "DEVINT_STATE_ROOT": str(state_root),
+                    "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+                }
+                command = (
+                    f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                    f"write_restore_receipt /proc/self/fd/{archive_fd} '' "
+                    f"{selected_backup} empty-live-store"
+                )
+                result = subprocess.run(
+                    ["bash", "-c", command],
+                    cwd=REPO_ROOT,
+                    env=env,
+                    pass_fds=(archive_fd,),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+            finally:
+                os.close(archive_fd)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            receipt = json.loads(
+                (state_root / "restore-receipt.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                receipt["restored_archive_sha256"],
+                hashlib.sha256(archive_body).hexdigest(),
+            )
+
     def test_backup_output_is_confined_to_the_archived_backups_directory(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory(prefix="wgcf-devint-backup-path-") as temp_dir:
