@@ -55,6 +55,9 @@ The local object store is deliberately bounded:
 - OOS and OpenProject receive no object-store credential
 - the API credential can list, read, and write the profile bucket but cannot
   delete objects
+- bucket versioning preserves prior object versions when a key is reused
+- activation fails closed unless the routed Security evidence-custody review
+  is declared by the profile and present in the workspace
 - retention and deletion remain explicit lifecycle operations rather than
   automatic cleanup
 - the local profile uses namespace-internal HTTP and a local-path PVC; it does
@@ -141,3 +144,4 @@ the workspace registry entry.
 - `workspace-governance/contracts/developer-integration-profiles.yaml`
 - `workspace-governance/contracts/components.yaml`
 - `workspace-governance/docs/work-home-routing-contract.md`
+- [ART evidence custody and source provenance Security review](https://github.com/mfshaf7/security-architecture/blob/main/docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md)

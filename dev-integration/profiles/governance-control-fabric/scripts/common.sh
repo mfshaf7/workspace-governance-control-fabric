@@ -47,6 +47,7 @@ readonly STORAGE_SERVICE="${DEVINT_WGCF_STORAGE_SERVICE:-workspace-governance-co
 readonly STORAGE_ROOT_SECRET="${STORAGE_STATEFULSET}-root"
 readonly STORAGE_APP_SECRET="${STORAGE_STATEFULSET}-api"
 readonly STORAGE_SERVICE_ACCOUNT="${STORAGE_STATEFULSET}"
+readonly STORAGE_MAINTENANCE_SERVICE_ACCOUNT="${STORAGE_STATEFULSET}-maintenance"
 readonly STORAGE_PROVISION_JOB="${STORAGE_STATEFULSET}-provision"
 readonly STORAGE_TRANSFER_POD="${STORAGE_STATEFULSET}-transfer"
 readonly STORAGE_IMAGE="${DEVINT_WGCF_STORAGE_IMAGE:-minio/minio:RELEASE.2025-04-22T22-12-26Z}"
@@ -572,10 +573,11 @@ EOF
 
 deploy_api() {
   validate_temporal_worker_activation
+  require_storage_security_review
   render_runtime_manifest
   write_temporal_worker_status
-  apply_storage_secrets
   kubectl_cmd apply -f "${RUNTIME_MANIFEST}"
+  apply_storage_secrets
   kubectl_cmd -n "${NAMESPACE}" rollout status "statefulset/${POSTGRES_STATEFULSET}" --timeout=180s
   wait_for_storage_ready
   provision_storage

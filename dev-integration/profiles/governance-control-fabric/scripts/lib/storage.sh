@@ -28,6 +28,27 @@ load_storage_credentials() {
   source "${STORAGE_CREDENTIALS_ENV}"
 }
 
+require_storage_security_review() {
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" <<'PY'
+import json
+import pathlib
+import sys
+
+profile = json.loads(sys.argv[1])
+workspace_root = pathlib.Path(sys.argv[2]).resolve()
+expected = {
+    "repo": "security-architecture",
+    "path": "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md",
+}
+refs = (profile.get("security") or {}).get("activation_review_refs") or []
+if expected not in refs:
+    raise SystemExit("WGCF evidence storage requires the approved Security activation review reference")
+review_path = workspace_root / expected["repo"] / expected["path"]
+if not review_path.is_file():
+    raise SystemExit(f"WGCF evidence storage Security review is unavailable: {review_path}")
+PY
+}
+
 storage_seed_digest() {
   printf '%s\n' "${STORAGE_SEED_PAYLOAD}" | sha256sum | awk '{print $1}'
 }
@@ -76,6 +97,16 @@ metadata:
   labels:
     app.kubernetes.io/name: ${APP_LABEL}
     app.kubernetes.io/component: object-storage
+    devint.profile: ${PROFILE_ID}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: object-storage-maintenance
     devint.profile: ${PROFILE_ID}
 ---
 apiVersion: v1
@@ -273,6 +304,7 @@ spec:
         app.kubernetes.io/component: object-storage-maintenance
         devint.profile: ${PROFILE_ID}
     spec:
+      serviceAccountName: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
       restartPolicy: Never
       containers:
         - name: provision
@@ -288,6 +320,7 @@ spec:
               done
               mc ready storage
               mc mb --ignore-existing "storage/${STORAGE_BUCKET}"
+              mc version enable "storage/${STORAGE_BUCKET}" >/dev/null
               cat >/tmp/api-policy.json <<'POLICY'
               {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetBucketLocation","s3:ListBucket"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}"]},{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::${STORAGE_BUCKET}/*"]}]}
               POLICY
@@ -301,8 +334,8 @@ spec:
               fi
               actual_digest="\$(mc cat "storage/${STORAGE_BUCKET}/${STORAGE_SEED_KEY}" | sha256sum)"
               actual_digest="\${actual_digest%% *}"
-              printf 'bucket=%s\nobject_key=%s\nsha256=%s\nseed_created=%s\n' \
-                '${STORAGE_BUCKET}' '${STORAGE_SEED_KEY}' "\${actual_digest}" "\${seed_created}"
+              printf 'bucket=%s\nobject_key=%s\nsha256=%s\nseed_created=%s\nversioning=%s\n' \
+                '${STORAGE_BUCKET}' '${STORAGE_SEED_KEY}' "\${actual_digest}" "\${seed_created}" enabled
           env:
             - name: STORAGE_ROOT_USER
               valueFrom:
@@ -340,6 +373,11 @@ EOF
   if ! grep -q "sha256=$(storage_seed_digest)" "${STORAGE_PROVISION_FILE}"; then
     cat "${STORAGE_PROVISION_FILE}" >&2
     echo "Provisioned storage seed digest does not match the profile contract" >&2
+    return 1
+  fi
+  if ! grep -q '^versioning=enabled$' "${STORAGE_PROVISION_FILE}"; then
+    cat "${STORAGE_PROVISION_FILE}" >&2
+    echo "Evidence storage versioning is not enabled" >&2
     return 1
   fi
 }
@@ -466,6 +504,7 @@ payload = {
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
     "network_exposure": "namespace-local-network-policy",
+    "object_versioning": "enabled",
     "transport_encryption": "not-governed-dev-integration-http",
     "at_rest_encryption": "not-governed-local-path-pvc",
     "governed_stage_or_prod_claim": False,
@@ -479,29 +518,38 @@ PY
 }
 
 verify_storage_isolation() {
-  local deployments_file="${STATE_ROOT}/storage-isolation-deployments.json"
-  local statefulsets_file="${STATE_ROOT}/storage-isolation-statefulsets.json"
+  local pods_file="${STATE_ROOT}/storage-isolation-pods.json"
   local network_policy_file="${STATE_ROOT}/storage-isolation-network-policy.json"
-  kubectl_cmd -n "${NAMESPACE}" get deployments -o json >"${deployments_file}"
-  kubectl_cmd -n "${NAMESPACE}" get statefulsets -o json >"${statefulsets_file}"
+  kubectl_cmd -n "${NAMESPACE}" get pods -o json >"${pods_file}"
   kubectl_cmd -n "${NAMESPACE}" get networkpolicy \
     "${STORAGE_STATEFULSET}-ingress" -o json >"${network_policy_file}"
-  python3 - "${STORAGE_ISOLATION_FILE}" "${deployments_file}" \
-    "${statefulsets_file}" "${network_policy_file}" "${API_DEPLOYMENT}" \
-    "${STORAGE_STATEFULSET}" "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" <<'PY'
+  python3 - "${STORAGE_ISOLATION_FILE}" "${pods_file}" \
+    "${network_policy_file}" "${API_DEPLOYMENT}" "${STORAGE_STATEFULSET}" \
+    "${STORAGE_PROVISION_JOB}" "${STORAGE_TRANSFER_POD}" "${COMPONENT_NAME}" \
+    "${STORAGE_SERVICE_ACCOUNT}" "${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}" \
+    "${STORAGE_APP_SECRET}" "${STORAGE_ROOT_SECRET}" <<'PY'
 from datetime import datetime, timezone
 import json
 import pathlib
 import sys
 
-deployments = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))["items"]
-statefulsets = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))["items"]
-network_policy = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
-api_name, storage_name, app_secret, root_secret = sys.argv[5:9]
+pods = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))["items"]
+network_policy = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+(
+    api_name,
+    storage_name,
+    provision_name,
+    transfer_name,
+    api_service_account,
+    storage_service_account,
+    maintenance_service_account,
+    app_secret,
+    root_secret,
+) = sys.argv[4:13]
 
-def secret_refs(workload: dict) -> set[str]:
+def secret_refs(pod: dict) -> set[str]:
     refs = set()
-    pod_spec = workload["spec"]["template"]["spec"]
+    pod_spec = pod["spec"]
     for container in pod_spec.get("containers", []):
         for env in container.get("env", []):
             ref = ((env.get("valueFrom") or {}).get("secretKeyRef") or {}).get("name")
@@ -513,18 +561,46 @@ def secret_refs(workload: dict) -> set[str]:
                 refs.add(name)
     return refs
 
-deployment_refs = {item["metadata"]["name"]: secret_refs(item) for item in deployments}
-statefulset_refs = {item["metadata"]["name"]: secret_refs(item) for item in statefulsets}
-app_holders = sorted(name for name, refs in deployment_refs.items() if app_secret in refs)
-root_holders = sorted(name for name, refs in statefulset_refs.items() if root_secret in refs)
-if app_holders != [api_name]:
-    raise SystemExit(f"application storage credential leaked to deployments: {app_holders}")
-if root_holders != [storage_name]:
-    raise SystemExit(f"root storage credential leaked to statefulsets: {root_holders}")
-all_names = set(deployment_refs) | set(statefulset_refs)
-for forbidden in ("operator-orchestration-service", "openproject"):
-    if any(forbidden in name for name in all_names):
-        raise SystemExit(f"forbidden storage consumer is present in the profile namespace: {forbidden}")
+def role(pod: dict) -> str | None:
+    metadata = pod["metadata"]
+    name = metadata["name"]
+    labels = metadata.get("labels") or {}
+    component = labels.get("app.kubernetes.io/component")
+    service_account = pod["spec"].get("serviceAccountName")
+    owners = {
+        (owner.get("kind"), owner.get("name"))
+        for owner in metadata.get("ownerReferences") or []
+    }
+    if component == "api" and service_account == api_service_account and name.startswith(f"{api_name}-"):
+        return "api"
+    if component == "object-storage" and service_account == storage_service_account and ("StatefulSet", storage_name) in owners:
+        return "storage"
+    if component == "object-storage-maintenance" and service_account == maintenance_service_account:
+        if ("Job", provision_name) in owners:
+            return "provision"
+        if name == transfer_name and not owners:
+            return "transfer"
+    return None
+
+pod_refs = {pod["metadata"]["name"]: secret_refs(pod) for pod in pods}
+pod_roles = {pod["metadata"]["name"]: role(pod) for pod in pods}
+allowed_app_roles = {"api", "provision", "transfer"}
+allowed_root_roles = {"storage", "provision", "transfer"}
+app_holders = sorted(name for name, refs in pod_refs.items() if app_secret in refs)
+root_holders = sorted(name for name, refs in pod_refs.items() if root_secret in refs)
+unexpected_app = [name for name in app_holders if pod_roles.get(name) not in allowed_app_roles]
+unexpected_root = [name for name in root_holders if pod_roles.get(name) not in allowed_root_roles]
+if unexpected_app:
+    raise SystemExit(f"application storage credential leaked to pods: {unexpected_app}")
+if unexpected_root:
+    raise SystemExit(f"root storage credential leaked to pods: {unexpected_root}")
+if not any(pod_roles.get(name) == "api" for name in app_holders):
+    raise SystemExit("application storage credential is not projected to the WGCF API pod")
+if not any(pod_roles.get(name) == "storage" for name in root_holders):
+    raise SystemExit("root storage credential is not projected to the storage pod")
+for name, refs in pod_refs.items():
+    if refs.intersection({app_secret, root_secret}) and pod_roles.get(name) is None:
+        raise SystemExit(f"unclassified pod holds a storage credential: {name}")
 allowed_components = {
     expression_value
     for rule in network_policy["spec"]["ingress"]
@@ -537,8 +613,8 @@ if allowed_components != {"api", "object-storage-maintenance"}:
     raise SystemExit(f"unexpected storage ingress subjects: {sorted(allowed_components)}")
 payload = {
     "schema_version": 1,
-    "api_application_secret_holders": app_holders,
-    "storage_root_secret_holders": root_holders,
+    "application_secret_holders": app_holders,
+    "root_secret_holders": root_holders,
     "network_policy_allowed_components": sorted(allowed_components),
     "oos_credential_issued": False,
     "openproject_credential_issued": False,
@@ -549,7 +625,7 @@ pathlib.Path(sys.argv[1]).write_text(
     encoding="utf-8",
 )
 PY
-  rm -f "${deployments_file}" "${statefulsets_file}" "${network_policy_file}"
+  rm -f "${pods_file}" "${network_policy_file}"
 }
 
 create_storage_transfer_pod() {
@@ -585,6 +661,7 @@ metadata:
     app.kubernetes.io/component: object-storage-maintenance
     devint.profile: ${PROFILE_ID}
 spec:
+  serviceAccountName: ${STORAGE_MAINTENANCE_SERVICE_ACCOUNT}
   restartPolicy: Never
   containers:
     - name: transfer
@@ -721,6 +798,7 @@ import hashlib
 import json
 import pathlib
 import sys
+import tarfile
 
 backup = pathlib.Path(sys.argv[1]).resolve()
 allowed_roots = [pathlib.Path(value).resolve() for value in sys.argv[2:4]]
@@ -744,6 +822,34 @@ if manifest.get("bucket") != sys.argv[6]:
     raise SystemExit("restore backup belongs to a different bucket")
 if manifest.get("credentials_included") is not False:
     raise SystemExit("restore backup may not contain credentials")
+expected = {}
+for item in manifest.get("objects") or []:
+    object_key = item.get("object_key")
+    digest = item.get("sha256")
+    size = item.get("size")
+    if not isinstance(object_key, str) or not object_key or object_key in expected:
+        raise SystemExit("restore manifest contains an invalid or duplicate object key")
+    if not isinstance(digest, str) or len(digest) != 64 or not isinstance(size, int) or size < 0:
+        raise SystemExit(f"restore manifest contains invalid object evidence: {object_key}")
+    expected[object_key] = (digest, size)
+if not expected:
+    raise SystemExit("restore manifest contains no objects")
+actual = {}
+with tarfile.open(backup, "r:gz") as bundle:
+    for member in bundle.getmembers():
+        if not member.isfile():
+            continue
+        object_key = member.name.removeprefix("./")
+        object_path = pathlib.PurePosixPath(object_key)
+        if object_path.is_absolute() or ".." in object_path.parts or object_key in actual:
+            raise SystemExit(f"restore archive contains an unsafe or duplicate object key: {object_key}")
+        source = bundle.extractfile(member)
+        if source is None:
+            raise SystemExit(f"restore archive member cannot be read: {object_key}")
+        body = source.read()
+        actual[object_key] = (hashlib.sha256(body).hexdigest(), len(body))
+if actual != expected:
+    raise SystemExit("restore archive objects do not match the signed manifest evidence")
 PY
 }
 

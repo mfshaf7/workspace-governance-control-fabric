@@ -122,6 +122,41 @@ Required CLI behavior:
   parent Feature is missing closeout-ready narrative headings
 - avoid printing raw validation dumps unless explicitly requested
 
+## Dev-Integration Evidence Storage
+
+The active `governance-control-fabric` dev-integration profile adds one
+namespace-local S3-compatible evidence store beside PostgreSQL. It is a local
+custody proof, not governed stage or production storage.
+
+Use the shared Platform runner from `platform-engineering`:
+
+```bash
+make devint-up PROFILE=governance-control-fabric
+make devint-status PROFILE=governance-control-fabric
+make devint-smoke PROFILE=governance-control-fabric
+make devint-backup PROFILE=governance-control-fabric
+make devint-restore PROFILE=governance-control-fabric \
+  BACKUP_FILE=<operator-scoped-backup> \
+  CONFIRM=restore-wgcf-evidence
+make devint-down PROFILE=governance-control-fabric
+make devint-reset PROFILE=governance-control-fabric \
+  CONFIRM=reset-wgcf-evidence
+make devint-promote-check PROFILE=governance-control-fabric
+```
+
+`down` preserves PostgreSQL and object-storage PVCs. `backup` records object
+digests without credentials. `restore` validates the archive and every object
+against its manifest before mutation, captures a pre-restore backup, and then
+proves restored content addresses. `reset` is destructive and fails closed
+without the exact confirmation above.
+
+Activation also fails closed unless the profile carries the routed
+`security-architecture` evidence-custody review and that review exists in the
+workspace. The API receives only the bucket-scoped application credential;
+the storage root credential remains limited to the storage and named
+maintenance workloads. Storage versioning preserves prior object versions if
+an application write reuses a key.
+
 ## Temporal Activity Worker
 
 The worker exposes a connection-free diagnostic:

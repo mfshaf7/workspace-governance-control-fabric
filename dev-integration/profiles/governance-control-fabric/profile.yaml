@@ -20,6 +20,10 @@ persistence:
   storage_size_or_class: 2Gi local-path PostgreSQL, object-storage, and Temporal evidence PVCs inside the operator-scoped local-k3s namespace.
   reset_semantics: Reset requires exact operator confirmation and removes only the operator-scoped WGCF namespace and local profile state.
   cutover_plan_when_upgrading: Any future storage format, encryption, identity, or runtime migration requires a recorded backup, digest-preserving restore, compatibility, and rollback plan.
+security:
+  activation_review_refs:
+    - repo: security-architecture
+      path: docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md
 testing:
   smoke:
     mutation_mode: read-only

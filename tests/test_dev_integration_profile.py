@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import os
+import hashlib
+import io
 import json
+import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 from pathlib import Path
 from unittest import TestCase
@@ -44,6 +47,15 @@ class DevIntegrationProfileTests(TestCase):
         self.assertIn(
             "content-address-preserving backup and restore",
             profile["stage_handoff"]["required_checks"],
+        )
+        self.assertEqual(
+            profile["security"]["activation_review_refs"],
+            [
+                {
+                    "repo": "security-architecture",
+                    "path": "docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md",
+                },
+            ],
         )
         self.assertFalse((SCRIPTS_ROOT / "_proposed-profile.sh").exists())
 
@@ -189,15 +201,135 @@ class DevIntegrationProfileTests(TestCase):
 
     def test_storage_lifecycle_keeps_destructive_authority_explicit(self) -> None:
         storage_source = (SCRIPTS_ROOT / "lib/storage.sh").read_text(encoding="utf-8")
+        common_source = (SCRIPTS_ROOT / "common.sh").read_text(encoding="utf-8")
         reset_source = (SCRIPTS_ROOT / "reset.sh").read_text(encoding="utf-8")
         restore_source = (SCRIPTS_ROOT / "restore.sh").read_text(encoding="utf-8")
+        deploy_source = common_source.split("deploy_api() {", 1)[1].split("\n}", 1)[0]
 
         self.assertIn('"s3:GetObject","s3:PutObject"', storage_source)
         self.assertNotIn("s3:DeleteObject", storage_source)
+        self.assertIn("mc version enable", storage_source)
+        self.assertIn('get pods -o json', storage_source)
+        self.assertLess(
+            deploy_source.index('kubectl_cmd apply -f "${RUNTIME_MANIFEST}"'),
+            deploy_source.index("apply_storage_secrets"),
+        )
         self.assertIn('"reset-wgcf-evidence"', reset_source)
         self.assertIn('"restore-wgcf-evidence"', restore_source)
         for script_name in ("backup.sh", "restore.sh"):
             self.assertTrue(os.access(SCRIPTS_ROOT / script_name, os.X_OK))
+
+    def test_restore_preflight_rejects_manifest_object_tampering(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-restore-") as temp_dir:
+            state_root = Path(temp_dir)
+            backup = state_root / "backups/evidence.tar.gz"
+            backup.parent.mkdir(parents=True)
+            body = b"evidence-body"
+            with tarfile.open(backup, "w:gz") as bundle:
+                member = tarfile.TarInfo("artifact/evidence.json")
+                member.size = len(body)
+                bundle.addfile(member, io.BytesIO(body))
+            manifest = {
+                "archive_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
+                "backup_path": str(backup.resolve()),
+                "bucket": "wgcf-delivery-art-evidence",
+                "credentials_included": False,
+                "kubernetes_namespace": "devint-governance-control-fabric-test",
+                "objects": [
+                    {
+                        "object_key": "artifact/evidence.json",
+                        "sha256": hashlib.sha256(body).hexdigest(),
+                        "size": len(body),
+                    },
+                ],
+                "profile_id": "governance-control-fabric",
+            }
+            manifest_path = Path(f"{backup}.manifest.json")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(state_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+            }
+            command = f"source {SCRIPTS_ROOT / 'common.sh'}; validate_backup_for_restore {backup}"
+            valid = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(valid.returncode, 0, valid.stderr)
+
+            manifest["objects"][0]["sha256"] = "0" * 64
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            tampered = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(tampered.returncode, 0)
+            self.assertIn("do not match", tampered.stderr)
+
+    def test_storage_activation_requires_routed_security_review(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-devint-security-") as temp_dir:
+            temp_root = Path(temp_dir)
+            workspace_root = temp_root / "workspace"
+            review_path = (
+                workspace_root
+                / "security-architecture/docs/reviews/components/2026-08-09-art-evidence-custody-and-source-provenance.md"
+            )
+            review_path.parent.mkdir(parents=True)
+            review_path.write_text("# Approved local evidence-custody review\n", encoding="utf-8")
+            env = {
+                **os.environ,
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_PROMOTION_REPORT": str(temp_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(temp_root / "current-session.yaml"),
+                "DEVINT_STATE_ROOT": str(temp_root / "state"),
+                "DEVINT_WORKSPACE_ROOT": str(workspace_root),
+            }
+            command = f"source {SCRIPTS_ROOT / 'common.sh'}; require_storage_security_review"
+            accepted = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            review_path.unlink()
+            denied = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(denied.returncode, 0)
+            self.assertIn("Security review is unavailable", denied.stderr)
 
     def test_worker_activation_requires_execution_and_security_evidence(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
