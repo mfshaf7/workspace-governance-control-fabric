@@ -365,12 +365,16 @@ require_storage_security_review() {
   if [[ -z "${repo_paths_json}" ]]; then
     repo_paths_json='{}'
   fi
-  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" <<'PY'
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" \
+    "${PROFILE_ROOT}/scripts/lib" <<'PY'
 import hashlib
 import json
 import pathlib
 import subprocess
 import sys
+
+sys.path.insert(0, sys.argv[4])
+from verify_landed_source import require_landed_commit
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -395,22 +399,7 @@ repo_root = pathlib.Path(repo_paths.get(expected_repo, workspace_root / expected
 review_path = repo_root / expected_path
 if not (repo_root / ".git").exists():
     raise SystemExit(f"WGCF evidence storage Security repository is unavailable: {repo_root}")
-landed = subprocess.run(
-    [
-        "git",
-        "-C",
-        str(repo_root),
-        "merge-base",
-        "--is-ancestor",
-        source_commit,
-        "refs/remotes/origin/main",
-    ],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    check=False,
-)
-if landed.returncode != 0:
-    raise SystemExit("WGCF evidence storage Security review revision is not landed on origin/main")
+require_landed_commit(repo_root, expected_repo, source_commit)
 result = subprocess.run(
     ["git", "-C", str(repo_root), "show", f"{source_commit}:{expected_path}"],
     stdout=subprocess.PIPE,
@@ -430,7 +419,8 @@ require_storage_authority_contract() {
   if [[ -z "${repo_paths_json}" ]]; then
     repo_paths_json='{}'
   fi
-  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" <<'PY'
+  python3 - "${PROFILE_JSON}" "${WORKSPACE_ROOT}" "${repo_paths_json}" \
+    "${PROFILE_ROOT}/scripts/lib" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -438,6 +428,9 @@ import subprocess
 import sys
 
 import yaml
+
+sys.path.insert(0, sys.argv[4])
+from verify_landed_source import require_landed_commit
 
 profile = json.loads(sys.argv[1])
 workspace_root = pathlib.Path(sys.argv[2]).resolve()
@@ -469,22 +462,7 @@ if not isinstance(authority_commit, str) or len(authority_commit) != 40:
     raise SystemExit("WGCF evidence storage authority has no immutable source commit")
 if not isinstance(authority_digest, str) or len(authority_digest) != 64:
     raise SystemExit("WGCF evidence storage authority has no content digest")
-landed = subprocess.run(
-    [
-        "git",
-        "-C",
-        str(governance_repo),
-        "merge-base",
-        "--is-ancestor",
-        authority_commit,
-        "refs/remotes/origin/main",
-    ],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    check=False,
-)
-if landed.returncode != 0:
-    raise SystemExit("WGCF evidence storage authority revision is not landed on origin/main")
+require_landed_commit(governance_repo, binding["repo"], authority_commit)
 result = subprocess.run(
     ["git", "-C", str(governance_repo), "show", f"{authority_commit}:{binding['path']}"],
     stdout=subprocess.PIPE,
@@ -529,22 +507,7 @@ try:
     acceptance_relpath = acceptance_path.relative_to(platform_repo).as_posix()
 except ValueError as error:
     raise SystemExit("WGCF evidence storage Platform acceptance escapes its owner repo") from error
-landed = subprocess.run(
-    [
-        "git",
-        "-C",
-        str(platform_repo),
-        "merge-base",
-        "--is-ancestor",
-        source_commit,
-        "refs/remotes/origin/main",
-    ],
-    stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL,
-    check=False,
-)
-if landed.returncode != 0:
-    raise SystemExit("WGCF evidence storage Platform acceptance revision is not landed on origin/main")
+require_landed_commit(platform_repo, "platform-engineering", source_commit)
 result = subprocess.run(
     ["git", "-C", str(platform_repo), "show", f"{source_commit}:{acceptance_relpath}"],
     stdout=subprocess.PIPE,
@@ -1711,6 +1674,10 @@ backup_evidence_storage() {
   delete_storage_transfer_pod
   write_backup_manifest "${STORAGE_BACKUP_STAGING_ARCHIVE}" \
     "${STORAGE_BACKUP_STAGING_RECEIPT}" "${backup_path}"
+  validate_backup_for_restore \
+    "${STORAGE_BACKUP_STAGING_ARCHIVE}" \
+    "${STORAGE_BACKUP_STAGING_MANIFEST}" \
+    path
   STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"
   STORAGE_BACKUP_PUBLISHED_MANIFEST="${backup_path}.manifest.json"
   ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}" "${STORAGE_BACKUP_PUBLISHED_ARCHIVE}"

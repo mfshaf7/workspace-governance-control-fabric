@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -235,6 +236,95 @@ class FakeDeniedStorage:
 
 
 class DevIntegrationProfileTests(TestCase):
+    def configure_published_origin(self, repo_root: Path, repo_name: str) -> None:
+        remote_root = repo_root.parent / f".{repo_name}-origin.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote_root)], check=True)
+        canonical_url = f"https://github.com/mfshaf7/{repo_name}.git"
+        subprocess.run(
+            ["git", "-C", str(repo_root), "remote", "add", "origin", canonical_url],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "remote",
+                "set-url",
+                "--push",
+                "origin",
+                f"file://{remote_root}",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "config",
+                "remote.origin.testFetchUrl",
+                f"file://{remote_root}",
+            ],
+            check=True,
+        )
+        self.push_published_origin(repo_root)
+
+    def git_transport_environment(self, temp_root: Path) -> dict[str, str]:
+        wrapper_root = temp_root / ".git-test-bin"
+        wrapper_root.mkdir(exist_ok=True)
+        wrapper_path = wrapper_root / "git"
+        real_git = shutil.which("git")
+        if real_git is None:
+            self.fail("git is required for the dev-integration profile tests")
+        wrapper_path.write_text(
+            "\n".join(
+                [
+                    "#!/usr/bin/env python3",
+                    "import os",
+                    "import subprocess",
+                    "import sys",
+                    f"REAL_GIT = {real_git!r}",
+                    "args = sys.argv[1:]",
+                    "if len(args) >= 4 and args[0] == '-C' and 'fetch' in args:",
+                    "    repo_root = args[1]",
+                    "    test_url = subprocess.run(",
+                    "        [REAL_GIT, '-C', repo_root, 'config', '--get', 'remote.origin.testFetchUrl'],",
+                    "        check=False, capture_output=True, text=True,",
+                    "    ).stdout.strip()",
+                    "    if test_url:",
+                    "        fetch_index = args.index('fetch')",
+                    "        target_index = fetch_index + 1",
+                    "        while args[target_index].startswith('-'):",
+                    "            target_index += 1",
+                    "        args[target_index] = test_url",
+                    "os.execv(REAL_GIT, [REAL_GIT, *args])",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        wrapper_path.chmod(0o755)
+        return {
+            **os.environ,
+            "PATH": f"{wrapper_root}{os.pathsep}{os.environ['PATH']}",
+        }
+
+    def push_published_origin(self, repo_root: Path) -> None:
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "push",
+                "-q",
+                "--force",
+                "origin",
+                "HEAD:refs/heads/main",
+            ],
+            check=True,
+        )
+
     def test_profile_declares_k3s_api_runtime(self) -> None:
         profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
 
@@ -522,6 +612,14 @@ class DevIntegrationProfileTests(TestCase):
         )
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"', storage_source)
         self.assertIn('ln -- "${STORAGE_BACKUP_STAGING_MANIFEST}"', storage_source)
+        backup_body = storage_source.split("backup_evidence_storage() {", 1)[1].split(
+            "\n}", 1
+        )[0]
+        staged_validation = backup_body.index("validate_backup_for_restore")
+        self.assertLess(
+            staged_validation,
+            backup_body.index('ln -- "${STORAGE_BACKUP_STAGING_ARCHIVE}"'),
+        )
         self.assertIn('STORAGE_BACKUP_PUBLISHED_ARCHIVE="${backup_path}"', storage_source)
         self.assertIn('STORAGE_BACKUP_PUBLISHED_MANIFEST="${backup_path}.manifest.json"', storage_source)
         self.assertIn("require_empty_storage_for_receipt_loss()", storage_source)
@@ -1882,23 +1980,13 @@ class DevIntegrationProfileTests(TestCase):
                 capture_output=True,
                 text=True,
             ).stdout.strip()
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(security_repo),
-                    "update-ref",
-                    "refs/remotes/origin/main",
-                    source_commit,
-                ],
-                check=True,
-            )
+            self.configure_published_origin(security_repo, "security-architecture")
             profile["security"]["activation_review_refs"][0]["content_sha256"] = (
                 hashlib.sha256(review_body).hexdigest()
             )
             profile["security"]["activation_review_refs"][0]["source_commit"] = source_commit
             env = {
-                **os.environ,
+                **self.git_transport_environment(temp_root),
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
                 "DEVINT_OPERATOR": "test-operator",
                 "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
@@ -2031,17 +2119,7 @@ class DevIntegrationProfileTests(TestCase):
                 text=True,
                 capture_output=True,
             ).stdout.strip()
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(platform_root),
-                    "update-ref",
-                    "refs/remotes/origin/main",
-                    acceptance_commit,
-                ],
-                check=True,
-            )
+            self.configure_published_origin(platform_root, "platform-engineering")
             activation_contract = profile["authority"]["activation_contract"]
             activation_contract["platform_acceptance_source_commit"] = acceptance_commit
             activation_contract["platform_acceptance_content_sha256"] = hashlib.sha256(
@@ -2090,23 +2168,13 @@ class DevIntegrationProfileTests(TestCase):
                 text=True,
                 capture_output=True,
             ).stdout.strip()
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(governance_root),
-                    "update-ref",
-                    "refs/remotes/origin/main",
-                    authority_commit,
-                ],
-                check=True,
-            )
+            self.configure_published_origin(governance_root, "workspace-governance")
             activation_contract["authority_source_commit"] = authority_commit
             activation_contract["authority_content_sha256"] = hashlib.sha256(
                 registry_path.read_bytes()
             ).hexdigest()
             env = {
-                **os.environ,
+                **self.git_transport_environment(temp_root),
                 "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
                 "DEVINT_OPERATOR": "test-operator",
                 "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
@@ -2128,6 +2196,73 @@ class DevIntegrationProfileTests(TestCase):
                 check=False,
             )
             self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "config",
+                    "remote.origin.url",
+                    str(temp_root / "fabricated-origin.git"),
+                ],
+                check=True,
+            )
+            fabricated_origin = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(fabricated_origin.returncode, 0)
+            self.assertIn("approved origin remote", fabricated_origin.stderr)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "config",
+                    "remote.origin.url",
+                    "https://github.com/mfshaf7/workspace-governance.git",
+                ],
+                check=True,
+            )
+
+            rewrite_prefix = "https://github.com/mfshaf7/workspace-governance"
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "config",
+                    f"url.file://{temp_root / 'rewritten-origin.git'}.insteadOf",
+                    rewrite_prefix,
+                ],
+                check=True,
+            )
+            rewritten_origin = subprocess.run(
+                ["bash", "-c", command],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(rewritten_origin.returncode, 0)
+            self.assertIn("subject to a Git URL rewrite", rewritten_origin.stderr)
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(governance_root),
+                    "config",
+                    "--unset-all",
+                    f"url.file://{temp_root / 'rewritten-origin.git'}.insteadOf",
+                ],
+                check=True,
+            )
 
             acceptance_path.write_text("# Unlanded acceptance change\n", encoding="utf-8")
             subprocess.run(
@@ -2212,17 +2347,7 @@ class DevIntegrationProfileTests(TestCase):
             self.assertNotEqual(unlanded.returncode, 0)
             self.assertIn("not landed on origin/main", unlanded.stderr)
 
-            subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(governance_root),
-                    "update-ref",
-                    "refs/remotes/origin/main",
-                    unlanded_commit,
-                ],
-                check=True,
-            )
+            self.push_published_origin(governance_root)
             denied = subprocess.run(
                 ["bash", "-c", command],
                 cwd=REPO_ROOT,
