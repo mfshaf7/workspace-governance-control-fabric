@@ -4,11 +4,13 @@ ARG WGCF_SOURCE_REVISION=unverified
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV WGCF_DELIVERY_ART_CONTRACT_ROOT=/app/contracts/delivery-art
 
 WORKDIR /app
 
 COPY pyproject.toml README.md alembic.ini ./
 COPY apps ./apps
+COPY contracts ./contracts
 COPY packages ./packages
 COPY migrations ./migrations
 COPY policies ./policies

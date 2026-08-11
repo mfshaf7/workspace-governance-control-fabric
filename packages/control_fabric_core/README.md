@@ -42,6 +42,9 @@ Current slice:
   admission, content-addressed exact-version storage, append-only registry
   metadata, immutable custody receipts, exact-latest same-subject
   supersession, and reconciliation
+- digest-verified Delivery ART schema snapshots, registry-resolved dependency
+  traversal, four-level artifact readiness evaluation, and immutable,
+  content-addressed readiness receipts with append-only supersession
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -181,6 +184,18 @@ with deterministic routes such as `work-item.update`, `projection.sync`, or
 `work-item.stale-open-close`. They can also generate completion-preflight-safe
 ART evidence packets from WGCF receipts. OOS remains the only ART mutation
 authority.
+
+Delivery ART artifact readiness is a separate primitive. It evaluates exact
+registry-backed architecture packets, work-start records, and merge-ready
+Review Packets, plus the OOS pre-finalization candidate used for operating
+readiness. The evaluator validates the pinned Workspace Governance schema
+bundle before checking source bindings, Landing Unit boundaries,
+evidence-to-source binding, architecture conformance, merged evidence, and
+predecessor preservation. Results are stored in the WGCF receipt ledger.
+Identical evaluations reuse one receipt; a changed subject or finding set
+appends a new generation that names the exact prior receipt. A `ready` receipt
+permits the calling workflow to continue, but WGCF does not perform the
+downstream ART mutation or artifact finalization.
 
 Runtime governance record helpers create fabric-local records for blocker
 decisions, approval and waiver references, risk posture, and change-record

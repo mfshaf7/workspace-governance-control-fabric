@@ -98,6 +98,14 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/canonical_json.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/canonical_json.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/delivery_art_contracts.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/delivery_art_contracts.py"
+        ),
+        "packages/control_fabric_core/src/control_fabric_core/delivery_art_readiness.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/delivery_art_readiness.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py"
         ),
@@ -120,6 +128,13 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "migrations/versions/0002_create_delivery_artifact_registry.py": (
             repo_root / "migrations/versions/0002_create_delivery_artifact_registry.py"
+        ),
+        "migrations/versions/0003_create_delivery_art_readiness_receipts.py": (
+            repo_root
+            / "migrations/versions/0003_create_delivery_art_readiness_receipts.py"
+        ),
+        "contracts/delivery-art/manifest.json": (
+            repo_root / "contracts/delivery-art/manifest.json"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"

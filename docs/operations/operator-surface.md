@@ -346,6 +346,11 @@ Required route meanings:
 - `POST /v1/art/graph`
 - `POST /v1/art/readiness`
 - `POST /v1/art/evidence-packet`
+- `POST /v1/artifacts/delivery-art`
+- `GET /v1/artifacts/delivery-art/{digest_hex}`
+- `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`
+- `POST /v1/readiness/delivery-art`
+- `GET /v1/readiness/delivery-art/{receipt_token}`
 
 Future route meanings:
 
@@ -689,6 +694,37 @@ deleting custody evidence.
 This implementation does not activate stage or production custody. OOS wiring
 and OpenProject safe-reference projection remain outside this owner slice.
 
+## Delivery ART Readiness Receipts
+
+Use artifact-bound readiness only after OOS has authored and semantically
+validated the relevant structured packet. This is separate from
+`POST /v1/art/readiness`, which checks broker context before an ART mutation.
+
+The issue route is:
+
+- `POST /v1/readiness/delivery-art`
+
+The read route is:
+
+- `GET /v1/readiness/delivery-art/{receipt_token}`
+
+OOS may issue and read receipts. The WGCF reconciler may read receipts but may
+not issue them. Both routes use the same method-scoped caller headers as the
+artifact registry. Requests identify one readiness level, exact Delivery and
+work-item coverage, artifact identity, digest kind, and digest. Architecture,
+implementation, and merge readiness resolve an exact durable registry ref.
+Operating readiness carries the OOS pre-finalization candidate and a
+`readiness-subject` digest; WGCF resolves its durable merge-ready predecessor
+and source chain before deciding.
+
+Outcomes are `ready`, `blocked`, or `review_required`. Only `ready` sets
+`mutation_allowed` to true. The receipt remains advisory evidence consumed by
+OOS: WGCF does not mutate ART, finalize Review Packets, register source
+artifacts, approve a release, or accept security risk. Identical evaluation is
+idempotent; changed evidence appends a superseding receipt generation. The
+routes are source-complete for `dev-integration` only and do not activate stage
+or production behavior.
+
 ## Database Foundation
 
 The local runtime database stores only fabric-local implementation records:
@@ -698,6 +734,7 @@ The local runtime database stores only fabric-local implementation records:
 - validation plans and runs
 - control receipts
 - Delivery ART registry entries and custody receipts
+- Delivery ART readiness receipts
 - readiness decisions
 - ledger events
 - escalation records

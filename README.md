@@ -83,7 +83,9 @@ That surface is constrained by the workspace-owned contract in
   dev-integration API also exposes the bounded Delivery ART registry at
   `POST /v1/artifacts/delivery-art`,
   `GET /v1/artifacts/delivery-art/{digest_hex}`, and
-  `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`.
+  `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`, plus artifact-bound
+  readiness at `POST /v1/readiness/delivery-art` and
+  `GET /v1/readiness/delivery-art/{receipt_token}`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
@@ -114,7 +116,9 @@ That surface is constrained by the workspace-owned contract in
   compact evidence projection adapters, and local retention plus ledger
   compaction controls. It also owns strict canonical JSON, content-addressed
   Delivery ART storage, append-only registry metadata, immutable custody
-  receipts, and reconciliation for approved artifact classes.
+  receipts, reconciliation for approved artifact classes, pinned Delivery ART
+  schema validation, four-level readiness evaluation, and immutable readiness
+  receipts.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`

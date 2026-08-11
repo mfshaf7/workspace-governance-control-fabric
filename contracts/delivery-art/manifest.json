@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "source": {
+    "commit": "79efb7f27d77ed5498a28b15bd68a37699e0c5d8",
+    "repo": "workspace-governance"
+  },
+  "schemas": {
+    "delivery_art_architecture_packet": {
+      "path": "delivery-art-architecture-packet.schema.json",
+      "sha256": "9ed35a4f48322c582eeb97425dcecbc984143cc91a9250b1c5787638fea865f5"
+    },
+    "delivery_art_custody_receipt": {
+      "path": "delivery-art-custody-receipt.schema.json",
+      "sha256": "3244229257c46e00bcf7e6fef99b711c62634f053858898b76f867d9d02c3400"
+    },
+    "delivery_art_readiness_receipt": {
+      "path": "delivery-art-readiness-receipt.schema.json",
+      "sha256": "7ee668206f427fa8e2e94e850a035b906adc9c217fbd118d7004aa3d1deae6d3"
+    },
+    "art_review_packet": {
+      "path": "delivery-art-review-packet.schema.json",
+      "sha256": "34d430ae74cd2c9fc68fe20efd3d4f4e788ca14ecdc576de7b9a0a5951623e0b"
+    },
+    "delivery_art_work_start_record": {
+      "path": "delivery-art-work-start-record.schema.json",
+      "sha256": "268f84f86d3a1c65e86662f49f5aadc631161a82d98d644f16d5d9fb5bbc25c6"
+    }
+  },
+  "fixtures": {
+    "architecture-custody-receipt.valid.json": {
+      "path": "fixtures/architecture-custody-receipt.valid.json",
+      "sha256": "e74cebadfcb39950898cc4ce71dc5ee857525f228d52dccc684cd7b097e9f996"
+    },
+    "architecture-packet.valid.json": {
+      "path": "fixtures/architecture-packet.valid.json",
+      "sha256": "246a0fd1dfd8943415ea2e0ca6c49c62098eef26779d83bc392aaa1742e28efa"
+    },
+    "finalized-custody-receipt.valid.json": {
+      "path": "fixtures/finalized-custody-receipt.valid.json",
+      "sha256": "4c2855a78c05e99fe28f11f9286ae65c9e8211a609ac431749da1d8902ca30c6"
+    },
+    "merge-ready-custody-receipt.valid.json": {
+      "path": "fixtures/merge-ready-custody-receipt.valid.json",
+      "sha256": "7aff880a05f2a817103e14c1d3c1fcf03d7f835a9176053688e89a96c57909d8"
+    },
+    "readiness-receipt.valid.json": {
+      "path": "fixtures/readiness-receipt.valid.json",
+      "sha256": "65cd9e862c44fd3e95212633da69efc794831ea04d6fe20576314299f3867f17"
+    },
+    "review-packet-finalized.valid.json": {
+      "path": "fixtures/review-packet-finalized.valid.json",
+      "sha256": "00f1e190a66b1d12e1117eba9d7dfcb599f66dfcb7504dd01f5bbd7fd48a1c9e"
+    },
+    "review-packet-merge-ready.valid.json": {
+      "path": "fixtures/review-packet-merge-ready.valid.json",
+      "sha256": "8c5c2b1607a206a6ef2fad932325eaf299cb1adb8b19e28d1b52cc51ea6b385f"
+    },
+    "work-start-custody-receipt.valid.json": {
+      "path": "fixtures/work-start-custody-receipt.valid.json",
+      "sha256": "93effe15e2e11dcdc0f9d1131f39c6f571b6d736b8b3845803f3f60c7ee85c9d"
+    },
+    "work-start-record.valid.json": {
+      "path": "fixtures/work-start-record.valid.json",
+      "sha256": "cb26f8ea22355ea3f380cb46a412877d3eab2cda64be42d9436cd9c1671ef092"
+    }
+  }
+}

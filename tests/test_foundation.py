@@ -43,6 +43,12 @@ class FoundationTests(TestCase):
         )
         self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
+        self.assertTrue(snapshot["required_paths"]["contracts/delivery-art/manifest.json"])
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0003_create_delivery_art_readiness_receipts.py"
+            ],
+        )
         self.assertEqual(
             snapshot["authority_contract_ref"],
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",

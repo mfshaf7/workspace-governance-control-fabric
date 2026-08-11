@@ -478,12 +478,33 @@ class ArtifactRegistryAuthorizerTests(TestCase):
     def test_callers_have_separate_method_scopes(self) -> None:
         self.authorizer.authorize("operator-orchestration-service", "o" * 32, "register")
         self.authorizer.authorize("operator-orchestration-service", "o" * 32, "read")
+        self.authorizer.authorize(
+            "operator-orchestration-service",
+            "o" * 32,
+            "evaluate-readiness",
+        )
+        self.authorizer.authorize(
+            "operator-orchestration-service",
+            "o" * 32,
+            "read-readiness",
+        )
         self.authorizer.authorize("workspace-governance-control-fabric", "r" * 32, "reconcile")
+        self.authorizer.authorize(
+            "workspace-governance-control-fabric",
+            "r" * 32,
+            "read-readiness",
+        )
 
         with self.assertRaises(ArtifactRegistryForbidden):
             self.authorizer.authorize("operator-orchestration-service", "o" * 32, "reconcile")
         with self.assertRaises(ArtifactRegistryForbidden):
             self.authorizer.authorize("workspace-governance-control-fabric", "r" * 32, "register")
+        with self.assertRaises(ArtifactRegistryForbidden):
+            self.authorizer.authorize(
+                "workspace-governance-control-fabric",
+                "r" * 32,
+                "evaluate-readiness",
+            )
         with self.assertRaises(ArtifactRegistryUnauthorized):
             self.authorizer.authorize("operator-orchestration-service", "wrong", "read")
 

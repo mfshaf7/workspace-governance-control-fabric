@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT / "apps/api/src"))
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
 from control_fabric_core import (
+    MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     PACKAGE_VERSION,
@@ -112,6 +113,19 @@ class StubArtifactRegistry:
         return StubRegistryResult({"state": "consistent"})
 
 
+class StubDeliveryArtReadiness:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any, str]] = []
+
+    def issue(self, raw_request: bytes, *, actor: str) -> StubRegistryResult:
+        self.calls.append(("issue", raw_request, actor))
+        return StubRegistryResult({"receipt": {"resolution": "created"}})
+
+    def read(self, receipt_token: str, *, actor: str) -> StubRegistryResult:
+        self.calls.append(("read", receipt_token, actor))
+        return StubRegistryResult({"receipt": {"resolution": "read"}})
+
+
 class ApiTests(TestCase):
     def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
         registry = StubArtifactRegistry()
@@ -126,6 +140,23 @@ class ApiTests(TestCase):
                 artifact_registry_authorizer=authorizer,
             ),
             registry,
+        )
+
+    def readiness_app(self) -> tuple[Any, StubDeliveryArtReadiness]:
+        registry = StubArtifactRegistry()
+        readiness = StubDeliveryArtReadiness()
+        authorizer = ArtifactRegistryAuthorizer(
+            oos_secret="o" * 32,
+            reconciler_secret="r" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                artifact_registry=registry,
+                artifact_registry_authorizer=authorizer,
+                delivery_art_readiness=readiness,
+            ),
+            readiness,
         )
 
     def test_healthz_returns_service_version(self) -> None:
@@ -569,3 +600,77 @@ class ApiTests(TestCase):
 
         self.assertEqual(status, 503)
         self.assertEqual(payload["detail"], "artifact registry is unavailable")
+
+    def test_delivery_art_readiness_routes_enforce_caller_scopes(self) -> None:
+        app, readiness = self.readiness_app()
+        oos_headers = {
+            "x-wgcf-caller-id": "operator-orchestration-service",
+            "x-wgcf-caller-secret": "o" * 32,
+        }
+        reconciler_headers = {
+            "x-wgcf-caller-id": "workspace-governance-control-fabric",
+            "x-wgcf-caller-secret": "r" * 32,
+        }
+        token = "a" * 24
+
+        issue_status, issue_payload = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/delivery-art",
+                {"request": "bounded"},
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        denied_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/delivery-art",
+                {"request": "bounded"},
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+        read_status, read_payload = asyncio.run(
+            asgi_request_json(
+                "GET",
+                f"/v1/readiness/delivery-art/{token}",
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+
+        self.assertEqual(issue_status, 200)
+        self.assertEqual(issue_payload["receipt"]["resolution"], "created")
+        self.assertEqual(denied_status, 403)
+        self.assertEqual(read_status, 200)
+        self.assertEqual(read_payload["receipt"]["resolution"], "read")
+        self.assertEqual(
+            [(operation, actor) for operation, _, actor in readiness.calls],
+            [
+                ("issue", "operator-orchestration-service"),
+                ("read", "workspace-governance-control-fabric"),
+            ],
+        )
+
+    def test_delivery_art_readiness_rejects_missing_auth_and_oversized_body(self) -> None:
+        app, readiness = self.readiness_app()
+        missing_status, _ = asyncio.run(
+            asgi_request_json("POST", "/v1/readiness/delivery-art", {}, app=app),
+        )
+        oversized_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/delivery-art",
+                app=app,
+                headers={
+                    "x-wgcf-caller-id": "operator-orchestration-service",
+                    "x-wgcf-caller-secret": "o" * 32,
+                },
+                raw_body=b"x" * (MAX_DELIVERY_ART_READINESS_REQUEST_BYTES + 1),
+            ),
+        )
+
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(oversized_status, 413)
+        self.assertEqual(readiness.calls, [])

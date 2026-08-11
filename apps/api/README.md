@@ -41,6 +41,10 @@ Current slice:
   retrieval with storage, registry, receipt, and lineage verification
 - implement `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile` for a
   reference-only consistency receipt
+- implement `POST /v1/readiness/delivery-art` for artifact-bound architecture,
+  implementation, merge, and operating readiness evaluation
+- implement `GET /v1/readiness/delivery-art/{receipt_token}` for immutable
+  readiness receipt retrieval
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -58,6 +62,18 @@ rejects unsupported classes, duplicate JSON keys, floating-point values,
 generated custody fields, stale supersession, and oversized requests. Responses
 contain opaque WGCF and Platform receipt references, never object-store
 endpoint, bucket, key, version, or credentials. There is no delete route.
+
+Delivery ART readiness is separate from the broker-context
+`POST /v1/art/readiness` pre-mutation check. OOS may issue and read readiness
+receipts; the WGCF reconciler may read them but cannot issue them. Evaluation
+resolves exact durable artifact and dependency refs from the registry, verifies
+the pinned Workspace Governance schemas, and emits an immutable,
+content-addressed receipt for `architecture-ready`, `implementation-ready`,
+`merge-ready`, or `operating-ready`. Operating readiness accepts the bounded
+OOS pre-finalization candidate because the readiness receipt must exist before
+the finalized Review Packet is persisted. The service does not author an ART
+artifact, mutate OpenProject, approve security posture, or activate stage or
+production runtime.
 
 Future Governance Operations Console readiness criteria are documented at:
 
