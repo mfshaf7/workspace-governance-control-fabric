@@ -1300,9 +1300,18 @@ spec:
           args:
             - |
               import socket
-              with socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=5):
-                  pass
-              print("label_selected_storage_connectivity=allowed-with-default-service-account")
+              import time
+              for attempt in range(10):
+                  try:
+                      with socket.create_connection(("${STORAGE_SERVICE}", 9000), timeout=3):
+                          pass
+                  except OSError:
+                      if attempt == 9:
+                          raise
+                      time.sleep(1)
+                  else:
+                      print("label_selected_storage_connectivity=allowed-with-default-service-account")
+                      break
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
