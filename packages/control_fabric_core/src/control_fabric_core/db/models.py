@@ -278,6 +278,47 @@ class DeliveryArtifactCustodyReceipt(TimestampMixin, Base):
     )
 
 
+class DeliveryArtReadinessReceipt(TimestampMixin, Base):
+    """Immutable WGCF decision over one exact Delivery ART readiness subject."""
+
+    __tablename__ = "delivery_art_readiness_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "delivery_id",
+            "subject_artifact_type",
+            "subject_artifact_id",
+            "readiness_level",
+            "profile_id",
+            "generation",
+            name="uq_delivery_art_readiness_subject_generation",
+        ),
+        UniqueConstraint(
+            "supersedes_receipt_uri",
+            name="uq_delivery_art_readiness_supersedes_uri",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    receipt_uri: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    decision_key: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject_artifact_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    subject_digest_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    readiness_level: Mapped[str] = mapped_column(String(32), nullable=False)
+    profile_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    implementation_ref: Mapped[str] = mapped_column(String(40), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    receipt: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    persisted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    supersedes_receipt_uri: Mapped[str | None] = mapped_column(String(512))
+    supersedes_receipt_digest: Mapped[str | None] = mapped_column(String(71))
+
+
 Index("ix_governance_nodes_type_owner", GovernanceNode.node_type, GovernanceNode.owner_repo)
 Index("ix_governance_edges_source_type", GovernanceEdge.source_node_id, GovernanceEdge.edge_type)
 Index("ix_governance_edges_target_type", GovernanceEdge.target_node_id, GovernanceEdge.edge_type)
@@ -298,4 +339,18 @@ Index(
 Index(
     "ix_delivery_artifact_custody_registry_uri",
     DeliveryArtifactCustodyReceipt.registry_uri,
+)
+Index(
+    "ix_delivery_art_readiness_subject",
+    DeliveryArtReadinessReceipt.delivery_id,
+    DeliveryArtReadinessReceipt.subject_artifact_type,
+    DeliveryArtReadinessReceipt.subject_artifact_id,
+    DeliveryArtReadinessReceipt.readiness_level,
+    DeliveryArtReadinessReceipt.profile_id,
+    DeliveryArtReadinessReceipt.generation,
+)
+Index(
+    "ix_delivery_art_readiness_subject_digest",
+    DeliveryArtReadinessReceipt.subject_digest,
+    DeliveryArtReadinessReceipt.readiness_level,
 )

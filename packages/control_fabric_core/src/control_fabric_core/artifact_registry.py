@@ -216,8 +216,14 @@ class ArtifactRegistryAuthorizer:
         if not oos_caller_id or not reconciler_caller_id or oos_caller_id == reconciler_caller_id:
             raise ArtifactRegistryUnavailable("registry caller identities must be distinct")
         self._callers = {
-            oos_caller_id: (oos_secret, frozenset({"register", "read"})),
-            reconciler_caller_id: (reconciler_secret, frozenset({"read", "reconcile"})),
+            oos_caller_id: (
+                oos_secret,
+                frozenset({"register", "read", "evaluate-readiness", "read-readiness"}),
+            ),
+            reconciler_caller_id: (
+                reconciler_secret,
+                frozenset({"read", "reconcile", "read-readiness"}),
+            ),
         }
 
     @classmethod

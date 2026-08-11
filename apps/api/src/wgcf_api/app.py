@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
+    MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     ArtifactRegistryConflict,
@@ -28,9 +29,15 @@ from control_fabric_core import (
     PACKAGE_VERSION,
     RUNTIME_REPO,
     DeliveryArtifactRegistry,
+    DeliveryArtReadinessContractError,
+    DeliveryArtReadinessError,
+    DeliveryArtReadinessNotFound,
+    DeliveryArtReadinessService,
+    DeliveryArtReadinessUnavailable,
     apply_retention_plan,
     build_art_runtime_graph,
     build_artifact_registry_runtime,
+    build_delivery_art_readiness_runtime,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
@@ -59,6 +66,7 @@ def create_app(
     *,
     artifact_registry: DeliveryArtifactRegistry | None = None,
     artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
+    delivery_art_readiness: DeliveryArtReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
 
@@ -73,6 +81,7 @@ def create_app(
     )
     resolved_artifact_registry = artifact_registry
     resolved_registry_authorizer = artifact_registry_authorizer
+    resolved_delivery_art_readiness = delivery_art_readiness
 
     def registry_runtime() -> tuple[DeliveryArtifactRegistry, ArtifactRegistryAuthorizer]:
         nonlocal resolved_artifact_registry, resolved_registry_authorizer
@@ -85,6 +94,13 @@ def create_app(
                 "artifact registry service and authorizer must be configured together",
             )
         return resolved_artifact_registry, resolved_registry_authorizer
+
+    def readiness_runtime() -> tuple[DeliveryArtReadinessService, ArtifactRegistryAuthorizer]:
+        nonlocal resolved_delivery_art_readiness
+        registry, authorizer = registry_runtime()
+        if resolved_delivery_art_readiness is None:
+            resolved_delivery_art_readiness = build_delivery_art_readiness_runtime(registry)
+        return resolved_delivery_art_readiness, authorizer
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -470,6 +486,40 @@ def create_app(
         except (ArtifactRegistryError, ArtifactStorageError) as exc:
             raise _artifact_registry_http_exception(exc) from exc
 
+    @app.post("/v1/readiness/delivery-art")
+    async def issue_delivery_art_readiness(request: Request) -> dict[str, Any]:
+        try:
+            service, authorizer = readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw_request = await _read_bounded_request(
+                request,
+                limit=MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
+                label="readiness request",
+            )
+            return service.issue(raw_request, actor=caller_id).to_record()
+        except HTTPException:
+            raise
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except DeliveryArtReadinessError as exc:
+            raise _delivery_art_readiness_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/delivery-art/{receipt_token}")
+    async def read_delivery_art_readiness(
+        receipt_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            service, authorizer = readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "read-readiness")
+            return service.read(receipt_token, actor=caller_id).to_record()
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except DeliveryArtReadinessError as exc:
+            raise _delivery_art_readiness_http_exception(exc) from exc
+
     return app
 
 
@@ -481,20 +531,33 @@ def _registry_caller(request: Request) -> tuple[str, str]:
 
 
 async def _read_bounded_registry_request(request: Request) -> bytes:
+    return await _read_bounded_request(
+        request,
+        limit=MAX_REGISTRY_REQUEST_BYTES,
+        label="registry request",
+    )
+
+
+async def _read_bounded_request(
+    request: Request,
+    *,
+    limit: int,
+    label: str,
+) -> bytes:
     content_length = request.headers.get("content-length")
     if content_length:
         try:
             parsed_content_length = int(content_length)
             if parsed_content_length < 0:
                 raise HTTPException(status_code=400, detail="invalid content-length header")
-            if parsed_content_length > MAX_REGISTRY_REQUEST_BYTES:
-                raise HTTPException(status_code=413, detail="registry request exceeds payload limit")
+            if parsed_content_length > limit:
+                raise HTTPException(status_code=413, detail=f"{label} exceeds payload limit")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="invalid content-length header") from exc
     body = bytearray()
     async for chunk in request.stream():
-        if len(body) + len(chunk) > MAX_REGISTRY_REQUEST_BYTES:
-            raise HTTPException(status_code=413, detail="registry request exceeds payload limit")
+        if len(body) + len(chunk) > limit:
+            raise HTTPException(status_code=413, detail=f"{label} exceeds payload limit")
         body.extend(chunk)
     return bytes(body)
 
@@ -511,6 +574,16 @@ def _artifact_registry_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, ArtifactRegistryContractError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=503, detail="artifact registry is unavailable")
+
+
+def _delivery_art_readiness_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, DeliveryArtReadinessNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, DeliveryArtReadinessContractError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, DeliveryArtReadinessUnavailable):
+        return HTTPException(status_code=503, detail="Delivery ART readiness is unavailable")
+    return HTTPException(status_code=503, detail="Delivery ART readiness is unavailable")
 
 
 def _resolve_manifest_path(repo_root: Path, manifest_path: str) -> Path:

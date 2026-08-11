@@ -33,6 +33,8 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/controlled_proof.py",
     "packages/control_fabric_core/src/control_fabric_core/canonical_json.py",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
+    "packages/control_fabric_core/src/control_fabric_core/delivery_art_contracts.py",
+    "packages/control_fabric_core/src/control_fabric_core/delivery_art_readiness.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
     "packages/control_fabric_core/src/control_fabric_core/foundation.py",
@@ -70,6 +72,7 @@ REQUIRED_PATHS = (
     "migrations/env.py",
     "migrations/versions/0001_create_foundation_tables.py",
     "migrations/versions/0002_create_delivery_artifact_registry.py",
+    "migrations/versions/0003_create_delivery_art_readiness_receipts.py",
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
@@ -86,6 +89,12 @@ REQUIRED_PATHS = (
     "schemas/validation-readiness-activity-request.schema.json",
     "schemas/validation-readiness-activity-result.schema.json",
     "schemas/validation-receipt.schema.json",
+    "contracts/delivery-art/manifest.json",
+    "contracts/delivery-art/delivery-art-architecture-packet.schema.json",
+    "contracts/delivery-art/delivery-art-custody-receipt.schema.json",
+    "contracts/delivery-art/delivery-art-readiness-receipt.schema.json",
+    "contracts/delivery-art/delivery-art-review-packet.schema.json",
+    "contracts/delivery-art/delivery-art-work-start-record.schema.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -93,6 +102,7 @@ REQUIRED_DB_TABLES = {
     "control_receipts",
     "delivery_artifact_custody_receipts",
     "delivery_artifact_registry_entries",
+    "delivery_art_readiness_receipts",
     "escalation_records",
     "governance_edges",
     "governance_nodes",
@@ -135,6 +145,8 @@ def validate_pyproject(repo_root: Path) -> list[str]:
         errors.append("pyproject dependencies must include alembic for migration management")
     if not any(dependency.startswith("fastapi") for dependency in dependencies):
         errors.append("pyproject dependencies must include fastapi for the API app")
+    if not any(dependency.startswith("jsonschema") for dependency in dependencies):
+        errors.append("pyproject dependencies must include jsonschema for pinned contract validation")
     if not any(dependency.startswith("psycopg") for dependency in dependencies):
         errors.append("pyproject dependencies must include psycopg for PostgreSQL connectivity")
     if not any(dependency.startswith("sqlalchemy") for dependency in dependencies):

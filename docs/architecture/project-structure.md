@@ -5,7 +5,8 @@ The control fabric is split by runtime responsibility:
 - `apps/cli`: operator CLI entrypoint for compact local workflow commands.
 - `apps/api`: FastAPI health, readiness, status, graph query, local validation
   run, receipt inspection, metrics, readiness decision, lifecycle retention,
-  ART projection, and dev-integration Delivery ART registry surface.
+  ART projection, dev-integration Delivery ART registry, and artifact-bound
+  Delivery ART readiness surfaces.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: WGCF-owned Temporal activity adapter and guarded worker
@@ -13,7 +14,12 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core`: shared runtime primitives and record helpers.
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
-  escalation, ledger, Delivery ART registry, and custody-receipt records.
+  escalation, ledger, Delivery ART registry, custody-receipt, and Delivery ART
+  readiness-receipt records.
+- `contracts/delivery-art`: digest-pinned runtime snapshot of the Workspace
+  Governance Delivery ART schemas. The manifest identifies the exact authority
+  commit; Delivery ART readiness initialization fails closed if any schema byte
+  differs.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.
@@ -266,6 +272,26 @@ The output is an `art-readiness-receipt` with findings and recommendations such
 as `repair_art_metadata`, `projection_sync`, `stale_open_close`, or
 `proceed_via_oos_broker`. WGCF only recommends and records readiness. OOS
 continues to own the actual ART mutation route.
+
+## Delivery ART Artifact Readiness
+
+Artifact readiness is distinct from broker-context pre-mutation readiness. It
+evaluates the structured evidence chain produced by OOS and held by the WGCF
+artifact registry:
+
+- architecture packets for `architecture-ready`
+- work-start records for `implementation-ready`
+- merge-ready Review Packets for `merge-ready`
+- OOS pre-finalization Review Packet candidates for `operating-ready`
+
+The evaluator resolves dependencies by exact URI and digest, validates every
+artifact against the pinned schema bundle, verifies semantic bindings for the
+requested level, and persists an immutable, content-addressed decision in the
+WGCF receipt ledger. Repeating the same evaluation is idempotent. A changed
+subject or decision appends a generation that supersedes the exact prior
+receipt. The receipt is evidence for OOS orchestration; it is not an
+OpenProject mutation, artifact authoring act, Platform release, or Security
+approval.
 
 The ART evidence packet helper converts one or more WGCF receipts into
 completion-preflight-compatible payload fields and Review Packet evidence refs.

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "artifact_type": "delivery_art_readiness_receipt",
+  "receipt_id": "art-readiness-receipt:0123456789abcdef01234567",
+  "delivery_id": "delivery-698",
+  "covered_work_item_ids": ["work-item-801"],
+  "subject": {
+    "artifact_type": "art_review_packet",
+    "artifact_id": "review-packet:delivery-698-work-item-801",
+    "digest_kind": "readiness-subject",
+    "digest": "sha256:ca8165b87f9668234a165cdb8af944628bde046638ab8c6714734bb11f3416f3"
+  },
+  "readiness": {
+    "level": "operating-ready",
+    "outcome": "ready",
+    "mutation_allowed": true,
+    "evaluated_at": "2026-08-08T11:30:00+08:00",
+    "profile_id": "dev-integration",
+    "target_scope": "art:delivery-698"
+  },
+  "issuer": {
+    "owner_repo": "workspace-governance-control-fabric",
+    "service_identity_ref": "service-identity://workspace-governance-control-fabric/dev-integration",
+    "implementation_ref": "5555555555555555555555555555555555555555"
+  },
+  "findings": [],
+  "integrity": {
+    "canonicalization": "RFC8785",
+    "algorithm": "sha256",
+    "content_digest": "sha256:6746283a89e9c0ee852e86dd5338530bdb528ff52c15e6391a2d430304a6b737"
+  },
+  "custody": {
+    "state": "durable",
+    "backend": "wgcf-receipt-ledger",
+    "uri": "wgcf://receipts/art-readiness/art-readiness-receipt-0123456789abcdef01234567-6746283a89e9c0ee852e86dd5338530bdb528ff52c15e6391a2d430304a6b737.json",
+    "persisted_at": "2026-08-08T11:31:00+08:00",
+    "supersedes": null
+  }
+}
