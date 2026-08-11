@@ -35,6 +35,12 @@ Current slice:
   and OOS route recommendations
 - implement `POST /v1/art/evidence-packet` for completion-preflight-safe ART
   and Review Packet evidence projected from WGCF receipts
+- implement `POST /v1/artifacts/delivery-art` for bounded, canonical,
+  registry-first persistence of approved Delivery ART artifacts
+- implement `GET /v1/artifacts/delivery-art/{digest_hex}` for exact-version
+  retrieval with storage, registry, receipt, and lineage verification
+- implement `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile` for a
+  reference-only consistency receipt
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -43,6 +49,15 @@ does not mutate upstream authority stores.
 
 The ART routes are read/projection routes. They do not mutate OpenProject and
 do not replace `operator-orchestration-service` as the ART write authority.
+
+The Delivery ART registry routes are enabled only in `dev-integration`. They
+use separate method-scoped caller credentials: OOS may register and read, while
+the WGCF reconciler may read and reconcile. Registration accepts only an
+`artifact_content` object plus its lowercase canonical `content_digest` and
+rejects unsupported classes, duplicate JSON keys, floating-point values,
+generated custody fields, stale supersession, and oversized requests. Responses
+contain opaque WGCF and Platform receipt references, never object-store
+endpoint, bucket, key, version, or credentials. There is no delete route.
 
 Future Governance Operations Console readiness criteria are documented at:
 

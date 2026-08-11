@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, MetaData, String, Text, func
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    MetaData,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -209,6 +219,65 @@ class EscalationRecord(TimestampMixin, Base):
     operator_action_required: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class DeliveryArtifactRegistryEntry(TimestampMixin, Base):
+    """Append-only metadata for one content-addressed Delivery ART artifact."""
+
+    __tablename__ = "delivery_artifact_registry_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "delivery_id",
+            "artifact_type",
+            "artifact_id",
+            "generation",
+            name="uq_delivery_artifact_registry_subject_generation",
+        ),
+        UniqueConstraint(
+            "supersedes_registry_uri",
+            name="uq_delivery_artifact_registry_supersedes_uri",
+        ),
+    )
+
+    registry_uri: Mapped[str] = mapped_column(String(256), primary_key=True)
+    content_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    artifact_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    artifact_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    object_key: Mapped[str] = mapped_column(Text, nullable=False)
+    object_version_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    storage_receipt_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    supersedes_registry_uri: Mapped[str | None] = mapped_column(String(256))
+    supersedes_content_digest: Mapped[str | None] = mapped_column(String(71))
+    persisted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    custody_receipt: Mapped[DeliveryArtifactCustodyReceipt] = relationship(
+        back_populates="registry_entry",
+        cascade="save-update, merge",
+        uselist=False,
+    )
+
+
+class DeliveryArtifactCustodyReceipt(TimestampMixin, Base):
+    """Immutable custody receipt issued for one registry entry."""
+
+    __tablename__ = "delivery_artifact_custody_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    registry_uri: Mapped[str] = mapped_column(
+        ForeignKey("delivery_artifact_registry_entries.registry_uri"),
+        unique=True,
+        nullable=False,
+    )
+    receipt_uri: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    receipt: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    persisted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    registry_entry: Mapped[DeliveryArtifactRegistryEntry] = relationship(
+        back_populates="custody_receipt",
+    )
+
+
 Index("ix_governance_nodes_type_owner", GovernanceNode.node_type, GovernanceNode.owner_repo)
 Index("ix_governance_edges_source_type", GovernanceEdge.source_node_id, GovernanceEdge.edge_type)
 Index("ix_governance_edges_target_type", GovernanceEdge.target_node_id, GovernanceEdge.edge_type)
@@ -219,3 +288,14 @@ Index("ix_control_receipts_target_outcome", ControlReceipt.target, ControlReceip
 Index("ix_readiness_decisions_target_profile", ReadinessDecision.target, ReadinessDecision.profile_id)
 Index("ix_ledger_events_target_action", LedgerEvent.target, LedgerEvent.action)
 Index("ix_escalation_records_trigger_owner", EscalationRecord.trigger_id, EscalationRecord.owner_repo)
+Index(
+    "ix_delivery_artifact_registry_subject",
+    DeliveryArtifactRegistryEntry.delivery_id,
+    DeliveryArtifactRegistryEntry.artifact_type,
+    DeliveryArtifactRegistryEntry.artifact_id,
+    DeliveryArtifactRegistryEntry.generation,
+)
+Index(
+    "ix_delivery_artifact_custody_registry_uri",
+    DeliveryArtifactCustodyReceipt.registry_uri,
+)

@@ -14,7 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "apps/api/src"))
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
-from control_fabric_core import PACKAGE_VERSION
+from control_fabric_core import (
+    MAX_REGISTRY_REQUEST_BYTES,
+    ArtifactRegistryAuthorizer,
+    PACKAGE_VERSION,
+)
 from wgcf_api import create_app
 
 
@@ -30,10 +34,14 @@ async def asgi_request_json(
     method: str,
     path: str,
     payload: dict[str, Any] | None = None,
+    *,
+    app: Any | None = None,
+    headers: dict[str, str] | None = None,
+    raw_body: bytes | None = None,
 ) -> tuple[int, dict[str, Any]]:
-    app = create_app(REPO_ROOT)
+    resolved_app = app or create_app(REPO_ROOT)
     parsed_path = urlsplit(path)
-    body = json.dumps(payload or {}).encode("utf-8")
+    body = raw_body if raw_body is not None else json.dumps(payload or {}).encode("utf-8")
     messages: list[dict[str, Any]] = []
     request_sent = False
 
@@ -48,6 +56,11 @@ async def asgi_request_json(
     async def send(message: dict[str, Any]) -> None:
         messages.append(message)
 
+    request_headers = {
+        "content-type": "application/json",
+        "content-length": str(len(body)),
+        **(headers or {}),
+    }
     scope = {
         "type": "http",
         "asgi": {"version": "3.0"},
@@ -57,14 +70,14 @@ async def asgi_request_json(
         "raw_path": parsed_path.path.encode("ascii"),
         "query_string": parsed_path.query.encode("ascii"),
         "headers": [
-            (b"content-type", b"application/json"),
-            (b"content-length", str(len(body)).encode("ascii")),
+            (name.lower().encode("ascii"), value.encode("ascii"))
+            for name, value in request_headers.items()
         ],
         "client": ("testclient", 50000),
         "server": ("testserver", 80),
         "scheme": "http",
     }
-    await app(scope, receive, send)
+    await resolved_app(scope, receive, send)
     status = next(message["status"] for message in messages if message["type"] == "http.response.start")
     body = b"".join(
         message.get("body", b"")
@@ -74,7 +87,47 @@ async def asgi_request_json(
     return status, json.loads(body.decode("utf-8"))
 
 
+class StubRegistryResult:
+    def __init__(self, record: dict[str, Any]) -> None:
+        self._record = record
+
+    def to_record(self) -> dict[str, Any]:
+        return self._record
+
+
+class StubArtifactRegistry:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any, str]] = []
+
+    def register(self, raw_request: bytes, *, actor: str) -> StubRegistryResult:
+        self.calls.append(("register", raw_request, actor))
+        return StubRegistryResult({"registry": {"resolution": "created"}})
+
+    def read(self, content_digest: str, *, actor: str) -> StubRegistryResult:
+        self.calls.append(("read", content_digest, actor))
+        return StubRegistryResult({"registry": {"resolution": "read"}})
+
+    def reconcile(self, content_digest: str, *, actor: str) -> StubRegistryResult:
+        self.calls.append(("reconcile", content_digest, actor))
+        return StubRegistryResult({"state": "consistent"})
+
+
 class ApiTests(TestCase):
+    def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
+        registry = StubArtifactRegistry()
+        authorizer = ArtifactRegistryAuthorizer(
+            oos_secret="o" * 32,
+            reconciler_secret="r" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                artifact_registry=registry,
+                artifact_registry_authorizer=authorizer,
+            ),
+            registry,
+        )
+
     def test_healthz_returns_service_version(self) -> None:
         status, payload = asyncio.run(asgi_get_json("/healthz"))
 
@@ -401,3 +454,118 @@ class ApiTests(TestCase):
         packet = payload["evidence_packet"]
         self.assertFalse(packet["raw_artifacts_embedded"])
         self.assertIn("- PASS:", packet["completion_payload"]["test_result_evidence"])
+
+    def test_artifact_registry_routes_enforce_caller_scopes(self) -> None:
+        app, registry = self.registry_app()
+        oos_headers = {
+            "x-wgcf-caller-id": "operator-orchestration-service",
+            "x-wgcf-caller-secret": "o" * 32,
+        }
+        wgcf_headers = {
+            "x-wgcf-caller-id": "workspace-governance-control-fabric",
+            "x-wgcf-caller-secret": "r" * 32,
+        }
+        digest_hex = "a" * 64
+
+        register_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/artifacts/delivery-art",
+                {"request": "bounded"},
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        read_status, _ = asyncio.run(
+            asgi_request_json(
+                "GET",
+                f"/v1/artifacts/delivery-art/{digest_hex}",
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        denied_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                f"/v1/artifacts/delivery-art/{digest_hex}/reconcile",
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        reconcile_status, payload = asyncio.run(
+            asgi_request_json(
+                "POST",
+                f"/v1/artifacts/delivery-art/{digest_hex}/reconcile",
+                app=app,
+                headers=wgcf_headers,
+            ),
+        )
+
+        self.assertEqual(register_status, 200)
+        self.assertEqual(read_status, 200)
+        self.assertEqual(denied_status, 403)
+        self.assertEqual(reconcile_status, 200)
+        self.assertEqual(payload["reconciliation"]["state"], "consistent")
+        self.assertEqual(
+            [(operation, actor) for operation, _, actor in registry.calls],
+            [
+                ("register", "operator-orchestration-service"),
+                ("read", "operator-orchestration-service"),
+                ("reconcile", "workspace-governance-control-fabric"),
+            ],
+        )
+        self.assertEqual(registry.calls[1][1], f"sha256:{digest_hex}")
+
+    def test_artifact_registry_rejects_missing_auth_and_oversized_body(self) -> None:
+        app, registry = self.registry_app()
+        missing_status, _ = asyncio.run(
+            asgi_request_json("POST", "/v1/artifacts/delivery-art", {}, app=app),
+        )
+        oversized_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/artifacts/delivery-art",
+                app=app,
+                headers={
+                    "x-wgcf-caller-id": "operator-orchestration-service",
+                    "x-wgcf-caller-secret": "o" * 32,
+                },
+                raw_body=b"x" * (MAX_REGISTRY_REQUEST_BYTES + 1),
+            ),
+        )
+        negative_length_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/artifacts/delivery-art",
+                app=app,
+                headers={
+                    "content-length": "-1",
+                    "x-wgcf-caller-id": "operator-orchestration-service",
+                    "x-wgcf-caller-secret": "o" * 32,
+                },
+            ),
+        )
+
+        self.assertEqual(missing_status, 401)
+        self.assertEqual(oversized_status, 413)
+        self.assertEqual(negative_length_status, 400)
+        self.assertEqual(registry.calls, [])
+
+    def test_artifact_registry_fails_closed_when_runtime_pair_is_incomplete(self) -> None:
+        app = create_app(REPO_ROOT, artifact_registry=StubArtifactRegistry())
+
+        status, payload = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/artifacts/delivery-art",
+                {},
+                app=app,
+                headers={
+                    "x-wgcf-caller-id": "operator-orchestration-service",
+                    "x-wgcf-caller-secret": "o" * 32,
+                },
+            ),
+        )
+
+        self.assertEqual(status, 503)
+        self.assertEqual(payload["detail"], "artifact registry is unavailable")

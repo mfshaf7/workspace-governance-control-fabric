@@ -5,7 +5,7 @@ The control fabric is split by runtime responsibility:
 - `apps/cli`: operator CLI entrypoint for compact local workflow commands.
 - `apps/api`: FastAPI health, readiness, status, graph query, local validation
   run, receipt inspection, metrics, readiness decision, lifecycle retention,
-  and ART projection surface.
+  ART projection, and dev-integration Delivery ART registry surface.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: WGCF-owned Temporal activity adapter and guarded worker
@@ -13,7 +13,7 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core`: shared runtime primitives and record helpers.
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
-  escalation, and ledger records.
+  escalation, ledger, Delivery ART registry, and custody-receipt records.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.

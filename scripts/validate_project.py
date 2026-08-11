@@ -27,8 +27,11 @@ REQUIRED_PATHS = (
     "apps/worker/src/wgcf_worker/__main__.py",
     "apps/worker/src/wgcf_worker/main.py",
     "packages/control_fabric_core/README.md",
+    "packages/control_fabric_core/src/control_fabric_core/artifact_registry.py",
+    "packages/control_fabric_core/src/control_fabric_core/artifact_storage.py",
     "packages/control_fabric_core/src/control_fabric_core/art_readiness.py",
     "packages/control_fabric_core/src/control_fabric_core/controlled_proof.py",
+    "packages/control_fabric_core/src/control_fabric_core/canonical_json.py",
     "packages/control_fabric_core/src/control_fabric_core/database.py",
     "packages/control_fabric_core/src/control_fabric_core/db/models.py",
     "packages/control_fabric_core/src/control_fabric_core/evidence_projection.py",
@@ -66,6 +69,7 @@ REQUIRED_PATHS = (
     "examples/governance-manifest.example.json",
     "migrations/env.py",
     "migrations/versions/0001_create_foundation_tables.py",
+    "migrations/versions/0002_create_delivery_artifact_registry.py",
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
@@ -87,6 +91,8 @@ REQUIRED_PATHS = (
 REQUIRED_DB_TABLES = {
     "authority_references",
     "control_receipts",
+    "delivery_artifact_custody_receipts",
+    "delivery_artifact_registry_entries",
     "escalation_records",
     "governance_edges",
     "governance_nodes",
@@ -282,6 +288,9 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("FastAPI app title is not the control-fabric title")
     route_paths = {route.path for route in app.routes}
     for required_route in (
+        "/v1/artifacts/delivery-art",
+        "/v1/artifacts/delivery-art/{digest_hex}",
+        "/v1/artifacts/delivery-art/{digest_hex}/reconcile",
         "/v1/validation-runs",
         "/v1/receipts/{receipt_id}",
         "/v1/readiness/evaluate",

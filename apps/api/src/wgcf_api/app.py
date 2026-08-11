@@ -6,10 +6,20 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
+    MAX_REGISTRY_REQUEST_BYTES,
+    ArtifactRegistryAuthorizer,
+    ArtifactRegistryConflict,
+    ArtifactRegistryContractError,
+    ArtifactRegistryError,
+    ArtifactRegistryForbidden,
+    ArtifactRegistryNotFound,
+    ArtifactRegistryUnauthorized,
+    ArtifactRegistryUnavailable,
+    ArtifactStorageError,
     DEFAULT_ARTIFACT_ROOT,
     DEFAULT_LEDGER_EXPORT_DIR,
     DEFAULT_LEDGER_PATH,
@@ -17,8 +27,10 @@ from control_fabric_core import (
     DEFAULT_RETENTION_PROFILE,
     PACKAGE_VERSION,
     RUNTIME_REPO,
+    DeliveryArtifactRegistry,
     apply_retention_plan,
     build_art_runtime_graph,
+    build_artifact_registry_runtime,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
@@ -42,7 +54,12 @@ from control_fabric_core import (
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
 
 
-def create_app(repo_root: str | Path | None = None) -> FastAPI:
+def create_app(
+    repo_root: str | Path | None = None,
+    *,
+    artifact_registry: DeliveryArtifactRegistry | None = None,
+    artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
+) -> FastAPI:
     """Create the API app without mutating authority state."""
 
     resolved_repo_root = Path(repo_root or ".").resolve()
@@ -54,6 +71,20 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "Authority mutation remains owned by upstream systems."
         ),
     )
+    resolved_artifact_registry = artifact_registry
+    resolved_registry_authorizer = artifact_registry_authorizer
+
+    def registry_runtime() -> tuple[DeliveryArtifactRegistry, ArtifactRegistryAuthorizer]:
+        nonlocal resolved_artifact_registry, resolved_registry_authorizer
+        if resolved_artifact_registry is None and resolved_registry_authorizer is None:
+            resolved_artifact_registry, resolved_registry_authorizer = (
+                build_artifact_registry_runtime()
+            )
+        if resolved_artifact_registry is None or resolved_registry_authorizer is None:
+            raise ArtifactRegistryUnavailable(
+                "artifact registry service and authorizer must be configured together",
+            )
+        return resolved_artifact_registry, resolved_registry_authorizer
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -398,7 +429,88 @@ def create_app(repo_root: str | Path | None = None) -> FastAPI:
             "evidence_packet": packet.to_record(),
         }
 
+    @app.post("/v1/artifacts/delivery-art")
+    async def register_delivery_art_artifact(request: Request) -> dict[str, Any]:
+        try:
+            registry, authorizer = registry_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "register")
+            raw_request = await _read_bounded_registry_request(request)
+            return registry.register(raw_request, actor=caller_id).to_record()
+        except HTTPException:
+            raise
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+
+    @app.get("/v1/artifacts/delivery-art/{digest_hex}")
+    async def read_delivery_art_artifact(digest_hex: str, request: Request) -> dict[str, Any]:
+        try:
+            registry, authorizer = registry_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "read")
+            return registry.read(f"sha256:{digest_hex}", actor=caller_id).to_record()
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+
+    @app.post("/v1/artifacts/delivery-art/{digest_hex}/reconcile")
+    async def reconcile_delivery_art_artifact(
+        digest_hex: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            registry, authorizer = registry_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "reconcile")
+            return {
+                "reconciliation": registry.reconcile(
+                    f"sha256:{digest_hex}",
+                    actor=caller_id,
+                ).to_record(),
+            }
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+
     return app
+
+
+def _registry_caller(request: Request) -> tuple[str, str]:
+    return (
+        request.headers.get("x-wgcf-caller-id", "").strip(),
+        request.headers.get("x-wgcf-caller-secret", ""),
+    )
+
+
+async def _read_bounded_registry_request(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            parsed_content_length = int(content_length)
+            if parsed_content_length < 0:
+                raise HTTPException(status_code=400, detail="invalid content-length header")
+            if parsed_content_length > MAX_REGISTRY_REQUEST_BYTES:
+                raise HTTPException(status_code=413, detail="registry request exceeds payload limit")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid content-length header") from exc
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > MAX_REGISTRY_REQUEST_BYTES:
+            raise HTTPException(status_code=413, detail="registry request exceeds payload limit")
+        body.extend(chunk)
+    return bytes(body)
+
+
+def _artifact_registry_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, ArtifactRegistryUnauthorized):
+        return HTTPException(status_code=401, detail=str(exc))
+    if isinstance(exc, ArtifactRegistryForbidden):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, ArtifactRegistryNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ArtifactRegistryConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ArtifactRegistryContractError):
+        return HTTPException(status_code=400, detail=str(exc))
+    return HTTPException(status_code=503, detail="artifact registry is unavailable")
 
 
 def _resolve_manifest_path(repo_root: Path, manifest_path: str) -> Path:

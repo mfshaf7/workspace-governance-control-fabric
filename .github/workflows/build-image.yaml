@@ -41,6 +41,8 @@ jobs:
           context: .
           file: ./Dockerfile
           target: api
+          build-args: |
+            WGCF_SOURCE_REVISION=${{ github.sha }}
           push: true
           platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
@@ -64,6 +66,9 @@ jobs:
           for attempt in $(seq 1 30); do
             if wget -qO- http://127.0.0.1:18090/healthz | grep -q '"status":"ok"'; then
               wget -qO- http://127.0.0.1:18090/readyz | grep -q '"ready":true'
+              docker exec "${cid}" sh -ec \
+                'test "$(cat /opt/wgcf/build/source-revision)" = "$1"' \
+                sh "${{ github.sha }}"
               exit 0
             fi
             sleep 1

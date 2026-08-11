@@ -38,6 +38,10 @@ Current slice:
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - runtime governance record helpers for blocker decisions, approvals, waivers,
   risk posture, and change evidence links
+- integer-only RFC 8785 canonical JSON, approved Delivery ART artifact
+  admission, content-addressed exact-version storage, append-only registry
+  metadata, immutable custody receipts, exact-latest same-subject
+  supersession, and reconciliation
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -45,7 +49,7 @@ Current slice:
   and projection state, detect pre-mutation drift, and produce readiness
   receipts and OOS-safe recommendations without mutating ART
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
-  and ledger records
+  ledger, Delivery ART registry, and custody-receipt records
 - Temporal-shaped worker settings and planned capability metadata without
   runtime connections or long-running workflow behavior
 
