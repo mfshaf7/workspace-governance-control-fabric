@@ -46,7 +46,11 @@ jobs:
         run: |
           set -euo pipefail
           source_revision="$(git rev-parse HEAD)"
-          docker build --target api --tag wgcf-api:ci .
+          docker build \
+            --build-arg WGCF_SOURCE_REVISION="${source_revision}" \
+            --target api \
+            --tag wgcf-api:ci \
+            .
           docker build \
             --build-arg WGCF_SOURCE_REVISION="${source_revision}" \
             --target worker \
@@ -62,6 +66,10 @@ jobs:
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:18090/healthz | grep -q '"status":"ok"'; then
               curl --fail --silent http://127.0.0.1:18090/readyz | grep -q '"ready":true'
+              source_revision="$(git rev-parse HEAD)"
+              docker exec "${cid}" sh -ec \
+                'test "$(cat /opt/wgcf/build/source-revision)" = "$1"' \
+                sh "${source_revision}"
               exit 0
             fi
             sleep 1

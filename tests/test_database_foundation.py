@@ -20,6 +20,8 @@ from control_fabric_core.foundation import status_snapshot
 EXPECTED_TABLES = {
     "authority_references",
     "control_receipts",
+    "delivery_artifact_custody_receipts",
+    "delivery_artifact_registry_entries",
     "escalation_records",
     "governance_edges",
     "governance_nodes",

@@ -57,6 +57,9 @@ readonly STORAGE_CLIENT_IMAGE="${DEVINT_WGCF_STORAGE_CLIENT_IMAGE:-minio/mc:RELE
 readonly STORAGE_VOLUME_SIZE="${DEVINT_WGCF_STORAGE_VOLUME_SIZE:-2Gi}"
 readonly STORAGE_BUCKET="${DEVINT_WGCF_STORAGE_BUCKET:-wgcf-delivery-art-evidence}"
 readonly STORAGE_ENDPOINT="http://${STORAGE_SERVICE}:9000"
+readonly REGISTRY_CALLER_SECRET="${COMPONENT_NAME}-artifact-registry-callers"
+readonly REGISTRY_OOS_CALLER_ID="operator-orchestration-service"
+readonly REGISTRY_RECONCILER_CALLER_ID="workspace-governance-control-fabric"
 readonly STORAGE_SEED_KEY="profile-proof/evidence-custody-v1.json"
 readonly STORAGE_SEED_PAYLOAD='{"artifact_class":"architecture_packet","profile":"governance-control-fabric","proof":"dev-integration-storage-v1"}'
 readonly DEFAULT_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric"
@@ -95,6 +98,7 @@ readonly ACCESS_FILE="${STATE_ROOT}/access.txt"
 readonly PROFILE_PROMOTION_NOTES="${STATE_ROOT}/profile-promotion-notes.md"
 readonly RUNTIME_MANIFEST="${RENDERED_DIR}/wgcf-api-runtime.yaml"
 readonly STORAGE_CREDENTIALS_ENV="${STATE_ROOT}/storage-credentials.env"
+readonly REGISTRY_CALLER_CREDENTIALS_ENV="${STATE_ROOT}/artifact-registry-callers.env"
 readonly STORAGE_PROVISION_FILE="${STATE_ROOT}/storage-provision.txt"
 readonly STORAGE_PROVISION_JOB_IDENTITY_FILE="${STATE_ROOT}/storage-provision-job.json"
 readonly STORAGE_VERSION_PROOF_FILE="${STATE_ROOT}/storage-version-proof.json"
@@ -108,6 +112,56 @@ readonly STORAGE_RECEIPT_REBINDING_FILE="${STATE_ROOT}/storage-receipt-rebinding
 readonly STORAGE_CREDENTIAL_RETIREMENT_FILE="${STATE_ROOT}/storage-credential-retirement.json"
 
 source "${PROFILE_ROOT}/scripts/lib/storage.sh"
+
+ensure_registry_caller_credentials() {
+  ensure_state_dirs
+  if [[ -f "${REGISTRY_CALLER_CREDENTIALS_ENV}" ]]; then
+    return
+  fi
+  umask 077
+  cat >"${REGISTRY_CALLER_CREDENTIALS_ENV}" <<EOF
+REGISTRY_OOS_CALLER_SECRET=$(generate_storage_secret)
+REGISTRY_RECONCILER_CALLER_SECRET=$(generate_storage_secret)
+EOF
+}
+
+load_registry_caller_credentials() {
+  ensure_registry_caller_credentials
+  # shellcheck disable=SC1090
+  source "${REGISTRY_CALLER_CREDENTIALS_ENV}"
+  if [[ "${#REGISTRY_OOS_CALLER_SECRET}" -lt 32 \
+    || "${#REGISTRY_RECONCILER_CALLER_SECRET}" -lt 32 ]]; then
+    echo "WGCF artifact-registry caller credentials are invalid" >&2
+    return 1
+  fi
+}
+
+registry_caller_credentials_digest() {
+  load_registry_caller_credentials
+  printf '%s\0%s' \
+    "${REGISTRY_OOS_CALLER_SECRET}" \
+    "${REGISTRY_RECONCILER_CALLER_SECRET}" \
+    | sha256sum | awk '{print $1}'
+}
+
+apply_registry_caller_secret() {
+  load_registry_caller_credentials
+  cat <<EOF | kubectl_cmd apply -f - >/dev/null
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${REGISTRY_CALLER_SECRET}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: ${APP_LABEL}
+    app.kubernetes.io/component: artifact-registry-auth
+    devint.profile: ${PROFILE_ID}
+type: Opaque
+stringData:
+  oos-caller-secret: "${REGISTRY_OOS_CALLER_SECRET}"
+  reconciler-caller-secret: "${REGISTRY_RECONCILER_CALLER_SECRET}"
+EOF
+}
 
 temporal_worker_replicas() {
   case "${TEMPORAL_WORKER_ENABLED}" in
@@ -489,6 +543,7 @@ spec:
         devint.profile: ${PROFILE_ID}
       annotations:
         devint.workspace/storage-credentials-sha256: $(storage_credentials_digest)
+        devint.workspace/artifact-registry-callers-sha256: $(registry_caller_credentials_digest)
     spec:
       serviceAccountName: ${COMPONENT_NAME}
       securityContext:
@@ -529,6 +584,20 @@ spec:
                   key: secret-key
             - name: WGCF_EVIDENCE_STORAGE_IDENTITY_REF
               value: kubernetes://${NAMESPACE}/serviceaccount/${COMPONENT_NAME}
+            - name: WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID
+              value: ${REGISTRY_OOS_CALLER_ID}
+            - name: WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ${REGISTRY_CALLER_SECRET}
+                  key: oos-caller-secret
+            - name: WGCF_ARTIFACT_REGISTRY_RECONCILER_CALLER_ID
+              value: ${REGISTRY_RECONCILER_CALLER_ID}
+            - name: WGCF_ARTIFACT_REGISTRY_RECONCILER_CALLER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: ${REGISTRY_CALLER_SECRET}
+                  key: reconciler-caller-secret
           readinessProbe:
             httpGet:
               path: /readyz
@@ -586,10 +655,12 @@ deploy_api() {
   require_storage_authority_contract
   require_storage_security_review
   ensure_storage_credentials
+  ensure_registry_caller_credentials
   render_runtime_manifest
   write_temporal_worker_status
   kubectl_cmd create namespace "${NAMESPACE}" --dry-run=client -o yaml | \
     kubectl_cmd apply -f - >/dev/null
+  apply_registry_caller_secret
   capture_storage_credentials_for_rotation
   apply_storage_secrets
   kubectl_cmd apply -f "${RUNTIME_MANIFEST}"

@@ -28,6 +28,7 @@ gates remain separate.
 - local k3s Service for operator and future console access
 - local PostgreSQL for graph, receipt, readiness, and ledger state
 - local MinIO for content-addressed Delivery ART evidence-custody proof
+- Delivery ART registry metadata and custody receipts in local PostgreSQL
 - a bounded `wgcf.validation-readiness.evaluate` activity worker after explicit
   activation
 - workspace-governance contracts mounted or synced as read-only authority input
@@ -53,10 +54,14 @@ The local object store is deliberately bounded:
 - the profile seed uses that identity to prove server-assigned version IDs,
   exact-version readback, overwrite preservation, and deletion denial
 - validation-run stdout/stderr remains local command output and is not admitted
-  to this store; the Delivery ART registry introduced by #810 is the first
-  approved consumer and is limited to Security-approved artifact classes
-- profile status and smoke evidence prove the storage foundation only; they do
-  not claim that the Delivery ART artifact registry is operational
+  to this store; the Delivery ART registry is the first approved consumer and
+  is limited to Security-approved artifact classes
+- the API receives separate generated caller secrets for OOS registration and
+  WGCF reconciliation through a dedicated Kubernetes Secret; secret values are
+  absent from the rendered runtime manifest
+- shared profile smoke remains read-only and proves the storage foundation; a
+  registry write is operating evidence only when an authorized caller performs
+  it and the returned custody receipt verifies successfully
 - the root-user and application access-key names are fixed identities; rotation
   replaces both secret values as one operation so no superseded MinIO user
   remains active; a namespace-local pending-rotation Secret retains the old

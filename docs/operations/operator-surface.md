@@ -578,12 +578,13 @@ CLI `wgcf run --plan` and API-side database persistence wiring remain later
 slices. The Temporal activity adapter exists but stays disabled until runtime
 activation is accepted.
 
-The dev-integration profile separately provisions versioned object storage and
-an API workload identity for the Delivery ART registry introduced by #810. Its
-seed and lifecycle probes prove the storage boundary but do not constitute
-registry operating evidence. The registry may persist only the artifact classes
-accepted by the routed Security review; arbitrary command output remains out of
-scope.
+The dev-integration profile provisions versioned object storage, an API
+workload identity, separate registry caller credentials, and PostgreSQL
+metadata for the Delivery ART registry. Its shared seed and lifecycle probes
+remain read-only storage proof; an authorized registry write plus a verified
+custody receipt is the corresponding operating evidence. The registry may
+persist only the artifact classes accepted by the routed Security review;
+arbitrary command output remains out of scope.
 
 Policy admission uses the schemas and policies at:
 
@@ -633,6 +634,61 @@ Current projection behavior:
 - never reads or embeds raw artifact content
 - does not mutate ART, Review Packets, Git records, or upstream authority stores
 
+## Delivery ART Artifact Registry
+
+The Delivery ART registry is a bounded `dev-integration` custody surface. It
+does not author artifacts, decide readiness, or mutate OpenProject. OOS remains
+the producer and semantic validator; WGCF verifies canonical content and the
+declared digest, persists the bytes through Platform-owned versioned storage,
+records append-only metadata, and returns opaque artifact and custody-receipt
+references.
+
+Approved classes are limited to:
+
+- `delivery_art_architecture_packet`
+- `delivery_art_work_start_record`
+- `art_review_packet`
+
+The API surface is:
+
+- `POST /v1/artifacts/delivery-art` for OOS registration
+- `GET /v1/artifacts/delivery-art/{digest_hex}` for OOS or WGCF retrieval
+- `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile` for the WGCF
+  reconciler
+
+Callers authenticate with `x-wgcf-caller-id` and
+`x-wgcf-caller-secret`. OOS can register and read but cannot reconcile. The
+WGCF reconciler can read and reconcile but cannot register. There is no general
+operator credential and no delete route.
+
+Registration input contains exactly:
+
+```json
+{
+  "artifact_content": {},
+  "content_digest": "sha256:<64-lowercase-hex>"
+}
+```
+
+`artifact_content` is the source artifact before WGCF-generated digest and
+custody fields. WGCF rejects duplicate JSON keys, floating-point values,
+numbers outside the safe integer domain, unsupported classes, generated
+custody fields, digest mismatch, and content over the bounded request limit.
+A changed same-subject artifact must name the exact latest durable artifact in
+`custody.supersedes`; retries with the same digest reuse the existing object and
+receipt.
+
+The successful response contains the reconstructed durable artifact, immutable
+custody receipt, generation, and registry resolution. Public refs are opaque.
+Endpoint, bucket, object key, object version, database identity, and secret
+material must never appear in the response or ledger. Registration succeeds
+before OOS may project references into ART. If later ART projection fails, OOS
+retries projection against the existing digest; it must not compensate by
+deleting custody evidence.
+
+This implementation does not activate stage or production custody. OOS wiring
+and OpenProject safe-reference projection remain outside this owner slice.
+
 ## Database Foundation
 
 The local runtime database stores only fabric-local implementation records:
@@ -641,6 +697,7 @@ The local runtime database stores only fabric-local implementation records:
 - source snapshots
 - validation plans and runs
 - control receipts
+- Delivery ART registry entries and custody receipts
 - readiness decisions
 - ledger events
 - escalation records

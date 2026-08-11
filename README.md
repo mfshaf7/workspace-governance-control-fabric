@@ -53,13 +53,9 @@ of copying their policies here.
 
 ## Current State
 
-This repository is in governance bootstrap state with the first Python project
-scaffold in place.
-
-The first governed slice registers the repo with workspace governance before
-runtime implementation begins. Product code, service scaffolding, deployment
-state, and security-specific controls should land through later scoped work
-items after the repo boundary is admitted.
+This repository has an active local and `dev-integration` implementation
+foundation. Governed stage and production activation remain separate Platform
+and Security decisions.
 
 The primary operator surface is now defined before implementation:
 
@@ -83,7 +79,11 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/receipts/{receipt_id}`, `GET /v1/metrics/receipts`,
   `POST /v1/readiness/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and
-  `POST /v1/art/evidence-packet` with compact runtime metadata.
+  `POST /v1/art/evidence-packet` with compact runtime metadata. The
+  dev-integration API also exposes the bounded Delivery ART registry at
+  `POST /v1/artifacts/delivery-art`,
+  `GET /v1/artifacts/delivery-art/{digest_hex}`, and
+  `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
@@ -112,7 +112,9 @@ That surface is constrained by the workspace-owned contract in
   runtime-context ingestion, ART readiness
   receipts, bootstrap policy admission decisions, runtime governance records,
   compact evidence projection adapters, and local retention plus ledger
-  compaction controls.
+  compaction controls. It also owns strict canonical JSON, content-addressed
+  Delivery ART storage, append-only registry metadata, immutable custody
+  receipts, and reconciliation for approved artifact classes.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`
@@ -213,13 +215,15 @@ counts, and returns an operator-safe receipt plus ledger event. If the input
 plan is blocked or requires operator review, execution is suppressed and the
 receipt outcome records that state instead of claiming success.
 
-The dev-integration profile provisions bounded versioned object storage and an
-API workload identity as infrastructure for the Delivery ART artifact registry.
+The dev-integration profile provisions bounded versioned object storage, an
+API workload identity, method-scoped registry callers, and PostgreSQL metadata
+for the Delivery ART artifact registry.
 Validation-run stdout/stderr is command output and intentionally remains local;
 it is not an approved artifact class for that registry. Registry persistence is
-introduced by Workspace Delivery ART #810 and remains limited to the artifact
-classes accepted by the routed Security review. Until that consumer lands, the
-profile seed proves storage and identity behavior only, not registry operation.
+limited to the artifact classes accepted by the routed Security review:
+architecture packets, work-start records, and Review Packets. OOS production of
+those artifacts and safe OpenProject reference projection remain separate work;
+the registry does not mutate ART or accept arbitrary evidence.
 
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
 `wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`

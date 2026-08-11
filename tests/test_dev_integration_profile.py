@@ -732,6 +732,28 @@ class DevIntegrationProfileTests(TestCase):
                 api_env["WGCF_EVIDENCE_STORAGE_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]["name"],
                 "workspace-governance-control-fabric-object-storage-api",
             )
+            self.assertEqual(
+                api_env["WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID"]["value"],
+                "operator-orchestration-service",
+            )
+            self.assertEqual(
+                api_env["WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET"]["valueFrom"]["secretKeyRef"],
+                {
+                    "name": "workspace-governance-control-fabric-api-artifact-registry-callers",
+                    "key": "oos-caller-secret",
+                },
+            )
+            self.assertEqual(
+                api_env["WGCF_ARTIFACT_REGISTRY_RECONCILER_CALLER_ID"]["value"],
+                "workspace-governance-control-fabric",
+            )
+            self.assertEqual(
+                api_env["WGCF_ARTIFACT_REGISTRY_RECONCILER_CALLER_SECRET"]["valueFrom"]["secretKeyRef"],
+                {
+                    "name": "workspace-governance-control-fabric-api-artifact-registry-callers",
+                    "key": "reconciler-caller-secret",
+                },
+            )
             self.assertNotIn("MINIO_ROOT_USER", api_env)
             self.assertEqual(
                 storage_env["MINIO_ROOT_USER"]["valueFrom"]["secretKeyRef"]["name"],
@@ -742,11 +764,19 @@ class DevIntegrationProfileTests(TestCase):
                 ("NetworkPolicy", "workspace-governance-control-fabric-object-storage-ingress"),
                 by_kind_name,
             )
-            self.assertNotIn("operator-orchestration-service", manifest)
+            self.assertNotIn(
+                "app.kubernetes.io/name: operator-orchestration-service",
+                manifest,
+            )
             self.assertNotIn("openproject", manifest.lower())
             credentials = (state_root / "storage-credentials.env").read_text(encoding="utf-8")
             self.assertNotIn(credentials.split("STORAGE_ROOT_PASSWORD=", 1)[1].splitlines()[0], manifest)
             self.assertNotIn(credentials.split("STORAGE_APP_SECRET_KEY=", 1)[1].splitlines()[0], manifest)
+            registry_credentials_path = state_root / "artifact-registry-callers.env"
+            registry_credentials = registry_credentials_path.read_text(encoding="utf-8")
+            self.assertEqual(registry_credentials_path.stat().st_mode & 0o777, 0o600)
+            for line in registry_credentials.splitlines():
+                self.assertNotIn(line.split("=", 1)[1], manifest)
 
             credential_path = state_root / "storage-credentials.env"
             credential_path.write_text(
