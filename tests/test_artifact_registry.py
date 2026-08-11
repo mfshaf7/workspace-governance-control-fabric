@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import sys
 from pathlib import Path
@@ -33,10 +33,15 @@ from control_fabric_core.artifact_storage import (
     StoredArtifactObject,
     delivery_art_object_key,
 )
-from control_fabric_core.canonical_json import canonical_digest, canonical_json_bytes
+from control_fabric_core.canonical_json import (
+    canonical_digest,
+    canonical_json_bytes,
+    delivery_art_content_projection,
+)
 from control_fabric_core.db import metadata
 from control_fabric_core.db.models import (
     DeliveryArtifactCustodyReceipt,
+    DeliveryArtifactRegistryEntry,
     LedgerEvent,
 )
 
@@ -47,6 +52,10 @@ SERVICE_IDENTITY_REF = (
     "serviceaccount/workspace-governance-control-fabric-api"
 )
 FIXED_TIME = datetime(2026, 8, 12, 1, 2, 3, tzinfo=timezone.utc)
+
+
+def parse_timestamp(value: str) -> datetime:
+    return datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
 
 
 class FakeVersionedArtifactStore:
@@ -143,6 +152,16 @@ class ArtifactRegistryTests(TestCase):
         self.assertEqual(receipt["issuer"]["implementation_ref"], IMPLEMENTATION_REF)
         self.assertEqual(receipt["custody"]["supersedes"], None)
         self.assertTrue(receipt["storage"]["receipt_ref"].startswith("platform-storage://receipts/"))
+        self.assertLess(
+            parse_timestamp(receipt["storage"]["persisted_at"]),
+            parse_timestamp(receipt["custody"]["persisted_at"]),
+        )
+        self.assertLess(
+            parse_timestamp(receipt["custody"]["persisted_at"]),
+            parse_timestamp(created.artifact["custody"]["persisted_at"]),
+        )
+        self.assertEqual(read.custody_receipt, receipt)
+        self.assertEqual(read.artifact["custody"], created.artifact["custody"])
 
         with self.sessions() as session:
             actions = list(session.scalars(select(LedgerEvent.action).order_by(LedgerEvent.action)))
@@ -184,6 +203,10 @@ class ArtifactRegistryTests(TestCase):
             corrected.custody_receipt["custody"]["supersedes"],
             first.to_record()["registry"]["custody_receipt_ref"],
         )
+        self.assertLess(
+            parse_timestamp(first.artifact["custody"]["persisted_at"]),
+            parse_timestamp(corrected.custody_receipt["storage"]["persisted_at"]),
+        )
         stale_content = artifact_content(
             summary="A second correction against stale evidence.",
             supersedes=predecessor,
@@ -197,6 +220,100 @@ class ArtifactRegistryTests(TestCase):
         )
         with self.assertRaisesRegex(ArtifactRegistryConflict, "first artifact generation"):
             self.registry.register(registration_request(cross_subject), actor="oos")
+
+        with self.sessions.begin() as session:
+            prior_entry = session.get(
+                DeliveryArtifactRegistryEntry,
+                first.artifact["custody"]["uri"],
+            )
+            current_entry = session.get(
+                DeliveryArtifactRegistryEntry,
+                corrected.artifact["custody"]["uri"],
+            )
+            self.assertIsNotNone(prior_entry)
+            self.assertIsNotNone(current_entry)
+            prior_entry.persisted_at = current_entry.persisted_at
+        with self.assertRaisesRegex(
+            ArtifactStorageIntegrityError,
+            "superseded artifact custody.persisted_at must be earlier",
+        ):
+            self.registry.read(
+                corrected.artifact["integrity"]["content_digest"],
+                actor="oos",
+            )
+
+    def test_read_rejects_equal_or_reversed_storage_and_receipt_chronology(self) -> None:
+        for suffix, offset_seconds in (("equal", 0), ("reversed", 1)):
+            with self.subTest(suffix=suffix):
+                created = self.registry.register(
+                    registration_request(
+                        artifact_content(artifact_id=f"architecture-packet:{suffix}"),
+                    ),
+                    actor="oos",
+                )
+                registry_uri = created.artifact["custody"]["uri"]
+                with self.sessions.begin() as session:
+                    receipt = session.scalar(
+                        select(DeliveryArtifactCustodyReceipt).where(
+                            DeliveryArtifactCustodyReceipt.registry_uri == registry_uri,
+                        ),
+                    )
+                    self.assertIsNotNone(receipt)
+                    payload = copy.deepcopy(receipt.receipt)
+                    receipt_time = parse_timestamp(payload["custody"]["persisted_at"])
+                    payload["storage"]["persisted_at"] = (
+                        receipt_time + timedelta(seconds=offset_seconds)
+                    ).isoformat(timespec="seconds").replace("+00:00", "Z")
+                    receipt_digest = canonical_digest(
+                        delivery_art_content_projection(payload),
+                    )
+                    receipt_uri = (
+                        "wgcf://receipts/artifact-custody/"
+                        f"{payload['receipt_id'].removeprefix('artifact-custody-receipt:')}-"
+                        f"{receipt_digest.removeprefix('sha256:')}.json"
+                    )
+                    payload["integrity"]["content_digest"] = receipt_digest
+                    payload["custody"]["uri"] = receipt_uri
+                    receipt.receipt = payload
+                    receipt.receipt_digest = receipt_digest
+                    receipt.receipt_uri = receipt_uri
+
+                with self.assertRaisesRegex(
+                    ArtifactStorageIntegrityError,
+                    "storage.persisted_at must be earlier than custody.persisted_at",
+                ):
+                    self.registry.read(
+                        created.artifact["integrity"]["content_digest"],
+                        actor="oos",
+                    )
+
+    def test_read_rejects_equal_receipt_and_artifact_chronology(self) -> None:
+        created = self.registry.register(
+            registration_request(
+                artifact_content(artifact_id="architecture-packet:equal-artifact"),
+            ),
+            actor="oos",
+        )
+        registry_uri = created.artifact["custody"]["uri"]
+        with self.sessions.begin() as session:
+            entry = session.get(DeliveryArtifactRegistryEntry, registry_uri)
+            receipt = session.scalar(
+                select(DeliveryArtifactCustodyReceipt).where(
+                    DeliveryArtifactCustodyReceipt.registry_uri == registry_uri,
+                ),
+            )
+            self.assertIsNotNone(entry)
+            self.assertIsNotNone(receipt)
+            entry.persisted_at = receipt.persisted_at
+
+        with self.assertRaisesRegex(
+            ArtifactStorageIntegrityError,
+            "custody.persisted_at must be earlier than artifact custody.persisted_at",
+        ):
+            self.registry.read(
+                created.artifact["integrity"]["content_digest"],
+                actor="oos",
+            )
 
     def test_changed_subject_requires_explicit_supersession(self) -> None:
         self.registry.register(registration_request(artifact_content()), actor="oos")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
 import os
@@ -130,6 +130,13 @@ class PreparedArtifact:
 
 
 @dataclass(frozen=True)
+class _ArtifactPersistenceTimeline:
+    storage: datetime
+    receipt: datetime
+    artifact: datetime
+
+
+@dataclass(frozen=True)
 class ArtifactRegistryResult:
     artifact: dict[str, Any]
     custody_receipt: dict[str, Any]
@@ -180,7 +187,8 @@ class _RegistrySnapshot:
     generation: int
     object_key: str
     object_version_id: str
-    persisted_at: str
+    artifact_persisted_at: str
+    receipt_persisted_at: str
     receipt: dict[str, Any]
     receipt_digest: str
     receipt_id: str
@@ -373,14 +381,14 @@ class DeliveryArtifactRegistry:
         self._validate_supersession(prepared, head)
         binding = self._storage.ensure_content(prepared.content_digest, prepared.canonical_bytes)
         self._validate_storage_binding(binding, prepared)
-        persisted_at = self._now()
+        timeline = self._persistence_timeline(head)
 
         try:
             inserted = self._insert_registry_state(
                 actor=actor,
                 binding=binding,
-                persisted_at=persisted_at,
                 prepared=prepared,
+                timeline=timeline,
             )
         except IntegrityError as exc:
             existing = self._snapshot_by_digest(prepared.content_digest)
@@ -432,8 +440,8 @@ class DeliveryArtifactRegistry:
         *,
         actor: str,
         binding: StoredArtifactObject,
-        persisted_at: datetime,
         prepared: PreparedArtifact,
+        timeline: _ArtifactPersistenceTimeline,
     ) -> bool:
         with self._session_factory.begin() as session:
             existing = self._entry_by_digest(session, prepared.content_digest)
@@ -456,9 +464,10 @@ class DeliveryArtifactRegistry:
             storage_receipt_ref = self._storage_receipt_ref(binding, prepared.content_digest)
             receipt = self._build_custody_receipt(
                 prepared=prepared,
-                persisted_at=persisted_at,
                 prior_receipt=prior_receipt,
                 registry_uri=registry_uri,
+                receipt_persisted_at=timeline.receipt,
+                storage_persisted_at=timeline.storage,
                 storage_receipt_ref=storage_receipt_ref,
             )
             entry = DeliveryArtifactRegistryEntry(
@@ -469,7 +478,7 @@ class DeliveryArtifactRegistry:
                 generation=generation,
                 object_key=binding.object_key,
                 object_version_id=binding.version_id,
-                persisted_at=persisted_at,
+                persisted_at=timeline.artifact,
                 registry_uri=registry_uri,
                 storage_receipt_ref=storage_receipt_ref,
                 supersedes_content_digest=(
@@ -480,7 +489,7 @@ class DeliveryArtifactRegistry:
                 ),
             )
             custody_receipt = DeliveryArtifactCustodyReceipt(
-                persisted_at=persisted_at,
+                persisted_at=timeline.receipt,
                 receipt=receipt,
                 receipt_digest=receipt["integrity"]["content_digest"],
                 receipt_id=receipt["receipt_id"],
@@ -505,12 +514,14 @@ class DeliveryArtifactRegistry:
         self,
         *,
         prepared: PreparedArtifact,
-        persisted_at: datetime,
         prior_receipt: DeliveryArtifactCustodyReceipt | None,
+        receipt_persisted_at: datetime,
         registry_uri: str,
+        storage_persisted_at: datetime,
         storage_receipt_ref: str,
     ) -> dict[str, Any]:
-        persisted_at_value = _timestamp(persisted_at)
+        receipt_persisted_at_value = _timestamp(receipt_persisted_at)
+        storage_persisted_at_value = _timestamp(storage_persisted_at)
         receipt_token = hashlib.sha256(
             f"delivery-art-custody\0{prepared.content_digest}".encode("utf-8"),
         ).hexdigest()[:24]
@@ -533,7 +544,7 @@ class DeliveryArtifactRegistry:
             "storage": {
                 "runtime_owner": "platform-engineering",
                 "receipt_ref": storage_receipt_ref,
-                "persisted_at": persisted_at_value,
+                "persisted_at": storage_persisted_at_value,
             },
             "integrity": {
                 "canonicalization": "RFC8785",
@@ -543,7 +554,7 @@ class DeliveryArtifactRegistry:
                 "state": "durable",
                 "backend": "wgcf-receipt-ledger",
                 "uri": "pending",
-                "persisted_at": persisted_at_value,
+                "persisted_at": receipt_persisted_at_value,
                 "supersedes": (
                     {
                         "uri": prior_receipt.receipt_uri,
@@ -607,7 +618,7 @@ class DeliveryArtifactRegistry:
                 "uri": snapshot.receipt["custody"]["uri"],
                 "digest": snapshot.receipt["integrity"]["content_digest"],
             },
-            "persisted_at": snapshot.receipt["storage"]["persisted_at"],
+            "persisted_at": snapshot.artifact_persisted_at,
             "supersedes": copy.deepcopy(prepared.supersedes),
         }
         if canonical_digest(delivery_art_content_projection(artifact)) != snapshot.content_digest:
@@ -690,16 +701,27 @@ class DeliveryArtifactRegistry:
             raise ArtifactStorageIntegrityError("custody receipt issuer does not match this runtime")
         if set(storage) != {"runtime_owner", "receipt_ref", "persisted_at"} or (
             storage.get("runtime_owner") != "platform-engineering"
-            or storage.get("persisted_at") != snapshot.persisted_at
         ):
             raise ArtifactStorageIntegrityError("custody receipt storage fields are invalid")
         if set(custody) != {"state", "backend", "uri", "persisted_at", "supersedes"} or (
             custody.get("state") != "durable"
             or custody.get("backend") != "wgcf-receipt-ledger"
-            or custody.get("persisted_at") != snapshot.persisted_at
+            or custody.get("persisted_at") != snapshot.receipt_persisted_at
             or custody.get("supersedes") != snapshot.supersedes_receipt_ref
         ):
             raise ArtifactStorageIntegrityError("custody receipt state or lineage is invalid")
+        _require_strict_persistence_order(
+            "storage.persisted_at",
+            storage.get("persisted_at"),
+            "custody.persisted_at",
+            custody.get("persisted_at"),
+        )
+        _require_strict_persistence_order(
+            "custody.persisted_at",
+            custody.get("persisted_at"),
+            "artifact custody.persisted_at",
+            snapshot.artifact_persisted_at,
+        )
         if custody.get("uri") != snapshot.receipt_uri:
             raise ArtifactStorageIntegrityError("custody receipt URI does not match registry metadata")
         if storage.get("receipt_ref") != snapshot.storage_receipt_ref:
@@ -812,8 +834,11 @@ class DeliveryArtifactRegistry:
         )
         if receipt is None:
             raise ArtifactRegistryUnavailable("registry entry has no custody receipt")
-        if receipt.persisted_at != entry.persisted_at:
-            raise ArtifactStorageIntegrityError("registry and custody persistence timestamps differ")
+        receipt_persisted_at = _database_timestamp(receipt.persisted_at)
+        if receipt_persisted_at != receipt.receipt.get("custody", {}).get("persisted_at"):
+            raise ArtifactStorageIntegrityError(
+                "custody receipt persistence timestamp does not match registry metadata",
+            )
         has_supersedes_uri = entry.supersedes_registry_uri is not None
         has_supersedes_digest = entry.supersedes_content_digest is not None
         if has_supersedes_uri != has_supersedes_digest:
@@ -843,6 +868,12 @@ class DeliveryArtifactRegistry:
             )
             if predecessor_receipt is None:
                 raise ArtifactStorageIntegrityError("superseded registry artifact has no receipt")
+            _require_strict_persistence_order(
+                "superseded artifact custody.persisted_at",
+                _database_timestamp(predecessor.persisted_at),
+                "replacement artifact custody.persisted_at",
+                _database_timestamp(entry.persisted_at),
+            )
             supersedes_receipt_ref = {
                 "uri": predecessor_receipt.receipt_uri,
                 "digest": predecessor_receipt.receipt_digest,
@@ -855,7 +886,8 @@ class DeliveryArtifactRegistry:
             generation=entry.generation,
             object_key=entry.object_key,
             object_version_id=entry.object_version_id,
-            persisted_at=_database_timestamp(entry.persisted_at),
+            artifact_persisted_at=_database_timestamp(entry.persisted_at),
+            receipt_persisted_at=receipt_persisted_at,
             receipt=copy.deepcopy(receipt.receipt),
             receipt_digest=receipt.receipt_digest,
             receipt_id=receipt.receipt_id,
@@ -958,6 +990,26 @@ class DeliveryArtifactRegistry:
             raise ArtifactRegistryUnavailable("registry clock must return a timezone-aware timestamp")
         return value.astimezone(timezone.utc).replace(microsecond=0)
 
+    def _persistence_timeline(
+        self,
+        head: DeliveryArtifactRegistryEntry | None,
+    ) -> _ArtifactPersistenceTimeline:
+        # Preserve causal order even when the runtime clock returns the same second.
+        storage_persisted_at = self._now()
+        if head is not None:
+            prior_artifact_persisted_at = _as_utc_datetime(head.persisted_at)
+            storage_persisted_at = max(
+                storage_persisted_at,
+                prior_artifact_persisted_at + timedelta(seconds=1),
+            )
+        receipt_persisted_at = storage_persisted_at + timedelta(seconds=1)
+        artifact_persisted_at = receipt_persisted_at + timedelta(seconds=1)
+        return _ArtifactPersistenceTimeline(
+            storage=storage_persisted_at,
+            receipt=receipt_persisted_at,
+            artifact=artifact_persisted_at,
+        )
+
 
 def _prepare_stored_content(content: dict[str, Any], content_digest: str) -> PreparedArtifact:
     envelope = canonical_json_bytes(
@@ -975,9 +1027,40 @@ def _timestamp(value: datetime) -> str:
 
 
 def _database_timestamp(value: datetime) -> str:
+    return _timestamp(_as_utc_datetime(value))
+
+
+def _as_utc_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    return _timestamp(value)
+    return value.astimezone(timezone.utc).replace(microsecond=0)
+
+
+def _parse_persistence_timestamp(value: object, field_name: str) -> datetime:
+    if not isinstance(value, str):
+        raise ArtifactStorageIntegrityError(f"{field_name} is not an RFC3339 timestamp")
+    normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ArtifactStorageIntegrityError(
+            f"{field_name} is not an RFC3339 timestamp",
+        ) from exc
+    if parsed.tzinfo is None:
+        raise ArtifactStorageIntegrityError(f"{field_name} must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
+def _require_strict_persistence_order(
+    earlier_name: str,
+    earlier_value: object,
+    later_name: str,
+    later_value: object,
+) -> None:
+    earlier = _parse_persistence_timestamp(earlier_value, earlier_name)
+    later = _parse_persistence_timestamp(later_value, later_name)
+    if earlier >= later:
+        raise ArtifactStorageIntegrityError(f"{earlier_name} must be earlier than {later_name}")
 
 
 def read_implementation_ref(path: str | Path = SOURCE_REVISION_PATH) -> str:
