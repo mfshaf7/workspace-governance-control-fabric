@@ -16,10 +16,18 @@
 
 -
 
-## Codex Review
+## Advisory Review
 
-- [ ] Requested
-- [ ] Not required because:
+Optional; leave blank when deterministic owner review and validation are sufficient.
+
+- Requested:
+- Provider:
+- Scope and accepted trust model:
+- Finding disposition:
+  - `fix-now`
+  - `separate-work`
+  - `reject-with-reason`
+- Verification pass:
 
 ## Review Gates
 
