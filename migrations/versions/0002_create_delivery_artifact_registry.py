@@ -1,6 +1,6 @@
 """Create the Delivery ART artifact registry and custody receipt tables.
 
-Revision ID: 0002_create_delivery_artifact_registry
+Revision ID: 0002_delivery_art_registry
 Revises: 0001_create_foundation_tables
 Create Date: 2026-08-11
 """
@@ -14,7 +14,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 
-revision: str = "0002_create_delivery_artifact_registry"
+revision: str = "0002_delivery_art_registry"
 down_revision: str | None = "0001_create_foundation_tables"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

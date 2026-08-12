@@ -9,8 +9,14 @@ import os
 import sys
 import tempfile
 import tomllib
+from collections.abc import Iterable
 from pathlib import Path
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
+
+ALEMBIC_REVISION_ID_MAX_LENGTH = 32
 
 REQUIRED_PATHS = (
     "pyproject.toml",
@@ -157,6 +163,34 @@ def validate_pyproject(repo_root: Path) -> list[str]:
     if not any(dependency.startswith("anyio") and "<4.10" in dependency for dependency in test_dependencies):
         errors.append("pyproject test dependencies must pin anyio below 4.10 for TestClient compatibility")
     return errors
+
+
+def validate_migration_revision_ids(revision_ids: Iterable[str]) -> list[str]:
+    """Keep revision identifiers compatible with Alembic's version table."""
+
+    errors: list[str] = []
+    for revision in revision_ids:
+        if len(revision) > ALEMBIC_REVISION_ID_MAX_LENGTH:
+            errors.append(
+                "Alembic revision id exceeds the default 32-character version "
+                f"column: {revision}"
+            )
+    return errors
+
+
+def validate_migration_revisions(repo_root: Path) -> list[str]:
+    """Validate the migration graph and its revision identifier lengths."""
+
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "migrations"))
+    try:
+        revisions = list(ScriptDirectory.from_config(config).walk_revisions())
+    except Exception as exc:  # pragma: no cover - Alembic supplies the details.
+        return [f"Alembic migration graph is invalid: {exc}"]
+
+    if not revisions:
+        return ["Alembic migration graph has no revisions"]
+    return validate_migration_revision_ids(migration.revision for migration in revisions)
 
 
 def validate_imports(repo_root: Path) -> list[str]:
@@ -791,6 +825,7 @@ def main() -> int:
     errors = [
         *validate_paths(repo_root),
         *validate_pyproject(repo_root),
+        *validate_migration_revisions(repo_root),
         *validate_imports(repo_root),
     ]
     if errors:
