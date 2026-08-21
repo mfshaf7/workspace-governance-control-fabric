@@ -645,7 +645,7 @@ class DeliveryArtReadinessService:
                 if current.get(field) != prior_repo.get(field):
                     add("merge-ready-evidence-rewritten", "blocker", "The finalization candidate rewrites reviewed source evidence.")
                     return
-        for section in ("changed_surfaces", *_EVIDENCE_SECTIONS, "acceptance_mapping"):
+        for section in ("changed_surfaces", *_EVIDENCE_SECTIONS):
             current_by_id = {
                 entry.get("id", entry.get("work_item_id")): entry
                 for entry in candidate.get("evidence", {}).get(section, [])
@@ -655,6 +655,22 @@ class DeliveryArtReadinessService:
                 if current_by_id.get(key) != entry:
                     add("merge-ready-evidence-rewritten", "blocker", "The finalization candidate rewrites reviewed evidence.")
                     return
+        current_mappings = {
+            entry.get("work_item_id"): entry
+            for entry in candidate.get("evidence", {}).get("acceptance_mapping", [])
+        }
+        for prior_mapping in predecessor.get("evidence", {}).get("acceptance_mapping", []):
+            current = current_mappings.get(prior_mapping.get("work_item_id"))
+            prior_evidence_ids = set(prior_mapping.get("evidence_ids", []))
+            current_evidence_ids = set(current.get("evidence_ids", [])) if current else set()
+            if (
+                current is None
+                or current.get("acceptance_ref") != prior_mapping.get("acceptance_ref")
+                or current.get("summary") != prior_mapping.get("summary")
+                or not prior_evidence_ids.issubset(current_evidence_ids)
+            ):
+                add("merge-ready-evidence-rewritten", "blocker", "The finalization candidate rewrites reviewed acceptance evidence.")
+                return
 
     @staticmethod
     def _resolved_work_start(
