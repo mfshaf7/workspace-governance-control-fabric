@@ -699,11 +699,13 @@ class DeliveryArtifactRegistry:
             or subject.get("registry_uri") != snapshot.registry_uri
         ):
             raise ArtifactStorageIntegrityError("custody receipt subject does not match registry metadata")
-        if issuer != {
-            "owner_repo": "workspace-governance-control-fabric",
-            "service_identity_ref": self._service_identity_ref,
-            "implementation_ref": self._implementation_ref,
-        }:
+        if (
+            set(issuer) != {"owner_repo", "service_identity_ref", "implementation_ref"}
+            or issuer.get("owner_repo") != "workspace-governance-control-fabric"
+            or issuer.get("service_identity_ref") != self._service_identity_ref
+            or not isinstance(issuer.get("implementation_ref"), str)
+            or not _IMPLEMENTATION_REF_PATTERN.fullmatch(issuer["implementation_ref"])
+        ):
             raise ArtifactStorageIntegrityError("custody receipt issuer does not match this runtime")
         if set(storage) != {"runtime_owner", "receipt_ref", "persisted_at"} or (
             storage.get("runtime_owner") != "platform-engineering"

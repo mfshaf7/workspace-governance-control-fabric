@@ -188,6 +188,85 @@ class ArtifactRegistryTests(TestCase):
         self.assertEqual(actions.count("artifact.registry.persisted"), 1)
         self.assertEqual(actions.count("artifact.registry.reused"), 1)
 
+    def test_runtime_upgrade_preserves_historical_receipt_provenance(self) -> None:
+        created = self.registry.register(registration_request(artifact_content()), actor="oos")
+        upgraded_registry = DeliveryArtifactRegistry(
+            session_factory=self.sessions,
+            storage=self.storage,
+            service_identity_ref=SERVICE_IDENTITY_REF,
+            implementation_ref="e" * 40,
+            clock=lambda: FIXED_TIME,
+        )
+
+        read = upgraded_registry.read(
+            created.artifact["integrity"]["content_digest"],
+            actor="oos",
+        )
+
+        self.assertEqual(read.artifact, created.artifact)
+        self.assertEqual(
+            read.custody_receipt["issuer"]["implementation_ref"],
+            IMPLEMENTATION_REF,
+        )
+
+    def test_runtime_upgrade_rejects_a_different_service_identity(self) -> None:
+        created = self.registry.register(registration_request(artifact_content()), actor="oos")
+        foreign_registry = DeliveryArtifactRegistry(
+            session_factory=self.sessions,
+            storage=self.storage,
+            service_identity_ref="kubernetes://another-namespace/serviceaccount/wgcf-api",
+            implementation_ref="e" * 40,
+            clock=lambda: FIXED_TIME,
+        )
+
+        with self.assertRaisesRegex(ArtifactStorageIntegrityError, "issuer"):
+            foreign_registry.read(
+                created.artifact["integrity"]["content_digest"],
+                actor="oos",
+            )
+
+    def test_read_rejects_invalid_historical_issuer_provenance(self) -> None:
+        for field, value in (
+            ("owner_repo", "another-owner"),
+            ("implementation_ref", "main"),
+        ):
+            with self.subTest(field=field):
+                created = self.registry.register(
+                    registration_request(
+                        artifact_content(artifact_id=f"architecture-packet:invalid-{field}"),
+                    ),
+                    actor="oos",
+                )
+                registry_uri = created.artifact["custody"]["uri"]
+                with self.sessions.begin() as session:
+                    receipt = session.scalar(
+                        select(DeliveryArtifactCustodyReceipt).where(
+                            DeliveryArtifactCustodyReceipt.registry_uri == registry_uri,
+                        ),
+                    )
+                    self.assertIsNotNone(receipt)
+                    payload = copy.deepcopy(receipt.receipt)
+                    payload["issuer"][field] = value
+                    receipt_digest = canonical_digest(
+                        delivery_art_content_projection(payload),
+                    )
+                    receipt_uri = (
+                        "wgcf://receipts/artifact-custody/"
+                        f"{payload['receipt_id'].removeprefix('artifact-custody-receipt:')}-"
+                        f"{receipt_digest.removeprefix('sha256:')}.json"
+                    )
+                    payload["integrity"]["content_digest"] = receipt_digest
+                    payload["custody"]["uri"] = receipt_uri
+                    receipt.receipt = payload
+                    receipt.receipt_digest = receipt_digest
+                    receipt.receipt_uri = receipt_uri
+
+                with self.assertRaisesRegex(ArtifactStorageIntegrityError, "issuer"):
+                    self.registry.read(
+                        created.artifact["integrity"]["content_digest"],
+                        actor="oos",
+                    )
+
     def test_correction_must_supersede_exact_latest_same_subject(self) -> None:
         first = self.registry.register(registration_request(artifact_content()), actor="oos")
         predecessor = first.to_record()["registry"]["artifact_ref"]
