@@ -188,6 +188,22 @@ class DeliveryArtReadinessTests(TestCase):
             actor="operator-orchestration-service",
         ).artifact
 
+    def _issue_operating_candidate(self, candidate: dict) -> dict:
+        candidate["integrity"]["content_digest"] = canonical_digest(
+            delivery_art_content_projection(candidate),
+        )
+        subject = operating_readiness_subject(candidate)
+        return self.service.issue(
+            readiness_request(
+                candidate,
+                "operating-ready",
+                digest_kind="readiness-subject",
+                digest=subject["readiness"]["subject_digest"],
+                candidate=candidate,
+            ),
+            actor="operator-orchestration-service",
+        ).artifact
+
     def test_four_readiness_levels_issue_content_addressed_receipts(self) -> None:
         architecture = self.service.issue(
             readiness_request(self.architecture, "architecture-ready"),
@@ -349,30 +365,76 @@ class DeliveryArtReadinessTests(TestCase):
             },
         )
 
-    def test_operating_readiness_blocks_rewritten_merge_ready_evidence(self) -> None:
+    def test_operating_readiness_allows_monotonic_post_merge_acceptance_evidence(self) -> None:
         candidate = local_finalization_candidate(self.merge_ready)
-        candidate["evidence"]["tests"][0]["summary"] = "Rewritten after review."
-        candidate["integrity"]["content_digest"] = canonical_digest(
-            delivery_art_content_projection(candidate),
+        live_evidence = copy.deepcopy(candidate["evidence"]["tests"][0])
+        live_evidence.update(
+            {
+                "id": "evidence:post-merge-runtime",
+                "name": "Post-merge runtime reconciliation",
+                "summary": "The merged source passed its required live reconciliation.",
+            },
         )
-        subject = operating_readiness_subject(candidate)
-
-        result = self.service.issue(
-            readiness_request(
-                candidate,
-                "operating-ready",
-                digest_kind="readiness-subject",
-                digest=subject["readiness"]["subject_digest"],
-                candidate=candidate,
-            ),
-            actor="operator-orchestration-service",
+        candidate["evidence"]["runtime_and_live"].append(live_evidence)
+        candidate["evidence"]["acceptance_mapping"][0]["evidence_ids"].append(
+            live_evidence["id"],
         )
 
-        self.assertEqual(result.artifact["readiness"]["outcome"], "blocked")
-        self.assertIn(
+        result = self._issue_operating_candidate(candidate)
+
+        self.assertEqual(result["readiness"]["outcome"], "ready")
+        self.assertNotIn(
             "merge-ready-evidence-rewritten",
-            {finding["id"] for finding in result.artifact["findings"]},
+            {finding["id"] for finding in result["findings"]},
         )
+
+    def test_operating_readiness_blocks_removed_or_replaced_acceptance_evidence(self) -> None:
+        for replacement in (None, "evidence:post-merge-runtime"):
+            with self.subTest(replacement=replacement):
+                candidate = local_finalization_candidate(self.merge_ready)
+                evidence_ids = candidate["evidence"]["acceptance_mapping"][0]["evidence_ids"]
+                evidence_ids.remove("evidence:schema-negative-cases")
+                if replacement:
+                    replacement_evidence = copy.deepcopy(candidate["evidence"]["tests"][0])
+                    replacement_evidence["id"] = replacement
+                    candidate["evidence"]["runtime_and_live"].append(replacement_evidence)
+                    evidence_ids.append(replacement)
+
+                result = self._issue_operating_candidate(candidate)
+
+                self.assertEqual(result["readiness"]["outcome"], "blocked")
+                self.assertIn(
+                    "merge-ready-evidence-rewritten",
+                    {finding["id"] for finding in result["findings"]},
+                )
+
+    def test_operating_readiness_blocks_changed_acceptance_meaning(self) -> None:
+        for field in ("acceptance_ref", "summary"):
+            with self.subTest(field=field):
+                candidate = local_finalization_candidate(self.merge_ready)
+                candidate["evidence"]["acceptance_mapping"][0][field] = "Changed after review."
+
+                result = self._issue_operating_candidate(candidate)
+
+                self.assertEqual(result["readiness"]["outcome"], "blocked")
+                self.assertIn(
+                    "merge-ready-evidence-rewritten",
+                    {finding["id"] for finding in result["findings"]},
+                )
+
+    def test_operating_readiness_blocks_rewritten_merge_ready_evidence(self) -> None:
+        for section in ("tests", "validations"):
+            with self.subTest(section=section):
+                candidate = local_finalization_candidate(self.merge_ready)
+                candidate["evidence"][section][0]["summary"] = "Rewritten after review."
+
+                result = self._issue_operating_candidate(candidate)
+
+                self.assertEqual(result["readiness"]["outcome"], "blocked")
+                self.assertIn(
+                    "merge-ready-evidence-rewritten",
+                    {finding["id"] for finding in result["findings"]},
+                )
 
     def test_request_rejects_subject_digest_substitution(self) -> None:
         raw = json.loads(readiness_request(self.architecture, "architecture-ready"))
