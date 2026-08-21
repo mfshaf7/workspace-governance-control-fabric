@@ -155,6 +155,26 @@ def local_finalization_candidate(merge_ready: dict) -> dict:
     return candidate
 
 
+def validation_only_review_packet() -> dict:
+    packet = fixture("review-packet-merge-ready.valid.json")
+    test_evidence_ids = {entry["id"] for entry in packet["evidence"]["tests"]}
+    packet["evidence"]["tests"] = []
+    for mapping in packet["evidence"]["acceptance_mapping"]:
+        mapping["evidence_ids"] = [
+            evidence_id
+            for evidence_id in mapping["evidence_ids"]
+            if evidence_id not in test_evidence_ids
+        ]
+    packet["integrity"]["content_digest"] = canonical_digest(
+        delivery_art_content_projection(packet),
+    )
+    packet["custody"]["uri"] = (
+        "wgcf://artifacts/delivery-art/sha256/"
+        + packet["integrity"]["content_digest"].removeprefix("sha256:")
+    )
+    return packet
+
+
 class DeliveryArtReadinessTests(TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:")
@@ -167,12 +187,15 @@ class DeliveryArtReadinessTests(TestCase):
             implementation_ref=IMPLEMENTATION_REF,
             clock=SequenceClock(),
         )
+        self.contract_bundle = DeliveryArtContractBundle.load(
+            REPO_ROOT / "contracts/delivery-art",
+        )
         self.service = DeliveryArtReadinessService(
             session_factory=self.sessions,
             artifact_registry=self.registry,
             service_identity_ref=SERVICE_IDENTITY_REF,
             implementation_ref=IMPLEMENTATION_REF,
-            contract_bundle=DeliveryArtContractBundle.load(REPO_ROOT / "contracts/delivery-art"),
+            contract_bundle=self.contract_bundle,
             clock=lambda: datetime(2026, 8, 8, 3, 30, tzinfo=timezone.utc),
         )
         self.architecture = self._register(fixture("architecture-packet.valid.json"))
@@ -203,6 +226,29 @@ class DeliveryArtReadinessTests(TestCase):
             ),
             actor="operator-orchestration-service",
         ).artifact
+
+    def test_validation_only_review_packet_accepts_empty_test_evidence(self) -> None:
+        packet = validation_only_review_packet()
+
+        self.assertEqual(self.contract_bundle.validation_errors(packet), ())
+
+    def test_source_backed_review_packet_still_requires_validation_evidence(self) -> None:
+        packet = validation_only_review_packet()
+        packet["evidence"]["validations"] = []
+        packet["integrity"]["content_digest"] = canonical_digest(
+            delivery_art_content_projection(packet),
+        )
+        packet["custody"]["uri"] = (
+            "wgcf://artifacts/delivery-art/sha256/"
+            + packet["integrity"]["content_digest"].removeprefix("sha256:")
+        )
+
+        self.assertTrue(
+            any(
+                error.startswith("$.evidence.validations:")
+                for error in self.contract_bundle.validation_errors(packet)
+            ),
+        )
 
     def test_four_readiness_levels_issue_content_addressed_receipts(self) -> None:
         architecture = self.service.issue(
