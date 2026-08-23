@@ -293,6 +293,14 @@ receipt. The receipt is evidence for OOS orchestration; it is not an
 OpenProject mutation, artifact authoring act, Platform release, or Security
 approval.
 
+Architecture packet validation is version-aware. Schema v1 preserves its
+owner-repository merge-order contract. Schema v2 validates ART work ordering
+and source landing ordering independently: every covered work item belongs to
+exactly one Landing Unit, every source-backed Landing Unit appears in the
+source graph, graph endpoints are bound and acyclic, and human gates reference
+the declared authority work item and affected Landing Units. This prevents a
+repeated owner repository from making source order ambiguous.
+
 The ART evidence packet helper converts one or more WGCF receipts into
 completion-preflight-compatible payload fields and Review Packet evidence refs.
 It prefixes generated test and validation evidence with `PASS:`, `FAIL:`,

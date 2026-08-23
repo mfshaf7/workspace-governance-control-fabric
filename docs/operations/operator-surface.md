@@ -643,16 +643,24 @@ Current projection behavior:
 
 The Delivery ART registry is a bounded `dev-integration` custody surface. It
 does not author artifacts, decide readiness, or mutate OpenProject. OOS remains
-the producer and semantic validator; WGCF verifies canonical content and the
-declared digest, persists the bytes through Platform-owned versioned storage,
-records append-only metadata, and returns opaque artifact and custody-receipt
-references.
+the producer and first semantic validator; WGCF independently verifies the
+pinned contract, canonical content, and declared digest before persisting the
+bytes through Platform-owned versioned storage. It records append-only metadata
+and returns opaque artifact and custody-receipt references.
 
 Approved classes are limited to:
 
 - `delivery_art_architecture_packet`
 - `delivery_art_work_start_record`
 - `art_review_packet`
+
+Architecture packets may use schema v1 or v2. The v1 shape remains readable
+for compatibility. For artifact-bound readiness, WGCF validates the work
+dependency graph, exact Landing Unit coverage and owner binding, source-backed
+Landing Unit graph, and required human-gate references against the durable
+artifact. Source landing order is therefore addressed by Landing Unit id,
+including when one repository owns more than one Landing Unit. Invalid,
+incomplete, cyclic, or ambiguous topology cannot receive a ready decision.
 
 The API surface is:
 

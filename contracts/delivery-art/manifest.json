@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "5f2ff4910d114a8f96481ac7053ce904d9d43041",
+    "commit": "c1f2b7e5d7b297ce1b6bc8eb296c8210c771a5be",
     "repo": "workspace-governance"
   },
   "schemas": {
     "delivery_art_architecture_packet": {
       "path": "delivery-art-architecture-packet.schema.json",
-      "sha256": "1d0c7507d858813e4c489fc21217e465cbd7c05fbbf3e5d984aa0cee51675383"
+      "sha256": "8f78cfe1d6441455d2fe6b1bf0cd30e1e0ce8ab34f8225b9f5155e882c2bc3c8"
     },
     "delivery_art_custody_receipt": {
       "path": "delivery-art-custody-receipt.schema.json",
