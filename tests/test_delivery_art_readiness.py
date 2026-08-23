@@ -84,6 +84,73 @@ def fixture(name: str) -> dict:
     return json.loads((FIXTURE_ROOT / name).read_text(encoding="utf-8"))
 
 
+def refresh_architecture_scope(packet: dict) -> dict:
+    packet["scope_fingerprint"] = canonical_digest(
+        {
+            "schema_version": packet["schema_version"],
+            "artifact_type": packet["artifact_type"],
+            "delivery_id": packet["delivery_id"],
+            "covered_work_item_ids": packet["covered_work_item_ids"],
+            "source_snapshot": packet["source_snapshot"],
+            "architecture": packet["architecture"],
+            "conformance_plan": packet["conformance_plan"],
+            "decision_status": packet["decision"]["status"],
+        },
+    )
+    return packet
+
+
+def architecture_v2() -> dict:
+    packet = fixture("architecture-packet.valid.json")
+    packet["schema_version"] = 2
+    packet["artifact_id"] = "architecture-packet:delivery-698-v2"
+    architecture = packet["architecture"]
+    architecture.pop("dependency_merge_dag")
+    architecture["work_dependency_graph"] = {
+        "nodes": ["work-item-801", "work-item-802"],
+        "edges": [
+            {
+                "prerequisite_work_item_id": "work-item-801",
+                "dependent_work_item_id": "work-item-802",
+            },
+        ],
+    }
+    architecture["landing_units"] = [
+        {
+            "id": "delivery-698-contract",
+            "owner_repo": "workspace-governance",
+            "source_backed": True,
+            "covered_work_item_ids": ["work-item-801"],
+        },
+        {
+            "id": "delivery-698-implementation",
+            "owner_repo": "operator-orchestration-service",
+            "source_backed": True,
+            "covered_work_item_ids": ["work-item-802"],
+        },
+    ]
+    architecture["source_landing_graph"] = {
+        "nodes": ["delivery-698-contract", "delivery-698-implementation"],
+        "edges": [
+            {
+                "prerequisite_landing_unit_id": "delivery-698-contract",
+                "dependent_landing_unit_id": "delivery-698-implementation",
+            },
+        ],
+    }
+    architecture["required_human_gates"] = [
+        {
+            "gate_id": "gate:security-source-merge",
+            "authority_work_item_id": "work-item-801",
+            "authority_owner_repo": "workspace-governance",
+            "affected_landing_unit_ids": ["delivery-698-implementation"],
+            "blocked_transition": "before_source_merge",
+            "evidence_requirement": "Bind the exact implementation review head.",
+        },
+    ]
+    return refresh_architecture_scope(packet)
+
+
 def registration_request(artifact: dict) -> bytes:
     content = delivery_art_content_projection(artifact)
     return canonical_json_bytes(
@@ -249,6 +316,177 @@ class DeliveryArtReadinessTests(TestCase):
                 for error in self.contract_bundle.validation_errors(packet)
             ),
         )
+
+    def test_v1_and_v2_architecture_packets_share_validation_and_custody(self) -> None:
+        self.assertEqual(self.contract_bundle.validation_errors(self.architecture), ())
+        candidate = architecture_v2()
+        self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
+
+        durable = self._register(candidate)
+        result = self.service.issue(
+            readiness_request(durable, "architecture-ready"),
+            actor="operator-orchestration-service",
+        )
+
+        self.assertEqual(durable["schema_version"], 2)
+        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+        self.assertEqual(
+            result.artifact["subject"]["digest"],
+            durable["integrity"]["content_digest"],
+        )
+
+    def test_v2_architecture_topology_rejects_ambiguous_or_unsafe_ordering(self) -> None:
+        cases = []
+        duplicate_id = architecture_v2()
+        duplicate_id["architecture"]["landing_units"][1]["id"] = "delivery-698-contract"
+        cases.append((duplicate_id, "landing_units ids must be unique"))
+
+        duplicate_assignment = architecture_v2()
+        duplicate_assignment["architecture"]["landing_units"][1][
+            "covered_work_item_ids"
+        ].append("work-item-801")
+        cases.append((duplicate_assignment, "assign every work item exactly once"))
+
+        cyclic_work_graph = architecture_v2()
+        cyclic_work_graph["architecture"]["work_dependency_graph"]["edges"].append(
+            {
+                "prerequisite_work_item_id": "work-item-802",
+                "dependent_work_item_id": "work-item-801",
+            },
+        )
+        cases.append((cyclic_work_graph, "work_dependency_graph must be acyclic"))
+
+        missing_source_node = architecture_v2()
+        missing_source_node["architecture"]["source_landing_graph"]["nodes"] = [
+            "delivery-698-contract",
+        ]
+        cases.append((missing_source_node, "must exactly cover source-backed Landing Units"))
+
+        owner_repo_source_nodes = architecture_v2()
+        owner_repo_source_nodes["architecture"]["source_landing_graph"] = {
+            "nodes": ["workspace-governance", "operator-orchestration-service"],
+            "edges": [],
+        }
+        cases.append(
+            (owner_repo_source_nodes, "must exactly cover source-backed Landing Units"),
+        )
+
+        cyclic_source_graph = architecture_v2()
+        cyclic_source_graph["architecture"]["source_landing_graph"]["edges"].append(
+            {
+                "prerequisite_landing_unit_id": "delivery-698-implementation",
+                "dependent_landing_unit_id": "delivery-698-contract",
+            },
+        )
+        cases.append((cyclic_source_graph, "source_landing_graph must be acyclic"))
+
+        mismatched_gate_owner = architecture_v2()
+        mismatched_gate_owner["architecture"]["required_human_gates"][0][
+            "authority_owner_repo"
+        ] = "operator-orchestration-service"
+        cases.append((mismatched_gate_owner, "authority owner does not match"))
+
+        unknown_gate_unit = architecture_v2()
+        unknown_gate_unit["architecture"]["required_human_gates"][0][
+            "affected_landing_unit_ids"
+        ].append("delivery-698-missing")
+        cases.append((unknown_gate_unit, "references unknown Landing Units"))
+
+        non_source_merge_gate = architecture_v2()
+        non_source_merge_gate["architecture"]["landing_units"][1][
+            "source_backed"
+        ] = False
+        non_source_merge_gate["architecture"]["source_landing_graph"] = {
+            "nodes": ["delivery-698-contract"],
+            "edges": [],
+        }
+        cases.append((non_source_merge_gate, "blocks source merge for non-source"))
+
+        for packet, expected in cases:
+            with self.subTest(expected=expected):
+                refresh_architecture_scope(packet)
+                self.assertTrue(
+                    any(
+                        expected in error
+                        for error in self.contract_bundle.validation_errors(packet)
+                    ),
+                )
+
+    def test_v2_invalid_topology_cannot_receive_readiness(self) -> None:
+        packet = architecture_v2()
+        packet["architecture"]["source_landing_graph"]["edges"].append(
+            {
+                "prerequisite_landing_unit_id": "delivery-698-implementation",
+                "dependent_landing_unit_id": "delivery-698-contract",
+            },
+        )
+        refresh_architecture_scope(packet)
+        durable = self._register(packet)
+
+        with self.assertRaisesRegex(
+            DeliveryArtReadinessContractError,
+            "source_landing_graph must be acyclic",
+        ):
+            self.service.issue(
+                readiness_request(durable, "architecture-ready"),
+                actor="operator-orchestration-service",
+            )
+
+    def test_v2_source_order_uses_landing_unit_identity_when_one_repo_repeats(self) -> None:
+        packet = architecture_v2()
+        packet["covered_work_item_ids"].append("work-item-803")
+        packet["architecture"]["descendant_owner_map"].append(
+            {
+                "work_item_id": "work-item-803",
+                "work_item_type": "Enabler",
+                "owner_repo": "workspace-governance",
+                "parent_work_item_id": "work-item-801",
+            },
+        )
+        packet["architecture"]["work_dependency_graph"]["nodes"].append(
+            "work-item-803",
+        )
+        packet["architecture"]["work_dependency_graph"]["edges"].append(
+            {
+                "prerequisite_work_item_id": "work-item-801",
+                "dependent_work_item_id": "work-item-803",
+            },
+        )
+        packet["architecture"]["landing_units"].append(
+            {
+                "id": "delivery-698-activation",
+                "owner_repo": "workspace-governance",
+                "source_backed": True,
+                "covered_work_item_ids": ["work-item-803"],
+            },
+        )
+        packet["architecture"]["source_landing_graph"]["nodes"].append(
+            "delivery-698-activation",
+        )
+        packet["architecture"]["source_landing_graph"]["edges"].append(
+            {
+                "prerequisite_landing_unit_id": "delivery-698-implementation",
+                "dependent_landing_unit_id": "delivery-698-activation",
+            },
+        )
+        applicability = copy.deepcopy(
+            packet["conformance_plan"]["work_item_dimension_applicability"][0],
+        )
+        applicability["work_item_id"] = "work-item-803"
+        packet["conformance_plan"]["work_item_dimension_applicability"].append(
+            applicability,
+        )
+        for source_case, case_id in (
+            (packet["conformance_plan"]["cases"][0], "case:activation-positive"),
+            (packet["conformance_plan"]["cases"][1], "case:activation-negative"),
+        ):
+            activation_case = copy.deepcopy(source_case)
+            activation_case["id"] = case_id
+            activation_case["applies_to_work_item_ids"] = ["work-item-803"]
+            packet["conformance_plan"]["cases"].append(activation_case)
+        refresh_architecture_scope(packet)
+
+        self.assertEqual(self.contract_bundle.validation_errors(packet), ())
 
     def test_four_readiness_levels_issue_content_addressed_receipts(self) -> None:
         architecture = self.service.issue(

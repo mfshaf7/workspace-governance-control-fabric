@@ -229,6 +229,14 @@ architecture packets, work-start records, and Review Packets. OOS production of
 those artifacts and safe OpenProject reference projection remain separate work;
 the registry does not mutate ART or accept arbitrary evidence.
 
+The pinned architecture contract accepts both schema v1 and v2. Version 1
+retains owner-repository merge ordering for compatibility. Version 2 keeps ART
+work dependencies, source-backed Landing Unit ordering, and required human
+gates as separate structures. Artifact-bound readiness validates their exact
+coverage, owner bindings, endpoints, and acyclic ordering against the durable
+artifact, so repeated Landing Units from one owner repository remain
+unambiguous without treating the owner name as a source-order identity.
+
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
 `wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`
 writes raw stdout/stderr to local artifact files, writes a compact receipt JSON
