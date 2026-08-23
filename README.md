@@ -78,6 +78,7 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/validation-runs`, `GET /v1/receipts`,
   `GET /v1/receipts/{receipt_id}`, `GET /v1/metrics/receipts`,
   `POST /v1/readiness/evaluate`,
+  `POST /v1/agent-actions/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and
   `POST /v1/art/evidence-packet` with compact runtime metadata. The
   dev-integration API also exposes the bounded Delivery ART registry at
@@ -112,13 +113,20 @@ That surface is constrained by the workspace-owned contract in
   compact receipts, local ledger event helpers, operator-safe plan/check,
   receipt-list, receipt-inspection, and readiness-decision helpers, broker ART
   runtime-context ingestion, ART readiness
-  receipts, bootstrap policy admission decisions, runtime governance records,
+  receipts, bootstrap policy admission decisions, governed agent-action policy
+  decisions against a digest-pinned Workspace Governance authority bundle,
+  runtime governance records,
   compact evidence projection adapters, and local retention plus ledger
   compaction controls. It also owns strict canonical JSON, content-addressed
   Delivery ART storage, append-only registry metadata, immutable custody
   receipts, reconciliation for approved artifact classes, pinned Delivery ART
   schema validation, four-level readiness evaluation, and immutable readiness
   receipts.
+- `contracts/agent-action/` is a digest-pinned runtime snapshot of the
+  Workspace Governance agent-action authority, request schema, policy-decision
+  schema at the exact #951 source commit, plus WGCF-local evaluator fixtures.
+  WGCF validates the authority bundle before issuing a decision; the copied
+  files and local fixtures do not become local policy authority.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`

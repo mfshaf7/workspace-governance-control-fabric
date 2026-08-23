@@ -36,6 +36,10 @@ Current slice:
   readiness receipts
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
+- agent-action policy helpers that validate a digest-pinned Workspace
+  Governance authority bundle, compare exact current authority bindings, issue
+  canonical `allow`, `deny`, or `review-required` decisions, and append compact
+  decision events without invoking an owner workflow
 - runtime governance record helpers for blocker decisions, approvals, waivers,
   risk posture, and change evidence links
 - integer-only RFC 8785 canonical JSON, approved Delivery ART artifact
@@ -162,6 +166,14 @@ review-required decisions and can build `policy.decision.recorded` ledger
 events linked to receipts. OPA/Rego files under `policies/opa` define the
 policy-engine surface, but upstream policy meaning still belongs to
 `workspace-governance`.
+
+Agent-action evaluation is a separate, narrower boundary. It consumes the
+snapshot under `contracts/agent-action`, verifies every manifest digest and
+JSON Schema, then evaluates one canonical request against caller-supplied
+current bindings. Missing current truth requires review; stale, mismatched,
+expired, or replayed truth is denied. Mutation additionally requires the exact
+approval binding and emits owner-receipt obligations. The evaluator never
+executes the action or stores raw context, model output, or credentials.
 
 Evidence projection helpers consume `ControlReceipt` records and optional
 policy decisions to produce downstream-safe records for three surfaces:

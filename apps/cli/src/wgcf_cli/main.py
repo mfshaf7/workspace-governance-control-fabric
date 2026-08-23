@@ -29,6 +29,7 @@ from control_fabric_core import (
     project_receipts_to_art_evidence_packet,
     query_manifest_file,
     receipt_metrics_snapshot,
+    run_agent_action_evaluation,
     run_catalog_operator_validation_check,
     run_operator_readiness_evaluation,
     run_operator_validation_check,
@@ -221,6 +222,49 @@ def build_parser() -> argparse.ArgumentParser:
         help="Operator or automation actor recorded in the ledger event.",
     )
     readiness_parser.add_argument(
+        "--json",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Print machine-readable JSON for this command.",
+    )
+    agent_action_parser = subparsers.add_parser(
+        "agent-action",
+        help="Evaluate governed agent-action requests.",
+    )
+    agent_action_subparsers = agent_action_parser.add_subparsers(
+        dest="agent_action_command",
+        required=True,
+    )
+    agent_action_evaluate_parser = agent_action_subparsers.add_parser(
+        "evaluate",
+        help="Issue one bounded policy decision for an exact action request.",
+    )
+    agent_action_evaluate_parser.add_argument(
+        "--request",
+        required=True,
+        help="Repo-local canonical agent-action request JSON file.",
+    )
+    agent_action_evaluate_parser.add_argument(
+        "--current",
+        required=True,
+        help="Repo-local JSON file containing current authority bindings.",
+    )
+    agent_action_evaluate_parser.add_argument(
+        "--repo-root",
+        default=".",
+        help="Repository root used to confine request, binding, and ledger paths.",
+    )
+    agent_action_evaluate_parser.add_argument(
+        "--ledger",
+        default=DEFAULT_LEDGER_PATH,
+        help="Repo-local JSONL ledger file for the issued policy decision.",
+    )
+    agent_action_evaluate_parser.add_argument(
+        "--actor",
+        default="wgcf-local",
+        help="Operator or authenticated workload recorded in the ledger event.",
+    )
+    agent_action_evaluate_parser.add_argument(
         "--json",
         action="store_true",
         default=argparse.SUPPRESS,
@@ -796,6 +840,29 @@ def render_operator_readiness_human(record: dict[str, object]) -> str:
     )
 
 
+def render_agent_action_decision_human(record: dict[str, object]) -> str:
+    decision = record["decision"]
+    assert isinstance(decision, dict)
+    reasons = decision["reason_codes"]
+    obligations = decision["obligations"]
+    assert isinstance(reasons, list)
+    assert isinstance(obligations, list)
+    return "\n".join(
+        [
+            "Workspace Governance Control Fabric Agent Action",
+            f"decision: {decision['decision_id']}",
+            f"action: {decision['action_class']}",
+            f"outcome: {decision['outcome']}",
+            f"target: {decision['bindings']['target_owner_repo']}:{decision['bindings']['target_resource_id']}",
+            "reasons:",
+            *[f"- {reason}" for reason in reasons],
+            "obligations:",
+            *[f"- {obligation}" for obligation in obligations],
+            "raw context: not embedded",
+        ],
+    )
+
+
 def render_art_graph_human(record: dict[str, object]) -> str:
     summary = record["summary"]
     assert isinstance(summary, dict)
@@ -1027,6 +1094,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             print(render_operator_readiness_human(record))
         return 0 if record["ready"] else 1
+
+    if args.command == "agent-action" and args.agent_action_command == "evaluate":
+        repo_root = Path(args.repo_root).resolve()
+        request = _load_json_file(
+            str(_resolve_repo_local_path(repo_root, args.request, "request")),
+        )
+        current = _load_json_file(
+            str(_resolve_repo_local_path(repo_root, args.current, "current")),
+        )
+        result = run_agent_action_evaluation(
+            request,
+            actor=args.actor,
+            current=current,
+            ledger_path=_resolve_repo_local_path(repo_root, args.ledger, "ledger"),
+        )
+        record = result.to_record()
+        if args.json:
+            print(json.dumps(record, indent=2, sort_keys=True))
+        else:
+            print(render_agent_action_decision_human(record))
+        return 0 if result.decision.outcome == "allow" else 1
 
     if args.command == "catalog" and args.catalog_command == "plan":
         repo_root = Path(args.repo_root).resolve()

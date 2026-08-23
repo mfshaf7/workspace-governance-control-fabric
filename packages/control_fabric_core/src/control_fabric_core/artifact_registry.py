@@ -218,7 +218,15 @@ class ArtifactRegistryAuthorizer:
         self._callers = {
             oos_caller_id: (
                 oos_secret,
-                frozenset({"register", "read", "evaluate-readiness", "read-readiness"}),
+                frozenset(
+                    {
+                        "register",
+                        "read",
+                        "evaluate-readiness",
+                        "read-readiness",
+                        "evaluate-agent-action",
+                    },
+                ),
             ),
             reconciler_caller_id: (
                 reconciler_secret,

@@ -20,6 +20,10 @@ The control fabric is split by runtime responsibility:
   Governance Delivery ART schemas. The manifest identifies the exact authority
   commit; Delivery ART readiness initialization fails closed if any schema byte
   differs.
+- `contracts/agent-action`: digest-pinned runtime snapshot of the Workspace
+  Governance agent-action authority, request schema, and policy-decision schema
+  at the exact authority commit. Adjacent evaluator fixtures are WGCF-local
+  test inputs, not copied policy or upstream authority.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.
@@ -213,6 +217,16 @@ boundary: no upstream workspace policy truth, platform release approval, or
 security acceptance is made in this repo.
 
 ## Runtime Governance Record Model
+
+The agent-action evaluator is a distinct fail-closed policy boundary for
+AI-assisted operator actions. It validates the canonical request and current
+operator, authenticated caller, agent, workflow, target, source-version,
+context, delegation, approval, and idempotency bindings before issuing one of
+three canonical outcomes: `allow`, `deny`, or `review-required`. Missing proof
+requires review; contradiction, expiry, or replay denies. The evaluator emits
+a digest-bound policy decision and compact ledger event only. OOS remains the
+workflow owner, domain repos remain mutation owners, and runtime activation
+remains blocked by the downstream enforcement, conformance, and Security work.
 
 Runtime governance records are fabric-local audit records for decisions and
 references that operators need to see quickly:

@@ -23,6 +23,9 @@ Current slice:
   inspection without reading raw artifacts or leaving the receipt directory
 - support `wgcf readiness --target <target> --profile <profile>` for local
   readiness decisions with a fabric-local ledger event
+- support `wgcf agent-action evaluate --request <request.json> --current
+  <bindings.json>` for bounded, digest-bound agent-action policy decisions
+  without invoking an owner workflow
 - support `wgcf budget show` for operator-visible invocation-class budgets
   such as `inline-fast`, `receipt-check`, `hard-gate`, and `checkpoint-batch`
 - support `wgcf lifecycle plan` and `wgcf lifecycle apply --confirm` for

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
+    MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
@@ -21,6 +23,8 @@ from control_fabric_core import (
     ArtifactRegistryUnauthorized,
     ArtifactRegistryUnavailable,
     ArtifactStorageError,
+    AgentActionContractError,
+    AgentActionPolicyError,
     DEFAULT_ARTIFACT_ROOT,
     DEFAULT_LEDGER_EXPORT_DIR,
     DEFAULT_LEDGER_PATH,
@@ -52,10 +56,12 @@ from control_fabric_core import (
     query_manifest_file,
     receipt_metrics_snapshot,
     run_operator_readiness_evaluation,
+    run_agent_action_evaluation,
     run_operator_validation_check,
     source_snapshot_status,
     status_snapshot,
 )
+from control_fabric_core.canonical_json import strict_json_loads
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -66,6 +72,7 @@ def create_app(
     *,
     artifact_registry: DeliveryArtifactRegistry | None = None,
     artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
+    agent_action_ledger_path: str | Path | None = None,
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
@@ -82,6 +89,9 @@ def create_app(
     resolved_artifact_registry = artifact_registry
     resolved_registry_authorizer = artifact_registry_authorizer
     resolved_delivery_art_readiness = delivery_art_readiness
+    resolved_agent_action_ledger_path = Path(
+        agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
+    ).resolve()
 
     def registry_runtime() -> tuple[DeliveryArtifactRegistry, ArtifactRegistryAuthorizer]:
         nonlocal resolved_artifact_registry, resolved_registry_authorizer
@@ -101,6 +111,11 @@ def create_app(
         if resolved_delivery_art_readiness is None:
             resolved_delivery_art_readiness = build_delivery_art_readiness_runtime(registry)
         return resolved_delivery_art_readiness, authorizer
+
+    def caller_authorizer() -> ArtifactRegistryAuthorizer:
+        if resolved_registry_authorizer is not None:
+            return resolved_registry_authorizer
+        return ArtifactRegistryAuthorizer.from_environment()
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -393,6 +408,42 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
             "readiness": result.to_record(),
+        }
+
+    @app.post("/v1/agent-actions/evaluate")
+    async def agent_action_evaluate(request: Request) -> dict[str, Any]:
+        try:
+            authorizer = caller_authorizer()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "evaluate-agent-action")
+            raw_request = await _read_bounded_request(
+                request,
+                limit=MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
+                label="agent-action evaluation request",
+            )
+            payload = strict_json_loads(raw_request)
+            if not isinstance(payload, dict):
+                raise AgentActionContractError("agent-action evaluation payload must be an object")
+            action_request = payload.get("request")
+            current = payload.get("current")
+            if not isinstance(action_request, dict):
+                raise AgentActionContractError("request must be an object")
+            if not isinstance(current, dict):
+                raise AgentActionContractError("current must be an object")
+            current = copy.deepcopy(current)
+            current["caller_workload_id"] = caller_id
+            result = run_agent_action_evaluation(
+                action_request,
+                actor=caller_id,
+                current=current,
+                ledger_path=resolved_agent_action_ledger_path,
+            )
+        except (ArtifactRegistryUnauthorized, ArtifactRegistryForbidden) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (AgentActionContractError, AgentActionPolicyError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "evaluation": result.to_record(),
         }
 
     @app.post("/v1/art/graph")

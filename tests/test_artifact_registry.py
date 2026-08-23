@@ -567,6 +567,11 @@ class ArtifactRegistryAuthorizerTests(TestCase):
             "o" * 32,
             "read-readiness",
         )
+        self.authorizer.authorize(
+            "operator-orchestration-service",
+            "o" * 32,
+            "evaluate-agent-action",
+        )
         self.authorizer.authorize("workspace-governance-control-fabric", "r" * 32, "reconcile")
         self.authorizer.authorize(
             "workspace-governance-control-fabric",
@@ -583,6 +588,12 @@ class ArtifactRegistryAuthorizerTests(TestCase):
                 "workspace-governance-control-fabric",
                 "r" * 32,
                 "evaluate-readiness",
+            )
+        with self.assertRaises(ArtifactRegistryForbidden):
+            self.authorizer.authorize(
+                "workspace-governance-control-fabric",
+                "r" * 32,
+                "evaluate-agent-action",
             )
         with self.assertRaises(ArtifactRegistryUnauthorized):
             self.authorizer.authorize("operator-orchestration-service", "wrong", "read")

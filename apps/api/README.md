@@ -29,6 +29,9 @@ Current slice:
   correlation visibility
 - implement `POST /v1/readiness/evaluate` for local readiness decisions with a
   fabric-local ledger event
+- implement `POST /v1/agent-actions/evaluate` for a bounded `allow`, `deny`, or
+  `review-required` decision against exact operator, caller, agent, workflow,
+  target, source-version, context, delegation, approval, and replay bindings
 - implement `POST /v1/art/graph` for compact broker-owned ART context graph
   projection
 - implement `POST /v1/art/readiness` for pre-mutation ART readiness receipts
@@ -53,6 +56,14 @@ does not mutate upstream authority stores.
 
 The ART routes are read/projection routes. They do not mutate OpenProject and
 do not replace `operator-orchestration-service` as the ART write authority.
+
+The agent-action route is an authenticated policy-evaluation boundary. Its
+request body contains `request` and `current` objects, is limited to 64 KiB,
+and is accepted only from the existing OOS caller scope. The API replaces the
+supplied current caller id with the authenticated workload id before
+evaluation, validates the digest-pinned Workspace Governance contract, and
+appends a compact decision event. It never invokes the owner workflow, embeds
+raw context or credentials, or treats agent identity as authorization.
 
 The Delivery ART registry routes are enabled only in `dev-integration`. They
 use separate method-scoped caller credentials: OOS may register and read, while
