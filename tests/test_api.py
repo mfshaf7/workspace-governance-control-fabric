@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 import json
 import sys
 import tempfile
@@ -15,11 +16,13 @@ sys.path.insert(0, str(REPO_ROOT / "apps/api/src"))
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
 from control_fabric_core import (
+    MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     PACKAGE_VERSION,
 )
+from control_fabric_core.canonical_json import canonical_digest
 from wgcf_api import create_app
 
 
@@ -158,6 +161,86 @@ class ApiTests(TestCase):
             ),
             readiness,
         )
+
+    def agent_action_payload(self) -> dict[str, Any]:
+        fixture_root = REPO_ROOT / "contracts/agent-action/fixtures"
+        request = json.loads((fixture_root / "request.valid.json").read_text(encoding="utf-8"))
+        current = json.loads((fixture_root / "current.valid.json").read_text(encoding="utf-8"))
+        now = datetime.now(UTC)
+        request["requested_at"] = (now - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+        request["expires_at"] = (now + timedelta(minutes=15)).isoformat().replace("+00:00", "Z")
+        request["integrity"].pop("content_digest")
+        request["integrity"]["content_digest"] = canonical_digest(request)
+        current["approval_expires_at"] = (now + timedelta(minutes=10)).isoformat().replace(
+            "+00:00",
+            "Z",
+        )
+        return {"request": request, "current": current}
+
+    def test_agent_action_evaluation_is_authenticated_and_compact(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            ledger_path = Path(temp_dir) / "ledger.jsonl"
+            authorizer = ArtifactRegistryAuthorizer(
+                oos_secret="o" * 32,
+                reconciler_secret="r" * 32,
+            )
+            app = create_app(
+                REPO_ROOT,
+                artifact_registry_authorizer=authorizer,
+                agent_action_ledger_path=ledger_path,
+            )
+            status, payload = asyncio.run(
+                asgi_request_json(
+                    "POST",
+                    "/v1/agent-actions/evaluate",
+                    self.agent_action_payload(),
+                    app=app,
+                    headers={
+                        "x-wgcf-caller-id": "operator-orchestration-service",
+                        "x-wgcf-caller-secret": "o" * 32,
+                    },
+                ),
+            )
+
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["evaluation"]["decision"]["outcome"], "allow")
+            self.assertEqual(
+                payload["evaluation"]["ledger_event"]["actor"],
+                "operator-orchestration-service",
+            )
+            self.assertTrue(ledger_path.is_file())
+            self.assertNotIn("raw_context", json.dumps(payload))
+
+    def test_agent_action_evaluation_rejects_unauthenticated_and_oversized_requests(self) -> None:
+        authorizer = ArtifactRegistryAuthorizer(
+            oos_secret="o" * 32,
+            reconciler_secret="r" * 32,
+        )
+        app = create_app(REPO_ROOT, artifact_registry_authorizer=authorizer)
+        status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/agent-actions/evaluate",
+                self.agent_action_payload(),
+                app=app,
+            ),
+        )
+        self.assertEqual(status, 401)
+
+        oversized = b"{" + b" " * MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES + b"}"
+        status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/agent-actions/evaluate",
+                app=app,
+                headers={
+                    "x-wgcf-caller-id": "operator-orchestration-service",
+                    "x-wgcf-caller-secret": "o" * 32,
+                },
+                raw_body=oversized,
+            ),
+        )
+        self.assertEqual(status, 413)
 
     def test_healthz_returns_service_version(self) -> None:
         status, payload = asyncio.run(asgi_get_json("/healthz"))

@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 from contextlib import redirect_stdout
+from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest import TestCase
@@ -18,6 +19,7 @@ from control_fabric_core import (
     bootstrap_validation_contract,
     status_snapshot,
 )
+from control_fabric_core.canonical_json import canonical_digest
 from wgcf_cli.main import main, render_status_human
 
 
@@ -310,4 +312,63 @@ class FoundationTests(TestCase):
             self.assertEqual(payload["outcome"], "ready")
             self.assertEqual(payload["mutation_boundary"], "fabric-local decision record only")
             self.assertEqual(payload["ledger_event"]["action"], "readiness.decision.recorded")
+            self.assertTrue((temp_path / "ledger.jsonl").is_file())
+
+    def test_cli_agent_action_evaluate_issues_compact_decision(self) -> None:
+        with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
+            temp_path = Path(temp_dir)
+            fixture_root = REPO_ROOT / "contracts/agent-action/fixtures"
+            request = json.loads(
+                (fixture_root / "request.valid.json").read_text(encoding="utf-8"),
+            )
+            current = json.loads(
+                (fixture_root / "current.valid.json").read_text(encoding="utf-8"),
+            )
+            now = datetime.now(UTC)
+            request["requested_at"] = (now - timedelta(minutes=1)).isoformat().replace(
+                "+00:00",
+                "Z",
+            )
+            request["expires_at"] = (now + timedelta(minutes=15)).isoformat().replace(
+                "+00:00",
+                "Z",
+            )
+            request["integrity"].pop("content_digest")
+            request["integrity"]["content_digest"] = canonical_digest(request)
+            current["approval_expires_at"] = (now + timedelta(minutes=10)).isoformat().replace(
+                "+00:00",
+                "Z",
+            )
+            request_path = temp_path / "request.json"
+            current_path = temp_path / "current.json"
+            request_path.write_text(json.dumps(request), encoding="utf-8")
+            current_path.write_text(json.dumps(current), encoding="utf-8")
+
+            buffer = StringIO()
+            with redirect_stdout(buffer):
+                result = main(
+                    [
+                        "agent-action",
+                        "evaluate",
+                        "--repo-root",
+                        str(REPO_ROOT),
+                        "--request",
+                        str(request_path),
+                        "--current",
+                        str(current_path),
+                        "--ledger",
+                        str(temp_path / "ledger.jsonl"),
+                        "--actor",
+                        "operator-orchestration-service",
+                        "--json",
+                    ],
+                )
+
+            self.assertEqual(result, 0)
+            payload = json.loads(buffer.getvalue())
+            self.assertEqual(payload["decision"]["outcome"], "allow")
+            self.assertEqual(
+                payload["ledger_event"]["action"],
+                "agent-action.policy-decision.issued",
+            )
             self.assertTrue((temp_path / "ledger.jsonl").is_file())

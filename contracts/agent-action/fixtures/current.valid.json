@@ -1,0 +1,51 @@
+{
+  "operator_principal_id": "operator:workspace-owner",
+  "operator_session_ref": {
+    "uri": "wgcf://sessions/example-001",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+  },
+  "operator_acceptance_ref": {
+    "uri": "wgcf://approvals/request-example-001",
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+  },
+  "caller_workload_id": "operator-orchestration-service",
+  "caller_credential_binding_ref": {
+    "uri": "wgcf://identities/oos-dev-integration",
+    "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "agent_instance_id": "agent-instance:example-001",
+  "model_invocation_ref": {
+    "uri": "platform://model-invocations/example-001",
+    "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+  },
+  "workflow_id": "delivery-art-work-item-update",
+  "workflow_version": "1",
+  "admitted_commands": [
+    "update-work-item"
+  ],
+  "target_owner_repo": "operator-orchestration-service",
+  "target_resource_id": "work-item-951",
+  "source_version": "lock-version:4",
+  "context_packet_ref": {
+    "uri": "cgg://packets/example-001",
+    "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+  },
+  "context_receipt_ref": {
+    "uri": "cgg://receipts/example-001",
+    "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "delegation_ref": {
+    "uri": "wgcf://delegations/example-001",
+    "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+  },
+  "policy_profile_ref": {
+    "uri": "wgcf://policy-profiles/agent-action-v1",
+    "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+  },
+  "approval_ref": {
+    "uri": "wgcf://approvals/action-example-001",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "approval_expires_at": "2026-08-22T10:15:00Z",
+  "consumed_idempotency": []
+}

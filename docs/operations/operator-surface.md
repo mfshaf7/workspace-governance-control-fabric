@@ -94,6 +94,7 @@ wgcf receipts list
 wgcf inspect --receipt <receipt-id-or-path>
 wgcf metrics receipts
 wgcf readiness --target workspace|repo:<name>|component:<name>|operator-surface:<id> --profile <profile>
+wgcf agent-action evaluate --request <request.json> --current <current.json> --ledger <ledger.jsonl> --actor <actor>
 wgcf lifecycle plan --profile developer|ci|enterprise
 wgcf lifecycle apply --profile developer|ci|enterprise --confirm
 wgcf art graph --context <broker-context.json>
@@ -343,6 +344,7 @@ Required route meanings:
 - `GET /v1/receipts/{receipt_id}`
 - `GET /v1/metrics/receipts`
 - `POST /v1/readiness/evaluate`
+- `POST /v1/agent-actions/evaluate`
 - `POST /v1/art/graph`
 - `POST /v1/art/readiness`
 - `POST /v1/art/evidence-packet`
@@ -400,6 +402,7 @@ summaries only.
 - `art-evidence-packet`
 - `evidence-projection`
 - `runtime-governance-record`
+- `agent-action-policy-decision`
 - `readiness-decision`
 - `retention-plan`
 - `correlation-id`
@@ -411,6 +414,15 @@ summaries only.
 Use receipts for operator-safe proof. Use ledger events for audit and handoff.
 Use upstream PRs, ART records, platform records, and security reviews for their
 own authority domains.
+
+Agent-action evaluation is decision-only. The request and current-binding
+files must be repo-local for CLI use; API use is restricted to the authenticated
+OOS caller scope and binds the current caller to that authenticated identity.
+An `allow` decision permits the downstream owner workflow to continue but does
+not execute it. `deny` and `review-required` both block downstream execution.
+Mutation also requires exact operator approval and a later owner receipt. Raw
+context, model output, credentials, and owner-backend results remain outside
+the decision and ledger records.
 
 ## Governance Manifests
 

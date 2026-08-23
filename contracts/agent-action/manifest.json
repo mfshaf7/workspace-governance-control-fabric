@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "source": {
+    "commit": "d6e5a5bf0cac6ddfbf127f5826159556971c3718",
+    "repo": "workspace-governance"
+  },
+  "authority": {
+    "path": "agent-action-authority.yaml",
+    "sha256": "8ed8aee6b03e42d02d5621e650d4488ee3a043e55b38cbd9e4018e4b9bf8d0c3",
+    "uri": "repo://workspace-governance/contracts/agent-action-authority.yaml"
+  },
+  "schemas": {
+    "agent_action_request": {
+      "path": "agent-action-request.schema.json",
+      "sha256": "e07fc2bdcbbfdf6a7454a80d6391d23cc56083cba988f059a1d52616034d271f"
+    },
+    "agent_action_policy_decision": {
+      "path": "agent-action-policy-decision.schema.json",
+      "sha256": "c0a1e8e1661c1f8bba9f9262853c236db86a2a041581b459b40c0c794ad13a16"
+    }
+  }
+}

@@ -92,6 +92,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "packages/control_fabric_core/src/control_fabric_core/artifact_registry.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/artifact_registry.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/agent_action_policy.py": (
+            repo_root / "packages/control_fabric_core/src/control_fabric_core/agent_action_policy.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/artifact_storage.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/artifact_storage.py"
         ),
@@ -135,6 +138,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "contracts/delivery-art/manifest.json": (
             repo_root / "contracts/delivery-art/manifest.json"
+        ),
+        "contracts/agent-action/manifest.json": (
+            repo_root / "contracts/agent-action/manifest.json"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"

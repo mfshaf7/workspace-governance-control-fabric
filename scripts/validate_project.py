@@ -33,6 +33,7 @@ REQUIRED_PATHS = (
     "apps/worker/src/wgcf_worker/__main__.py",
     "apps/worker/src/wgcf_worker/main.py",
     "packages/control_fabric_core/README.md",
+    "packages/control_fabric_core/src/control_fabric_core/agent_action_policy.py",
     "packages/control_fabric_core/src/control_fabric_core/artifact_registry.py",
     "packages/control_fabric_core/src/control_fabric_core/artifact_storage.py",
     "packages/control_fabric_core/src/control_fabric_core/art_readiness.py",
@@ -101,6 +102,13 @@ REQUIRED_PATHS = (
     "contracts/delivery-art/delivery-art-readiness-receipt.schema.json",
     "contracts/delivery-art/delivery-art-review-packet.schema.json",
     "contracts/delivery-art/delivery-art-work-start-record.schema.json",
+    "contracts/agent-action/manifest.json",
+    "contracts/agent-action/README.md",
+    "contracts/agent-action/agent-action-authority.yaml",
+    "contracts/agent-action/agent-action-request.schema.json",
+    "contracts/agent-action/agent-action-policy-decision.schema.json",
+    "contracts/agent-action/fixtures/request.valid.json",
+    "contracts/agent-action/fixtures/current.valid.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -200,6 +208,7 @@ def validate_imports(repo_root: Path) -> list[str]:
     sys.path.insert(0, str(repo_root / "apps/worker/src"))
 
     from control_fabric_core import (
+        AgentActionContractBundle,
         build_governance_record_ledger_event,
         build_art_runtime_graph,
         build_manifest_graph,
@@ -211,6 +220,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         build_validation_plan,
         evaluate_operation_budget,
         evaluate_admission_policy,
+        evaluate_agent_action_request,
         evaluate_art_readiness,
         evaluate_operator_readiness,
         execute_validation_plan,
@@ -312,6 +322,21 @@ def validate_imports(repo_root: Path) -> list[str]:
     )
     if readiness_parsed.command != "readiness":
         errors.append("wgcf parser did not accept readiness command")
+    agent_action_parsed = parser.parse_args(
+        [
+            "agent-action",
+            "evaluate",
+            "--request",
+            "contracts/agent-action/fixtures/request.valid.json",
+            "--current",
+            "contracts/agent-action/fixtures/current.valid.json",
+        ],
+    )
+    if (
+        agent_action_parsed.command != "agent-action"
+        or agent_action_parsed.agent_action_command != "evaluate"
+    ):
+        errors.append("wgcf parser did not accept agent-action evaluate command")
     art_readiness_parsed = parser.parse_args(
         ["art", "readiness", "--context", "context.json", "--target-item-id", "517"],
     )
@@ -340,6 +365,7 @@ def validate_imports(repo_root: Path) -> list[str]:
         "/v1/validation-runs",
         "/v1/receipts/{receipt_id}",
         "/v1/readiness/evaluate",
+        "/v1/agent-actions/evaluate",
         "/v1/budgets",
         "/v1/metrics/receipts",
         "/v1/lifecycle/retention-plan",
@@ -368,6 +394,27 @@ def validate_imports(repo_root: Path) -> list[str]:
         errors.append("worker activation must be denied by default")
     if controlled_worker_snapshot["activation"]["authorized"]:
         errors.append("controlled-proof worker activation must be denied by default")
+    agent_action_bundle = AgentActionContractBundle.load(
+        repo_root / "contracts/agent-action",
+    )
+    agent_action_request = json.loads(
+        (repo_root / "contracts/agent-action/fixtures/request.valid.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    agent_action_current = json.loads(
+        (repo_root / "contracts/agent-action/fixtures/current.valid.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    agent_action_decision = evaluate_agent_action_request(
+        agent_action_request,
+        current=agent_action_current,
+        contract_bundle=agent_action_bundle,
+        now="2026-08-22T10:00:01Z",
+    )
+    if agent_action_decision.outcome != "allow":
+        errors.append("valid pinned agent-action request was not allowed")
     if controlled_worker_snapshot["temporal"]["task_queue"] != (
         "wgcf.controlled-proof.validation-readiness.v1"
     ):
