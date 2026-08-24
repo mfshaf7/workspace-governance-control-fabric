@@ -46,9 +46,15 @@ class FoundationTests(TestCase):
         self.assertTrue(snapshot["required_paths"]["schemas/governance-manifest.schema.json"])
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/delivery-art/manifest.json"])
+        self.assertTrue(snapshot["required_paths"]["contracts/prototype-ingress/manifest.json"])
         self.assertTrue(
             snapshot["required_paths"][
                 "migrations/versions/0003_create_delivery_art_readiness_receipts.py"
+            ],
+        )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0004_prototype_ingress_ready.py"
             ],
         )
         self.assertEqual(
@@ -96,6 +102,8 @@ class FoundationTests(TestCase):
         )
         self.assertIn("/var/lib/wgcf/orchestration/controlled-proof", dockerfile)
         self.assertIn("/var/lib/wgcf/orchestration/validation-readiness", dockerfile)
+        api_stage = dockerfile.split("FROM app-base AS api", 1)[1]
+        self.assertIn("apt-get install --no-install-recommends --yes git", api_stage)
 
     def test_human_status_is_compact_and_operator_safe(self) -> None:
         rendered = render_status_human(status_snapshot(REPO_ROOT))

@@ -75,6 +75,11 @@ Use this flow for the currently implemented local CLI surface:
    readiness decisions.
 14. Use artifact and ledger references for handoff or audit.
 
+For Prototype-to-Delivery ingress, OOS submits the exact committed Prototype
+Delivery packet to `POST /v1/readiness/prototype-ingress`. Treat `allow` as
+readiness evidence only. WGCF does not mutate Prototype, Delivery, or ART, and
+the reconciler has read-only access to the immutable receipt endpoint.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

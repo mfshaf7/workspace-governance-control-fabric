@@ -598,6 +598,12 @@ spec:
                 secretKeyRef:
                   name: ${REGISTRY_CALLER_SECRET}
                   key: reconciler-caller-secret
+            - name: WGCF_PROTOTYPE_STUDIO_REPO_ROOT
+              value: /sources/workspace-prototype-studio
+          volumeMounts:
+            - name: prototype-studio-source
+              mountPath: /sources/workspace-prototype-studio
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /readyz
@@ -626,6 +632,11 @@ spec:
             capabilities:
               drop:
                 - ALL
+      volumes:
+        - name: prototype-studio-source
+          hostPath:
+            path: ${WORKSPACE_ROOT}/workspace-prototype-studio
+            type: Directory
 ---
 apiVersion: v1
 kind: Service

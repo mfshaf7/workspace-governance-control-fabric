@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/prototype-studio/prototype-delivery-packet.schema.json",
+  "title": "Prototype Delivery Packet V1",
+  "description": "Versioned, source-authoritative Prototype intent for later governed Delivery admission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "packet_id", "packet_ref", "packet_digest", "content"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "packet_id": { "$ref": "#/$defs/kebab_identifier" },
+    "packet_ref": {
+      "type": "string",
+      "pattern": "^record://delivery-packets/[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "packet_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "intent",
+        "target",
+        "source",
+        "baseline",
+        "work",
+        "posture",
+        "custody",
+        "authorization",
+        "evidence_refs",
+        "rationale"
+      ],
+      "properties": {
+        "intent": { "const": "governed-delivery" },
+        "target": { "const": "workspace-delivery-art" },
+        "source": { "$ref": "#/$defs/source" },
+        "baseline": { "$ref": "#/$defs/baseline" },
+        "work": { "$ref": "#/$defs/work" },
+        "posture": { "$ref": "#/$defs/posture" },
+        "custody": { "$ref": "#/$defs/resolved_source_custody" },
+        "authorization": { "$ref": "#/$defs/authorization" },
+        "evidence_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/identifier" }
+        },
+        "rationale": { "$ref": "#/$defs/text" }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"
+    },
+    "kebab_identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "git_commit": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000
+    },
+    "text_list": {
+      "type": "array",
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/text" }
+    },
+    "non_empty_text_list": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/text" }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "prototype_id",
+        "record_ref",
+        "record_version",
+        "lifecycle",
+        "owner",
+        "repository",
+        "revision"
+      ],
+      "properties": {
+        "kind": { "const": "prototype" },
+        "prototype_id": { "$ref": "#/$defs/kebab_identifier" },
+        "record_ref": {
+          "type": "string",
+          "pattern": "^record://prototypes/[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "record_version": { "$ref": "#/$defs/git_commit" },
+        "lifecycle": { "const": "baseline-approved" },
+        "owner": { "$ref": "#/$defs/text" },
+        "repository": { "$ref": "#/$defs/identifier" },
+        "revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref", "base_commit", "head_commit", "tree"],
+          "properties": {
+            "ref": { "$ref": "#/$defs/identifier" },
+            "base_commit": { "$ref": "#/$defs/git_commit" },
+            "head_commit": { "$ref": "#/$defs/git_commit" },
+            "tree": { "$ref": "#/$defs/git_commit" }
+          }
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record_ref", "baseline_id", "schema_version", "version", "record_digest"],
+      "properties": {
+        "record_ref": {
+          "type": "string",
+          "pattern": "^record://design-baselines/[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "baseline_id": { "$ref": "#/$defs/kebab_identifier" },
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "version": { "$ref": "#/$defs/identifier" },
+        "record_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "work": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "objective", "included_scope", "excluded_scope", "remaining_work"],
+      "properties": {
+        "title": { "$ref": "#/$defs/text" },
+        "objective": { "$ref": "#/$defs/text" },
+        "included_scope": { "$ref": "#/$defs/non_empty_text_list" },
+        "excluded_scope": { "$ref": "#/$defs/text_list" },
+        "remaining_work": { "$ref": "#/$defs/non_empty_text_list" }
+      }
+    },
+    "posture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["visibility_tier", "data_mode", "mutation_boundary"],
+      "properties": {
+        "visibility_tier": { "enum": ["private-internal", "operator-review", "client-review", "public-demo"] },
+        "data_mode": { "enum": ["mock", "synthetic", "real-readonly", "real-mutable"] },
+        "mutation_boundary": { "enum": ["none", "read-only", "prototype-local", "external-sandbox", "real-system"] }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision", "operator_id", "decision_ref"],
+      "properties": {
+        "decision": { "const": "approved" },
+        "operator_id": { "$ref": "#/$defs/identifier" },
+        "decision_ref": { "$ref": "#/$defs/identifier" }
+      }
+    },
+    "resolved_source_custody": {
+      "oneOf": [
+        { "$ref": "#/$defs/existing_repo_custody" },
+        { "$ref": "#/$defs/resolved_new_repo_custody" },
+        { "$ref": "#/$defs/no_repo_custody" }
+      ]
+    },
+    "existing_repo_custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "repository_mode", "repository_gate_state", "owner", "source_ref", "rationale"],
+      "properties": {
+        "classification": { "const": "existing-repo" },
+        "repository_mode": { "const": "existing" },
+        "repository_gate_state": { "const": "resolved" },
+        "owner": { "$ref": "#/$defs/identifier" },
+        "source_ref": { "$ref": "#/$defs/identifier" },
+        "rationale": { "$ref": "#/$defs/text" }
+      }
+    },
+    "resolved_new_repo_custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "repository_mode", "repository_gate_state", "owner", "source_ref", "rationale"],
+      "properties": {
+        "classification": { "const": "new-repo-required" },
+        "repository_mode": { "const": "new" },
+        "repository_gate_state": { "const": "resolved" },
+        "owner": { "$ref": "#/$defs/identifier" },
+        "source_ref": { "$ref": "#/$defs/identifier" },
+        "rationale": { "$ref": "#/$defs/text" }
+      }
+    },
+    "no_repo_custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "repository_mode", "repository_gate_state", "owner", "source_ref", "rationale"],
+      "properties": {
+        "classification": { "enum": ["platform-internal", "non-source-work"] },
+        "repository_mode": { "const": "not-required" },
+        "repository_gate_state": { "const": "not-required" },
+        "owner": { "$ref": "#/$defs/identifier" },
+        "source_ref": { "type": "null" },
+        "rationale": { "$ref": "#/$defs/text" }
+      }
+    }
+  }
+}

@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 from control_fabric_core import (
     MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
+    MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     PACKAGE_VERSION,
@@ -129,6 +130,10 @@ class StubDeliveryArtReadiness:
         return StubRegistryResult({"receipt": {"resolution": "read"}})
 
 
+class StubPrototypeIngressReadiness(StubDeliveryArtReadiness):
+    pass
+
+
 class ApiTests(TestCase):
     def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
         registry = StubArtifactRegistry()
@@ -158,6 +163,21 @@ class ApiTests(TestCase):
                 artifact_registry=registry,
                 artifact_registry_authorizer=authorizer,
                 delivery_art_readiness=readiness,
+            ),
+            readiness,
+        )
+
+    def prototype_readiness_app(self) -> tuple[Any, StubPrototypeIngressReadiness]:
+        readiness = StubPrototypeIngressReadiness()
+        authorizer = ArtifactRegistryAuthorizer(
+            oos_secret="o" * 32,
+            reconciler_secret="r" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                artifact_registry_authorizer=authorizer,
+                prototype_ingress_readiness=readiness,
             ),
             readiness,
         )
@@ -757,3 +777,82 @@ class ApiTests(TestCase):
         self.assertEqual(missing_status, 401)
         self.assertEqual(oversized_status, 413)
         self.assertEqual(readiness.calls, [])
+
+    def test_prototype_ingress_readiness_routes_are_authenticated_and_bounded(self) -> None:
+        app, readiness = self.prototype_readiness_app()
+        oos_headers = {
+            "x-wgcf-caller-id": "operator-orchestration-service",
+            "x-wgcf-caller-secret": "o" * 32,
+        }
+        reconciler_headers = {
+            "x-wgcf-caller-id": "workspace-governance-control-fabric",
+            "x-wgcf-caller-secret": "r" * 32,
+        }
+        token = "b" * 24
+
+        issue_status, issue_payload = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/prototype-ingress",
+                {"request": "bounded"},
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        denied_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/prototype-ingress",
+                {"request": "bounded"},
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+        read_status, read_payload = asyncio.run(
+            asgi_request_json(
+                "GET",
+                f"/v1/readiness/prototype-ingress/{token}",
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+        oversized_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/prototype-ingress",
+                app=app,
+                headers=oos_headers,
+                raw_body=b"x" * (MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES + 1),
+            ),
+        )
+
+        self.assertEqual(200, issue_status)
+        self.assertEqual("created", issue_payload["receipt"]["resolution"])
+        self.assertEqual(403, denied_status)
+        self.assertEqual(200, read_status)
+        self.assertEqual("read", read_payload["receipt"]["resolution"])
+        self.assertEqual(413, oversized_status)
+        self.assertEqual(
+            [
+                ("issue", "operator-orchestration-service"),
+                ("read", "workspace-governance-control-fabric"),
+            ],
+            [(operation, actor) for operation, _, actor in readiness.calls],
+        )
+
+    def test_prototype_ingress_readiness_fails_closed_without_caller_auth(self) -> None:
+        app = create_app(
+            REPO_ROOT,
+            prototype_ingress_readiness=StubPrototypeIngressReadiness(),
+        )
+
+        status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/prototype-ingress",
+                {"request": "bounded"},
+                app=app,
+            ),
+        )
+
+        self.assertEqual(503, status)

@@ -209,6 +209,12 @@ appends a new generation that names the exact prior receipt. A `ready` receipt
 permits the calling workflow to continue, but WGCF does not perform the
 downstream ART mutation or artifact finalization.
 
+Prototype ingress readiness consumes one exact, committed Prototype Delivery
+packet through a separately pinned contract bundle. It fails closed on packet,
+baseline, Git ancestry, tree, current registry projection, or repository
+custody mismatch and persists an immutable `allow` or `deny` receipt. The
+receipt authorizes no mutation; OOS owns later target application.
+
 Runtime governance record helpers create fabric-local records for blocker
 decisions, approval and waiver references, risk posture, and change-record
 evidence links. They can emit ledger events such as

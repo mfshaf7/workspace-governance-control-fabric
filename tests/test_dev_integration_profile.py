@@ -702,6 +702,13 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertIn("mountPath: /workspace", manifest)
             self.assertIn("readOnly: true", manifest)
+            self.assertIn("name: WGCF_PROTOTYPE_STUDIO_REPO_ROOT", manifest)
+            self.assertIn("value: /sources/workspace-prototype-studio", manifest)
+            self.assertIn("mountPath: /sources/workspace-prototype-studio", manifest)
+            self.assertIn(
+                f"path: {REPO_ROOT.parent}/workspace-prototype-studio",
+                manifest,
+            )
             self.assertIn("service: workspace-governance-control-fabric-api", access)
             self.assertIn("postgres_service: workspace-governance-control-fabric-postgresql", access)
             self.assertIn(
@@ -724,6 +731,26 @@ class DevIntegrationProfileTests(TestCase):
                 item["name"]: item
                 for item in api["spec"]["template"]["spec"]["containers"][0]["env"]
             }
+            api_container = api["spec"]["template"]["spec"]["containers"][0]
+            prototype_mount = next(
+                mount
+                for mount in api_container["volumeMounts"]
+                if mount["name"] == "prototype-studio-source"
+            )
+            self.assertTrue(prototype_mount["readOnly"])
+            api_volumes = api["spec"]["template"]["spec"]["volumes"]
+            self.assertEqual(
+                api_volumes,
+                [
+                    {
+                        "name": "prototype-studio-source",
+                        "hostPath": {
+                            "path": f"{REPO_ROOT.parent}/workspace-prototype-studio",
+                            "type": "Directory",
+                        },
+                    },
+                ],
+            )
             storage_env = {
                 item["name"]: item
                 for item in storage["spec"]["template"]["spec"]["containers"][0]["env"]

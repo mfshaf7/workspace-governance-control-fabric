@@ -6,7 +6,8 @@ The control fabric is split by runtime responsibility:
 - `apps/api`: FastAPI health, readiness, status, graph query, local validation
   run, receipt inspection, metrics, readiness decision, lifecycle retention,
   ART projection, dev-integration Delivery ART registry, and artifact-bound
-  Delivery ART readiness surfaces.
+  Delivery ART readiness surfaces, plus non-mutating Prototype ingress
+  readiness.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: WGCF-owned Temporal activity adapter and guarded worker
@@ -15,7 +16,7 @@ The control fabric is split by runtime responsibility:
 - `packages/control_fabric_core/db`: SQLAlchemy metadata for fabric-local graph,
   source snapshot, validation plan, validation run, receipt, readiness,
   escalation, ledger, Delivery ART registry, custody-receipt, and Delivery ART
-  readiness-receipt records.
+  readiness-receipt records, including Prototype ingress decisions.
 - `contracts/delivery-art`: digest-pinned runtime snapshot of the Workspace
   Governance Delivery ART schemas. The manifest identifies the exact authority
   commit; Delivery ART readiness initialization fails closed if any schema byte
@@ -24,6 +25,9 @@ The control fabric is split by runtime responsibility:
   Governance agent-action authority, request schema, and policy-decision schema
   at the exact authority commit. Adjacent evaluator fixtures are WGCF-local
   test inputs, not copied policy or upstream authority.
+- `contracts/prototype-ingress`: digest-pinned snapshot of the exact Prototype
+  Delivery packet schema plus WGCF-local request and immutable readiness
+  receipt schemas. The manifest pins the source repository and commit.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.
@@ -319,6 +323,19 @@ The ART evidence packet helper converts one or more WGCF receipts into
 completion-preflight-compatible payload fields and Review Packet evidence refs.
 It prefixes generated test and validation evidence with `PASS:`, `FAIL:`,
 `CHECK:`, or `NOT APPLICABLE:` and keeps raw artifacts referenced by digest.
+
+## Prototype Ingress Readiness
+
+Prototype ingress readiness consumes the exact packet contract emitted by
+Workspace Prototype Studio. In `dev-integration`, the API receives read-only
+access to that repository only, not to the workspace root. The evaluator
+verifies the packet record, approved baseline, bound base/head/tree, source
+ancestry, current `graduating` projection, and resolved custody before it emits
+an immutable digest-bound `allow` or `deny` receipt.
+
+WGCF never edits Prototype records or Delivery state. The receipt states
+`mutation_authority: none`; OOS consumes a later `allow` receipt and owns the
+target application workflow.
 
 ## Future Operator Console Readiness
 
