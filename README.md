@@ -86,7 +86,10 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/artifacts/delivery-art/{digest_hex}`, and
   `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`, plus artifact-bound
   readiness at `POST /v1/readiness/delivery-art` and
-  `GET /v1/readiness/delivery-art/{receipt_token}`.
+  `GET /v1/readiness/delivery-art/{receipt_token}`. Prototype-to-Delivery
+  ingress readiness is exposed separately at
+  `POST /v1/readiness/prototype-ingress` and
+  `GET /v1/readiness/prototype-ingress/{receipt_token}`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
@@ -127,6 +130,9 @@ That surface is constrained by the workspace-owned contract in
   schema at the exact #951 source commit, plus WGCF-local evaluator fixtures.
   WGCF validates the authority bundle before issuing a decision; the copied
   files and local fixtures do not become local policy authority.
+- `contracts/prototype-ingress/` pins the exact Prototype Delivery packet
+  schema emitted by Workspace Prototype Studio and defines WGCF-local request
+  and receipt schemas for non-mutating ingress evaluation.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`

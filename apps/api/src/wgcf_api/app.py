@@ -13,6 +13,7 @@ from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
     MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
+    MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     ArtifactRegistryConflict,
@@ -38,10 +39,16 @@ from control_fabric_core import (
     DeliveryArtReadinessNotFound,
     DeliveryArtReadinessService,
     DeliveryArtReadinessUnavailable,
+    PrototypeIngressReadinessContractError,
+    PrototypeIngressReadinessError,
+    PrototypeIngressReadinessNotFound,
+    PrototypeIngressReadinessService,
+    PrototypeIngressReadinessUnavailable,
     apply_retention_plan,
     build_art_runtime_graph,
     build_artifact_registry_runtime,
     build_delivery_art_readiness_runtime,
+    build_prototype_ingress_readiness_runtime,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_source_snapshot,
@@ -74,6 +81,7 @@ def create_app(
     artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
     agent_action_ledger_path: str | Path | None = None,
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
+    prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
 
@@ -89,6 +97,7 @@ def create_app(
     resolved_artifact_registry = artifact_registry
     resolved_registry_authorizer = artifact_registry_authorizer
     resolved_delivery_art_readiness = delivery_art_readiness
+    resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_agent_action_ledger_path = Path(
         agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
     ).resolve()
@@ -116,6 +125,16 @@ def create_app(
         if resolved_registry_authorizer is not None:
             return resolved_registry_authorizer
         return ArtifactRegistryAuthorizer.from_environment()
+
+    def prototype_readiness_runtime() -> tuple[
+        PrototypeIngressReadinessService,
+        ArtifactRegistryAuthorizer,
+    ]:
+        nonlocal resolved_prototype_ingress_readiness
+        authorizer = caller_authorizer()
+        if resolved_prototype_ingress_readiness is None:
+            resolved_prototype_ingress_readiness = build_prototype_ingress_readiness_runtime()
+        return resolved_prototype_ingress_readiness, authorizer
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -571,6 +590,38 @@ def create_app(
         except DeliveryArtReadinessError as exc:
             raise _delivery_art_readiness_http_exception(exc) from exc
 
+    @app.post("/v1/readiness/prototype-ingress")
+    async def issue_prototype_ingress_readiness(request: Request) -> dict[str, Any]:
+        try:
+            service, authorizer = prototype_readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw_request = await _read_bounded_request(
+                request,
+                limit=MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
+                label="Prototype ingress readiness request",
+            )
+            return service.issue(raw_request, actor=caller_id).to_record()
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except PrototypeIngressReadinessError as exc:
+            raise _prototype_ingress_readiness_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/prototype-ingress/{receipt_token}")
+    async def read_prototype_ingress_readiness(
+        receipt_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            service, authorizer = prototype_readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "read-readiness")
+            return service.read(receipt_token, actor=caller_id).to_record()
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except PrototypeIngressReadinessError as exc:
+            raise _prototype_ingress_readiness_http_exception(exc) from exc
+
     return app
 
 
@@ -635,6 +686,19 @@ def _delivery_art_readiness_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, DeliveryArtReadinessUnavailable):
         return HTTPException(status_code=503, detail="Delivery ART readiness is unavailable")
     return HTTPException(status_code=503, detail="Delivery ART readiness is unavailable")
+
+
+def _prototype_ingress_readiness_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, PrototypeIngressReadinessNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, PrototypeIngressReadinessContractError):
+        return HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": str(exc)},
+        )
+    if isinstance(exc, PrototypeIngressReadinessUnavailable):
+        return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
+    return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
 
 
 def _resolve_manifest_path(repo_root: Path, manifest_path: str) -> Path:

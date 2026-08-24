@@ -44,6 +44,10 @@ CMD ["wgcf-worker", "status", "--repo-root", "/app"]
 
 FROM app-base AS api
 
+RUN apt-get update \
+  && apt-get install --no-install-recommends --yes git \
+  && rm -rf /var/lib/apt/lists/*
+
 USER wgcf
 
 EXPOSE 8080

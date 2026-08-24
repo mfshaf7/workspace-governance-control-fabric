@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.prototype-ingress-readiness.v1",
+  "authority_refs": [
+    "https://github.com/mfshaf7/workspace-governance/blob/main/contracts/project-lifecycle.yaml",
+    "wgcf://artifacts/delivery-art/sha256/75c1b9cd4cb8ea7fd3292e36637ed061b27e0a3ab60c1b3e989f0ded6e4d5ccd"
+  ],
+  "source_contract": {
+    "repo": "workspace-prototype-studio",
+    "commit": "482e265d74f9313cf9b6259bfcb5b516c27a8698",
+    "path": "schemas/prototype-delivery-packet.schema.json",
+    "sha256": "ddbebd57cfedd10a70248917bb9975b0540a8c22dcf8cca3617f95efa620c54a"
+  },
+  "schemas": {
+    "prototype_delivery_packet": {
+      "path": "prototype-delivery-packet.schema.json",
+      "sha256": "ddbebd57cfedd10a70248917bb9975b0540a8c22dcf8cca3617f95efa620c54a"
+    },
+    "prototype_ingress_readiness_request": {
+      "path": "prototype-ingress-readiness-request.schema.json",
+      "sha256": "521b092bbdca8cee66b3f0769d327a1876ffa6f411aa3f65911c747d0cd18338"
+    },
+    "prototype_ingress_readiness_receipt": {
+      "path": "prototype-ingress-readiness-receipt.schema.json",
+      "sha256": "1686639cb47f576b3698e86c401f453e7dacdb73a2aafa7df63c251e01075fda"
+    }
+  }
+}

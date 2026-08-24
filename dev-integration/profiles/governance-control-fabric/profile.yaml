@@ -1,7 +1,7 @@
 schema_version: 1
 profile_id: governance-control-fabric
 lane_class: governed-devint
-summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata, isolated evidence storage, and disabled-by-default Temporal activity worker.
+summary: Persistent local-k3s dev-integration lane for the WGCF API, PostgreSQL metadata, isolated evidence storage, Prototype ingress readiness, and disabled-by-default Temporal activity worker.
 runtime:
   platform: local-k3s
   state_model: persistent
@@ -59,6 +59,8 @@ source_repos:
     purpose: Authority contracts, runtime-lane policy, component inventory, and validation rules consumed by the control fabric.
   - repo: platform-engineering
     purpose: Local-k3s dev-integration runner, PostgreSQL and object-storage runtime acceptance, runtime access path, and future stage handoff owner.
+  - repo: workspace-prototype-studio
+    purpose: Read-only source of committed Prototype packet, baseline, registry, and Git provenance truth for ingress readiness.
 commands:
   up: dev-integration/profiles/governance-control-fabric/scripts/up.sh
   status: dev-integration/profiles/governance-control-fabric/scripts/status.sh

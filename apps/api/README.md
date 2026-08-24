@@ -48,6 +48,10 @@ Current slice:
   implementation, merge, and operating readiness evaluation
 - implement `GET /v1/readiness/delivery-art/{receipt_token}` for immutable
   readiness receipt retrieval
+- implement `POST /v1/readiness/prototype-ingress` for authenticated,
+  non-mutating evaluation of one exact Prototype Delivery packet
+- implement `GET /v1/readiness/prototype-ingress/{receipt_token}` for immutable
+  Prototype ingress readiness receipt retrieval
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -85,6 +89,15 @@ OOS pre-finalization candidate because the readiness receipt must exist before
 the finalized Review Packet is persisted. The service does not author an ART
 artifact, mutate OpenProject, approve security posture, or activate stage or
 production runtime.
+
+Prototype ingress readiness is a separate `dev-integration` boundary. OOS may
+submit the exact packet emitted and committed by Workspace Prototype Studio;
+the WGCF reconciler may read the resulting receipt but cannot issue it. WGCF
+verifies packet integrity, baseline approval, source commit ancestry and tree,
+the committed packet record, current Prototype projection, and resolved
+repository custody. The immutable `allow` or `deny` receipt explicitly carries
+`mutation_authority: none`; OOS remains responsible for any later Delivery
+target application.
 
 Future Governance Operations Console readiness criteria are documented at:
 

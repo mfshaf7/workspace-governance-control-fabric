@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/wgcf/prototype-ingress-readiness-receipt.schema.json",
+  "title": "Prototype Ingress Readiness Receipt V1",
+  "description": "Immutable WGCF allow or deny decision over one exact Prototype Delivery packet. The receipt carries no mutation authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "receipt_id",
+    "subject",
+    "decision",
+    "policy",
+    "evidence",
+    "issuer",
+    "integrity",
+    "custody"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "prototype_ingress_readiness_receipt" },
+    "receipt_id": {
+      "type": "string",
+      "pattern": "^prototype-ingress-readiness-receipt:[0-9a-f]{24}$"
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_kind",
+        "prototype_id",
+        "record_ref",
+        "record_version",
+        "packet_ref",
+        "packet_digest"
+      ],
+      "properties": {
+        "source_kind": { "const": "prototype" },
+        "prototype_id": { "$ref": "#/$defs/identifier" },
+        "record_ref": { "$ref": "#/$defs/reference" },
+        "record_version": { "$ref": "#/$defs/gitCommit" },
+        "packet_ref": { "$ref": "#/$defs/reference" },
+        "packet_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "target_application_allowed",
+        "mutation_authority",
+        "reason_codes",
+        "evaluated_at"
+      ],
+      "properties": {
+        "outcome": { "enum": ["allow", "deny"] },
+        "target_application_allowed": { "type": "boolean" },
+        "mutation_authority": { "const": "none" },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "eligible",
+              "packet-record-missing",
+              "packet-record-mismatch",
+              "source-repository-mismatch",
+              "source-ref-missing",
+              "source-head-missing",
+              "source-ancestry-invalid",
+              "source-tree-mismatch",
+              "source-projection-stale",
+              "source-provenance-self-referential",
+              "baseline-binding-invalid",
+              "policy-profile-denied"
+            ]
+          }
+        },
+        "evaluated_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "target", "contract_digest", "authority_refs"],
+      "properties": {
+        "profile_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$"
+        },
+        "target": { "const": "workspace-delivery-art" },
+        "contract_digest": { "$ref": "#/$defs/digest" },
+        "authority_refs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/reference" }
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_revision", "baseline", "custody"],
+      "properties": {
+        "source_revision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "ref", "base_commit", "head_commit", "tree"],
+          "properties": {
+            "repository": { "$ref": "#/$defs/identifier" },
+            "ref": { "$ref": "#/$defs/reference" },
+            "base_commit": { "$ref": "#/$defs/gitCommit" },
+            "head_commit": { "$ref": "#/$defs/gitCommit" },
+            "tree": { "$ref": "#/$defs/gitCommit" }
+          }
+        },
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["record_ref", "version", "record_digest"],
+          "properties": {
+            "record_ref": { "$ref": "#/$defs/reference" },
+            "version": { "$ref": "#/$defs/reference" },
+            "record_digest": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "custody": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["classification", "repository_gate_state", "owner", "source_ref"],
+          "properties": {
+            "classification": {
+              "enum": ["existing-repo", "new-repo-required", "platform-internal", "non-source-work"]
+            },
+            "repository_gate_state": { "enum": ["resolved", "not-required"] },
+            "owner": { "$ref": "#/$defs/identifier" },
+            "source_ref": {
+              "oneOf": [
+                { "$ref": "#/$defs/reference" },
+                { "type": "null" }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repo", "service_identity_ref", "implementation_ref"],
+      "properties": {
+        "owner_repo": { "const": "workspace-governance-control-fabric" },
+        "service_identity_ref": { "$ref": "#/$defs/reference" },
+        "implementation_ref": { "$ref": "#/$defs/gitCommit" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalization", "algorithm", "content_digest"],
+      "properties": {
+        "canonicalization": { "const": "RFC8785" },
+        "algorithm": { "const": "sha256" },
+        "content_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "backend", "uri", "persisted_at", "supersedes"],
+      "properties": {
+        "state": { "const": "durable" },
+        "backend": { "const": "wgcf-receipt-ledger" },
+        "uri": {
+          "type": "string",
+          "pattern": "^wgcf://receipts/prototype-ingress-readiness/prototype-ingress-readiness-receipt-[0-9a-f]{24}-[0-9a-f]{64}\\.json$"
+        },
+        "persisted_at": { "$ref": "#/$defs/timestamp" },
+        "supersedes": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["uri", "digest"],
+              "properties": {
+                "uri": { "$ref": "#/$defs/reference" },
+                "digest": { "$ref": "#/$defs/digest" }
+              }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": { "outcome": { "const": "allow" } },
+            "required": ["outcome"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "target_application_allowed": { "const": true },
+              "reason_codes": { "const": ["eligible"] }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "target_application_allowed": { "const": false },
+              "reason_codes": {
+                "not": { "contains": { "const": "eligible" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/@+\\-]{0,511}$"
+    },
+    "reference": { "type": "string", "minLength": 1, "maxLength": 1024 },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "gitCommit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

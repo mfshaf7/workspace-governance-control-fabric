@@ -23,6 +23,7 @@ EXPECTED_TABLES = {
     "delivery_artifact_custody_receipts",
     "delivery_artifact_registry_entries",
     "delivery_art_readiness_receipts",
+    "prototype_ingress_readiness_receipts",
     "escalation_records",
     "governance_edges",
     "governance_nodes",
