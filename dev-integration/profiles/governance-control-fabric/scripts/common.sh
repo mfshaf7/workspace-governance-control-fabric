@@ -600,9 +600,14 @@ spec:
                   key: reconciler-caller-secret
             - name: WGCF_PROTOTYPE_STUDIO_REPO_ROOT
               value: /sources/workspace-prototype-studio
+            - name: WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT
+              value: /sources/workspace-governance
           volumeMounts:
             - name: prototype-studio-source
               mountPath: /sources/workspace-prototype-studio
+              readOnly: true
+            - name: workspace-governance-source
+              mountPath: /sources/workspace-governance
               readOnly: true
           readinessProbe:
             httpGet:
@@ -636,6 +641,10 @@ spec:
         - name: prototype-studio-source
           hostPath:
             path: ${WORKSPACE_ROOT}/workspace-prototype-studio
+            type: Directory
+        - name: workspace-governance-source
+          hostPath:
+            path: ${WORKSPACE_ROOT}/workspace-governance
             type: Directory
 ---
 apiVersion: v1

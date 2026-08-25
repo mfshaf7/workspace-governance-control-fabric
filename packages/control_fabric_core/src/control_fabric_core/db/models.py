@@ -357,6 +357,45 @@ class PrototypeIngressReadinessReceipt(TimestampMixin, Base):
     supersedes_receipt_digest: Mapped[str | None] = mapped_column(String(71))
 
 
+class RepositoryReadinessReceipt(TimestampMixin, Base):
+    """Immutable WGCF decision over one repository authority version."""
+
+    __tablename__ = "repository_readiness_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "repo_name",
+            "catalog_value_key",
+            "profile_id",
+            "generation",
+            name="uq_repository_readiness_subject_generation",
+        ),
+        UniqueConstraint(
+            "supersedes_receipt_uri",
+            name="uq_repository_readiness_supersedes_uri",
+        ),
+    )
+
+    receipt_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    receipt_uri: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    decision_key: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    repo_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    repo_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    catalog_value_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    authority_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    rule_digest: Mapped[str | None] = mapped_column(String(71))
+    profile_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    contract_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    implementation_ref: Mapped[str] = mapped_column(String(40), nullable=False)
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    receipt: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    persisted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    supersedes_receipt_uri: Mapped[str | None] = mapped_column(String(512))
+    supersedes_receipt_digest: Mapped[str | None] = mapped_column(String(71))
+
+
 Index("ix_governance_nodes_type_owner", GovernanceNode.node_type, GovernanceNode.owner_repo)
 Index("ix_governance_edges_source_type", GovernanceEdge.source_node_id, GovernanceEdge.edge_type)
 Index("ix_governance_edges_target_type", GovernanceEdge.target_node_id, GovernanceEdge.edge_type)
@@ -403,4 +442,16 @@ Index(
     "ix_prototype_ingress_readiness_packet",
     PrototypeIngressReadinessReceipt.packet_digest,
     PrototypeIngressReadinessReceipt.profile_id,
+)
+Index(
+    "ix_repository_readiness_subject",
+    RepositoryReadinessReceipt.repo_name,
+    RepositoryReadinessReceipt.catalog_value_key,
+    RepositoryReadinessReceipt.profile_id,
+    RepositoryReadinessReceipt.generation,
+)
+Index(
+    "ix_repository_readiness_authority",
+    RepositoryReadinessReceipt.authority_digest,
+    RepositoryReadinessReceipt.profile_id,
 )

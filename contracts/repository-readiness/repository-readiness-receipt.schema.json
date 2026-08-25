@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/wgcf/repository-readiness-receipt.schema.json",
+  "title": "Repository Readiness Receipt V1",
+  "description": "Immutable WGCF repository admission-readiness decision with no mutation authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "receipt_id", "generation", "subject", "decision", "authority", "policy", "issuer", "integrity", "custody"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "repository_readiness_receipt" },
+    "receipt_id": { "type": "string", "pattern": "^repository-readiness-receipt:[0-9a-f]{24}$" },
+    "generation": { "type": "integer", "minimum": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repo_name", "repo_ref", "owner_repo", "catalog_value_key", "target_scope"],
+      "properties": {
+        "repo_name": { "$ref": "#/$defs/repoName" },
+        "repo_ref": { "type": "string", "pattern": "^repo://[a-z0-9][a-z0-9-]*$" },
+        "owner_repo": { "$ref": "#/$defs/repoName" },
+        "catalog_value_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "target_scope": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9-]*$" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["outcome", "linking_allowed", "mutation_authority", "reason_codes", "evaluated_at"],
+      "properties": {
+        "outcome": { "enum": ["ready", "not_admitted", "retired", "stale", "contract_mismatch"] },
+        "linking_allowed": { "type": "boolean" },
+        "mutation_authority": { "const": "none" },
+        "reason_codes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "repository-ready",
+              "repository-not-admitted",
+              "repository-retired",
+              "authority-version-stale",
+              "repository-reference-mismatch",
+              "repository-owner-mismatch",
+              "repository-rule-missing",
+              "repository-rule-mismatch",
+              "repository-security-posture-missing",
+              "authority-contract-invalid"
+            ]
+          }
+        },
+        "evaluated_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repo", "record_ref", "record_digest", "rule_ref", "rule_digest", "repository_lifecycle", "repository_class", "requires_security_bindings"],
+      "properties": {
+        "owner_repo": { "const": "workspace-governance" },
+        "record_ref": { "const": "repo://workspace-governance/contracts/repos.yaml" },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "rule_ref": { "type": ["string", "null"] },
+        "rule_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "repository_lifecycle": { "type": ["string", "null"] },
+        "repository_class": { "type": ["string", "null"] },
+        "requires_security_bindings": { "type": ["boolean", "null"] }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_id", "scope", "contract_digest", "authority_refs"],
+      "properties": {
+        "profile_id": { "const": "dev-integration" },
+        "scope": { "const": "delivery-catalog-owner-repo" },
+        "contract_digest": { "$ref": "#/$defs/digest" },
+        "authority_refs": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repo", "service_identity_ref", "implementation_ref"],
+      "properties": {
+        "owner_repo": { "const": "workspace-governance-control-fabric" },
+        "service_identity_ref": { "type": "string", "minLength": 1 },
+        "implementation_ref": { "type": "string", "pattern": "^[a-f0-9]{40}$" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalization", "algorithm", "content_digest"],
+      "properties": {
+        "canonicalization": { "const": "RFC8785" },
+        "algorithm": { "const": "sha256" },
+        "content_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "custody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "backend", "uri", "persisted_at", "supersedes"],
+      "properties": {
+        "state": { "const": "durable" },
+        "backend": { "const": "wgcf-receipt-ledger" },
+        "uri": { "type": "string", "pattern": "^wgcf://receipts/repository-readiness/repository-readiness-receipt-[0-9a-f]{24}-[0-9a-f]{64}\\.json$" },
+        "persisted_at": { "$ref": "#/$defs/timestamp" },
+        "supersedes": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["uri", "digest"],
+              "properties": { "uri": { "type": "string", "minLength": 1 }, "digest": { "$ref": "#/$defs/digest" } }
+            },
+            { "type": "null" }
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "properties": { "outcome": { "const": "ready" } },
+            "required": ["outcome"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "linking_allowed": { "const": true },
+              "reason_codes": { "const": ["repository-ready"] }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "decision": {
+            "properties": {
+              "linking_allowed": { "const": false },
+              "reason_codes": {
+                "not": { "contains": { "const": "repository-ready" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "repoName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

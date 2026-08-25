@@ -117,6 +117,14 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
             repo_root
             / "packages/control_fabric_core/src/control_fabric_core/prototype_ingress_readiness.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/repository_readiness_contracts.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/repository_readiness_contracts.py"
+        ),
+        "packages/control_fabric_core/src/control_fabric_core/repository_readiness.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/repository_readiness.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py"
         ),
@@ -147,6 +155,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0004_prototype_ingress_ready.py": (
             repo_root / "migrations/versions/0004_prototype_ingress_ready.py"
         ),
+        "migrations/versions/0005_repository_readiness.py": (
+            repo_root / "migrations/versions/0005_repository_readiness.py"
+        ),
         "contracts/delivery-art/manifest.json": (
             repo_root / "contracts/delivery-art/manifest.json"
         ),
@@ -155,6 +166,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "contracts/prototype-ingress/manifest.json": (
             repo_root / "contracts/prototype-ingress/manifest.json"
+        ),
+        "contracts/repository-readiness/manifest.json": (
+            repo_root / "contracts/repository-readiness/manifest.json"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"

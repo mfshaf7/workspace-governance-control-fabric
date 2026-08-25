@@ -738,6 +738,16 @@ class DevIntegrationProfileTests(TestCase):
                 if mount["name"] == "prototype-studio-source"
             )
             self.assertTrue(prototype_mount["readOnly"])
+            governance_mount = next(
+                mount
+                for mount in api_container["volumeMounts"]
+                if mount["name"] == "workspace-governance-source"
+            )
+            self.assertTrue(governance_mount["readOnly"])
+            self.assertEqual(
+                api_env["WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT"]["value"],
+                "/sources/workspace-governance",
+            )
             api_volumes = api["spec"]["template"]["spec"]["volumes"]
             self.assertEqual(
                 api_volumes,
@@ -746,6 +756,13 @@ class DevIntegrationProfileTests(TestCase):
                         "name": "prototype-studio-source",
                         "hostPath": {
                             "path": f"{REPO_ROOT.parent}/workspace-prototype-studio",
+                            "type": "Directory",
+                        },
+                    },
+                    {
+                        "name": "workspace-governance-source",
+                        "hostPath": {
+                            "path": f"{REPO_ROOT.parent}/workspace-governance",
                             "type": "Directory",
                         },
                     },

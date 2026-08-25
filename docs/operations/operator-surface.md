@@ -80,6 +80,13 @@ Delivery packet to `POST /v1/readiness/prototype-ingress`. Treat `allow` as
 readiness evidence only. WGCF does not mutate Prototype, Delivery, or ART, and
 the reconciler has read-only access to the immutable receipt endpoint.
 
+For a Delivery Catalog Owner Repo value, OOS submits the repository identity,
+Catalog value key, and expected `contracts/repos.yaml` digest to
+`POST /v1/readiness/repositories`. WGCF returns `ready`, `not_admitted`,
+`retired`, `stale`, or `contract_mismatch` after checking that exact authority
+version and the matching repo rule. Only `ready` includes the OOS reference.
+WGCF does not create or change repositories and does not write Catalog state.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

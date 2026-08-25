@@ -52,6 +52,10 @@ Current slice:
   non-mutating evaluation of one exact Prototype Delivery packet
 - implement `GET /v1/readiness/prototype-ingress/{receipt_token}` for immutable
   Prototype ingress readiness receipt retrieval
+- implement `POST /v1/readiness/repositories` for authenticated repository
+  admission-readiness evaluation against exact Workspace Governance authority
+- implement `GET /v1/readiness/repositories/{receipt_token}` for immutable
+  repository-readiness receipt retrieval
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -98,6 +102,13 @@ the committed packet record, current Prototype projection, and resolved
 repository custody. The immutable `allow` or `deny` receipt explicitly carries
 `mutation_authority: none`; OOS remains responsible for any later Delivery
 target application.
+
+Repository admission-readiness is also an authenticated `dev-integration`
+boundary. OOS may evaluate; the WGCF reconciler may only read. The authority
+repository is mounted read-only. A `ready` receipt projects the exact OOS
+reference, while missing, retired, stale, and contract-mismatch outcomes remain
+non-applicable evidence. The service cannot create repositories or mutate
+Catalog state.
 
 Future Governance Operations Console readiness criteria are documented at:
 

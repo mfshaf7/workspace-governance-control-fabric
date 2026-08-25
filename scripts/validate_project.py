@@ -83,6 +83,7 @@ REQUIRED_PATHS = (
     "migrations/versions/0002_create_delivery_artifact_registry.py",
     "migrations/versions/0003_create_delivery_art_readiness_receipts.py",
     "migrations/versions/0004_prototype_ingress_ready.py",
+    "migrations/versions/0005_repository_readiness.py",
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
@@ -117,6 +118,11 @@ REQUIRED_PATHS = (
     "contracts/prototype-ingress/prototype-delivery-packet.schema.json",
     "contracts/prototype-ingress/prototype-ingress-readiness-request.schema.json",
     "contracts/prototype-ingress/prototype-ingress-readiness-receipt.schema.json",
+    "contracts/repository-readiness/manifest.json",
+    "contracts/repository-readiness/README.md",
+    "contracts/repository-readiness/repository-readiness-request.schema.json",
+    "contracts/repository-readiness/repository-readiness-receipt.schema.json",
+    "contracts/repository-readiness/repository-readiness-reference.schema.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -126,6 +132,7 @@ REQUIRED_DB_TABLES = {
     "delivery_artifact_registry_entries",
     "delivery_art_readiness_receipts",
     "prototype_ingress_readiness_receipts",
+    "repository_readiness_receipts",
     "escalation_records",
     "governance_edges",
     "governance_nodes",
@@ -376,6 +383,8 @@ def validate_imports(repo_root: Path) -> list[str]:
         "/v1/readiness/evaluate",
         "/v1/readiness/prototype-ingress",
         "/v1/readiness/prototype-ingress/{receipt_token}",
+        "/v1/readiness/repositories",
+        "/v1/readiness/repositories/{receipt_token}",
         "/v1/agent-actions/evaluate",
         "/v1/budgets",
         "/v1/metrics/receipts",
