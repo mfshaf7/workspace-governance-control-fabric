@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/wgcf/repository-readiness-request.schema.json",
+  "title": "Repository Readiness Request V1",
+  "description": "One exact workspace repository admission record submitted for a non-mutating readiness decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "policy_scope",
+    "repo_name",
+    "repo_ref",
+    "expected_owner_repo",
+    "catalog_value_key",
+    "expected_authority_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "profile_id": { "const": "dev-integration" },
+    "policy_scope": { "const": "delivery-catalog-owner-repo" },
+    "repo_name": { "$ref": "#/$defs/repoName" },
+    "repo_ref": { "type": "string", "pattern": "^repo://[a-z0-9][a-z0-9-]*$" },
+    "expected_owner_repo": { "$ref": "#/$defs/repoName" },
+    "catalog_value_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "expected_authority_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "repoName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

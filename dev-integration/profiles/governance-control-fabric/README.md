@@ -29,9 +29,12 @@ gates remain separate.
 - local PostgreSQL for graph, receipt, readiness, and ledger state
 - local MinIO for content-addressed Delivery ART evidence-custody proof
 - Delivery ART registry metadata and custody receipts in local PostgreSQL
+- Prototype ingress and repository admission-readiness receipt ledgers in
+  local PostgreSQL
 - a bounded `wgcf.validation-readiness.evaluate` activity worker after explicit
   activation
-- workspace-governance contracts mounted or synced as read-only authority input
+- Workspace Governance and Prototype Studio mounted as separate read-only,
+  repo-scoped authority inputs; the API never receives the workspace root
 - local session artifacts that bind source repos, profile state, and smoke
   evidence
 

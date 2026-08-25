@@ -19,6 +19,7 @@ from control_fabric_core import (
     MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
+    MAX_REPOSITORY_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
     PACKAGE_VERSION,
@@ -134,6 +135,10 @@ class StubPrototypeIngressReadiness(StubDeliveryArtReadiness):
     pass
 
 
+class StubRepositoryReadiness(StubDeliveryArtReadiness):
+    pass
+
+
 class ApiTests(TestCase):
     def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
         registry = StubArtifactRegistry()
@@ -178,6 +183,21 @@ class ApiTests(TestCase):
                 REPO_ROOT,
                 artifact_registry_authorizer=authorizer,
                 prototype_ingress_readiness=readiness,
+            ),
+            readiness,
+        )
+
+    def repository_readiness_app(self) -> tuple[Any, StubRepositoryReadiness]:
+        readiness = StubRepositoryReadiness()
+        authorizer = ArtifactRegistryAuthorizer(
+            oos_secret="o" * 32,
+            reconciler_secret="r" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                artifact_registry_authorizer=authorizer,
+                repository_readiness=readiness,
             ),
             readiness,
         )
@@ -856,3 +876,79 @@ class ApiTests(TestCase):
         )
 
         self.assertEqual(503, status)
+
+    def test_repository_readiness_routes_are_authenticated_and_bounded(self) -> None:
+        app, readiness = self.repository_readiness_app()
+        oos_headers = {
+            "x-wgcf-caller-id": "operator-orchestration-service",
+            "x-wgcf-caller-secret": "o" * 32,
+        }
+        reconciler_headers = {
+            "x-wgcf-caller-id": "workspace-governance-control-fabric",
+            "x-wgcf-caller-secret": "r" * 32,
+        }
+        console_headers = {
+            "x-wgcf-caller-id": "governance-operations-console",
+            "x-wgcf-caller-secret": "c" * 32,
+        }
+        token = "c" * 24
+
+        issue_status, issue_payload = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/repositories",
+                {"request": "bounded"},
+                app=app,
+                headers=oos_headers,
+            ),
+        )
+        denied_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/repositories",
+                {"request": "bounded"},
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+        console_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/repositories",
+                {"request": "bounded"},
+                app=app,
+                headers=console_headers,
+            ),
+        )
+        read_status, read_payload = asyncio.run(
+            asgi_request_json(
+                "GET",
+                f"/v1/readiness/repositories/{token}",
+                app=app,
+                headers=reconciler_headers,
+            ),
+        )
+        oversized_status, _ = asyncio.run(
+            asgi_request_json(
+                "POST",
+                "/v1/readiness/repositories",
+                app=app,
+                headers=oos_headers,
+                raw_body=b"x" * (MAX_REPOSITORY_READINESS_REQUEST_BYTES + 1),
+            ),
+        )
+
+        self.assertEqual(200, issue_status)
+        self.assertEqual("created", issue_payload["receipt"]["resolution"])
+        self.assertEqual(403, denied_status)
+        self.assertEqual(401, console_status)
+        self.assertEqual(200, read_status)
+        self.assertEqual("read", read_payload["receipt"]["resolution"])
+        self.assertEqual(413, oversized_status)
+        self.assertEqual(
+            [
+                ("issue", "operator-orchestration-service"),
+                ("read", "workspace-governance-control-fabric"),
+            ],
+            [(operation, actor) for operation, _, actor in readiness.calls],
+        )

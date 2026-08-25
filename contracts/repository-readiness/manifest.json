@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.repository-readiness.v1",
+  "authority_refs": [
+    "https://github.com/mfshaf7/workspace-governance/blob/main/contracts/repos.yaml",
+    "wgcf://artifacts/delivery-art/sha256/4499a88bd84f6ce9c3294fd66935426107be2bafe78aba2c78caf30c33bf8505"
+  ],
+  "authority_source": {
+    "repo": "workspace-governance",
+    "path": "contracts/repos.yaml",
+    "rule_directory": "contracts/repo-rules"
+  },
+  "consumer_contract": {
+    "repo": "operator-orchestration-service",
+    "commit": "8db557156a85ddc8ed7ac177d5930242970efb2d",
+    "path": "contracts/catalog/repository-readiness-reference.schema.json",
+    "sha256": "8ec9fd12d4f272fcaa5ef4e04288294b5893acab842e17136fdde3e009a17101"
+  },
+  "schemas": {
+    "repository_readiness_request": {
+      "path": "repository-readiness-request.schema.json",
+      "sha256": "22c901be8d2d3320ad8dc0409b9b42fcef9d6833b7ad8ec4f8c877b367a39ba0"
+    },
+    "repository_readiness_receipt": {
+      "path": "repository-readiness-receipt.schema.json",
+      "sha256": "739cee85fb1923d119f5df6ab3913dd5125e5a31dfa2bf57970e7cf030677a16"
+    },
+    "repository_readiness_reference": {
+      "path": "repository-readiness-reference.schema.json",
+      "sha256": "8ec9fd12d4f272fcaa5ef4e04288294b5893acab842e17136fdde3e009a17101"
+    }
+  }
+}

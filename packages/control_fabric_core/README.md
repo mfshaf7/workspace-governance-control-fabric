@@ -49,6 +49,9 @@ Current slice:
 - digest-verified Delivery ART schema snapshots, registry-resolved dependency
   traversal, four-level artifact readiness evaluation, and immutable,
   content-addressed readiness receipts with append-only supersession
+- repository admission-readiness over exact Workspace Governance authority
+  bytes and repo rules, with immutable generations and an exact OOS reference
+  projection for ready repositories only
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -56,7 +59,8 @@ Current slice:
   and projection state, detect pre-mutation drift, and produce readiness
   receipts and OOS-safe recommendations without mutating ART
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
-  ledger, Delivery ART registry, and custody-receipt records
+  ledger, Delivery ART registry, custody-receipt, Prototype ingress, and
+  repository-readiness records
 - Temporal-shaped worker settings and planned capability metadata without
   runtime connections or long-running workflow behavior
 
