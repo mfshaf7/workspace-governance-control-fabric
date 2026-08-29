@@ -73,7 +73,7 @@ class RepositoryCustodyReadinessTests(TestCase):
                 "provider_host": "github.com",
                 "owner": "example-owner",
                 "name": "example-repository",
-                "provider_repository_id": "R_kgDOExample",
+                "provider_repository_id": "123456789",
             },
             "requested_custody": {
                 "workspace_owner_ref": "repo:example-repository",
@@ -118,7 +118,7 @@ class RepositoryCustodyReadinessTests(TestCase):
         self.assertEqual("allowed", created.decision["outcome"])
         self.assertEqual("read-provider", created.decision["next_action"])
         self.assertEqual(
-            {"provider": "github", "provider_repository_id": "R_kgDOExample"},
+            {"provider": "github", "provider_repository_id": "123456789"},
             created.decision["resolved_identity"],
         )
         self.assertEqual("created", created.resolution)
@@ -195,6 +195,19 @@ class RepositoryCustodyReadinessTests(TestCase):
         ):
             self.service.issue(
                 canonical_json_bytes(malformed),
+                actor="operator-orchestration-service",
+            )
+
+        graph_node_id = json.loads(self.request())
+        graph_node_id["target"]["provider_repository_id"] = "R_kgDOExample"
+        graph_node_id.pop("request_digest")
+        graph_node_id["request_digest"] = canonical_digest(graph_node_id)
+        with self.assertRaisesRegex(
+            RepositoryCustodyReadinessRequestError,
+            "provider_repository_id",
+        ):
+            self.service.issue(
+                canonical_json_bytes(graph_node_id),
                 actor="operator-orchestration-service",
             )
 
