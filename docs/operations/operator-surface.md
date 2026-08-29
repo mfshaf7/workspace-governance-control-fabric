@@ -87,12 +87,15 @@ Catalog value key, and expected `contracts/repos.yaml` digest to
 version and the matching repo rule. Only `ready` includes the OOS reference.
 WGCF does not create or change repositories and does not write Catalog state.
 
-For existing-repository custody, OOS submits the canonical
+For repository custody, OOS submits the canonical
 `repository_custody_request` to `POST /v1/readiness/repository-custody`. WGCF
-validates its canonical digest, exact pinned policy reference, first active
-capability, approval reference, and secret-free artifact references. An
-`allowed` decision permits provider readback only; it does not link custody.
-The immutable decision is retrieved from
+validates its canonical digest, exact pinned policy reference, supported
+readiness action, approval reference, and secret-free artifact references.
+`link-existing` permits provider readback only. `provision-new` additionally
+requires the approved GitHub organization scope and every explicit baseline
+setting; its allowed decision returns those exact settings with
+`create-provider` as the next action. Neither result mutates a provider or
+custody. The immutable decision is retrieved from
 `GET /v1/readiness/repository-custody/{decision_token}`.
 
 This route remains disabled in the normal runtime until the upstream authority

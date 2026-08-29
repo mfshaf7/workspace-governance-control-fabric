@@ -362,12 +362,16 @@ the repository nor Catalog can be mutated through this surface.
 ## Repository Custody Readiness
 
 Repository custody readiness evaluates the exact upstream
-`repository_custody_request` before OOS starts the existing-repository linkage
-workflow. The current evaluator supports only `link-existing`, verifies the
-request content digest and pinned policy authority, records an immutable
-idempotent decision, and exposes authenticated issue/read routes.
+`repository_custody_request` before OOS starts existing-repository linking or
+organization-scoped GitHub provisioning. The evaluator verifies the request
+content digest, pinned policy authority, exact operator approval reference,
+secret-free authority references, provider scope, and explicit baseline
+settings. It records one immutable idempotent decision and exposes
+authenticated issue/read routes.
 
-The decision permits provider readback, not custody mutation. WGCF stores no
+A linking decision permits provider readback. A provisioning decision carries
+the exact approved target and settings with `create-provider` as its next
+action. Neither decision performs custody or provider mutation. WGCF stores no
 provider credentials and does not call the provider, alter custody, admit a
 repository, update active inventory, or write Catalog. The runtime builder is
 disabled until both the Workspace Governance activation flag and the explicit
