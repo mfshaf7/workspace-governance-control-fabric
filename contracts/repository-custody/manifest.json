@@ -3,19 +3,19 @@
   "contract_id": "wgcf.repository-custody-readiness.v1",
   "source": {
     "repo": "workspace-governance",
-    "commit": "234a62d7ddbc183739350b156fd585fffb622641"
+    "commit": "16ad1d7c6e4c536e4fd160d01458cb86ba793d5e"
   },
   "authority": {
     "path": "repository-custody.yaml",
     "source_path": "contracts/repository-custody.yaml",
     "uri": "repo://workspace-governance/contracts/repository-custody.yaml",
-    "sha256": "a5b642063204d2214e225afbeda6a821aecfae7777920be7244014d288bcf29d"
+    "sha256": "7284538cbea80b70a4baee99de4c65066ccfc4b3d56f8a31b1f092be7eb92e3c"
   },
   "schemas": {
     "repository_custody_contract": {
       "path": "repository-custody.schema.json",
       "source_path": "contracts/schemas/repository-custody.schema.json",
-      "sha256": "193d80b24a5ec9b7f6179252d823f2c07dcbc16ad7067037a5c309a647902b08"
+      "sha256": "7c9fd3b5efcf7227734ba9df7ace300dfae9774973f109d50d3b4024faca58ff"
     },
     "repository_custody_request": {
       "path": "repository-custody-request.schema.json",
@@ -35,7 +35,7 @@
     "repository_custody_receipt": {
       "path": "repository-custody-receipt.schema.json",
       "source_path": "contracts/schemas/repository-custody-receipt.schema.json",
-      "sha256": "bcd8961f94c1c638e90ab0c8aed619318f54afc0cf40b1eaefb476e306f2788d"
+      "sha256": "e62c3bf851ddb88fb53f2e1bf6e9e795399ce74db9b6c4475d66124458fc9c26"
     }
   }
 }
