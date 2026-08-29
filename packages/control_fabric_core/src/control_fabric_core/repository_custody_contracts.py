@@ -127,6 +127,14 @@ class RepositoryCustodyContractBundle:
         return str(self.authority["runtime_activation"]["first_active_capability"])
 
     @property
+    def readiness_capabilities(self) -> frozenset[str]:
+        return frozenset((self.first_active_capability, "provision-new"))
+
+    @property
+    def provisioning_scope(self) -> dict[str, str]:
+        return dict(self.authority["provisioning_controls"]["first_provider_scope"])
+
+    @property
     def policy_version(self) -> str:
         return "repository-custody/v1"
 
@@ -165,6 +173,24 @@ class RepositoryCustodyContractBundle:
         ):
             raise RepositoryCustodyContractError(
                 "repository custody first capability is not a safe link-existing transition",
+            )
+
+        provision = actions.get("provision-new")
+        scope = self.authority.get("provisioning_controls", {}).get(
+            "first_provider_scope",
+            {},
+        )
+        if (
+            not isinstance(provision, dict)
+            or provision.get("provider_mutation") is not True
+            or provision.get("required_provider_readback") is not True
+            or "provisioned" not in provision.get("allowed_to", [])
+            or scope.get("provider") != "github"
+            or scope.get("provider_host") != "github.com"
+            or scope.get("owner_scope") != "organization"
+        ):
+            raise RepositoryCustodyContractError(
+                "repository provisioning readiness is not organization-scoped and readback-bound",
             )
 
 

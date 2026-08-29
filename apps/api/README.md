@@ -118,8 +118,11 @@ Repository custody readiness is separate from admission readiness. Its route
 is present, but the normal runtime builder fails closed until both
 `WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED=true` and an upstream authority with
 `runtime_activation.enabled: true` exist. Injected sandbox services prove the
-contract before activation. Only OOS may issue a decision; the WGCF reconciler
-may read one.
+contract before activation. They evaluate existing-repository linking and the
+first organization-scoped GitHub provisioning controls. An allowed
+provisioning decision contains the exact approved settings and directs OOS to
+`create-provider`; it does not call GitHub. Only OOS may issue a decision; the
+WGCF reconciler may read one.
 
 Future Governance Operations Console readiness criteria are documented at:
 

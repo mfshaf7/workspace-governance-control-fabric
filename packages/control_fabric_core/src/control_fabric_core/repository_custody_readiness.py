@@ -202,14 +202,29 @@ class RepositoryCustodyReadinessService:
         credential_ref = request["authority"]["credential_binding_ref"]
         action = request["action"]
 
-        if action != self._contracts.first_active_capability:
+        if action not in self._contracts.readiness_capabilities:
             findings.append(
                 _finding(
                     "custody-action-not-active",
                     "blocking",
-                    f"Only {self._contracts.first_active_capability} is active in this readiness surface.",
+                    "The requested custody action is not active in this readiness surface.",
                 ),
             )
+        if action == "provision-new":
+            scope = self._contracts.provisioning_scope
+            target = request["target"]
+            if (
+                target["provider"] != scope["provider"]
+                or target["provider_host"] != scope["provider_host"]
+                or target["owner_scope"] != scope["owner_scope"]
+            ):
+                findings.append(
+                    _finding(
+                        "custody-provisioning-provider-not-active",
+                        "blocking",
+                        "Repository provisioning is active only for the approved GitHub organization scope.",
+                    ),
+                )
         if (
             policy_ref["uri"] != self._contracts.authority_uri
             or policy_ref["digest"] != self._contracts.authority_digest
@@ -246,14 +261,43 @@ class RepositoryCustodyReadinessService:
         if findings:
             outcome = "denied"
             resolved_identity = None
+            approved_provisioning = None
             next_action = "stop"
             obligations = ["preserve-current-custody-state", "emit-terminal-custody-receipt"]
+        elif action == "provision-new":
+            outcome = "allowed"
+            resolved_identity = None
+            approved_provisioning = {
+                "provider": request["target"]["provider"],
+                "provider_host": request["target"]["provider_host"],
+                "owner": request["target"]["owner"],
+                "owner_scope": request["target"]["owner_scope"],
+                "name": request["target"]["name"],
+                "settings": copy.deepcopy(request["provisioning"]),
+            }
+            next_action = "create-provider"
+            findings = [
+                _finding(
+                    "repository-provisioning-request-ready",
+                    "info",
+                    "The organization target and explicit baseline settings are approved for provider creation.",
+                ),
+            ]
+            obligations = [
+                "verify-exact-operator-approval",
+                "create-provider-once",
+                "require-fresh-provider-readback",
+                "verify-applied-provisioning-settings",
+                "never-compensate-with-delete",
+                "emit-terminal-custody-receipt",
+            ]
         else:
             outcome = "allowed"
             resolved_identity = {
                 "provider": request["target"]["provider"],
                 "provider_repository_id": request["target"]["provider_repository_id"],
             }
+            approved_provisioning = None
             next_action = "read-provider"
             findings = [
                 _finding(
@@ -287,8 +331,10 @@ class RepositoryCustodyReadinessService:
             },
             "evaluated_at": _timestamp(self._clock()),
             "policy_version": self._contracts.policy_version,
+            "action": action,
             "outcome": outcome,
             "resolved_identity": resolved_identity,
+            "approved_provisioning": approved_provisioning,
             "findings": findings,
             "obligations": obligations,
             "next_action": next_action,
@@ -399,6 +445,7 @@ class RepositoryCustodyReadinessService:
         if (
             decision["decision_id"] != row.decision_id
             or decision["request_ref"]["digest"] != row.request_digest
+            or decision["action"] != row.action
             or decision["outcome"] != row.outcome
             or decision["policy_version"] != self._contracts.policy_version
             or decision["integrity"]["content_digest"] != row.decision_digest

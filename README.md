@@ -91,8 +91,8 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/readiness/prototype-ingress` and
   `GET /v1/readiness/prototype-ingress/{receipt_token}`. Repository admission
   readiness uses `POST /v1/readiness/repositories` and
-  `GET /v1/readiness/repositories/{receipt_token}`. Existing-repository custody
-  policy readiness is a separate, disabled-by-default boundary at
+  `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy
+  readiness is a separate, disabled-by-default boundary at
   `POST /v1/readiness/repository-custody` and
   `GET /v1/readiness/repository-custody/{decision_token}`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
