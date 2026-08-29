@@ -125,6 +125,14 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
             repo_root
             / "packages/control_fabric_core/src/control_fabric_core/repository_readiness.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/repository_custody_contracts.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/repository_custody_contracts.py"
+        ),
+        "packages/control_fabric_core/src/control_fabric_core/repository_custody_readiness.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/repository_custody_readiness.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py"
         ),
@@ -158,6 +166,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0005_repository_readiness.py": (
             repo_root / "migrations/versions/0005_repository_readiness.py"
         ),
+        "migrations/versions/0006_repository_custody.py": (
+            repo_root / "migrations/versions/0006_repository_custody.py"
+        ),
         "contracts/delivery-art/manifest.json": (
             repo_root / "contracts/delivery-art/manifest.json"
         ),
@@ -169,6 +180,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "contracts/repository-readiness/manifest.json": (
             repo_root / "contracts/repository-readiness/manifest.json"
+        ),
+        "contracts/repository-custody/manifest.json": (
+            repo_root / "contracts/repository-custody/manifest.json"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"
