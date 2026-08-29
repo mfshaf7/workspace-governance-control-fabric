@@ -87,6 +87,19 @@ Catalog value key, and expected `contracts/repos.yaml` digest to
 version and the matching repo rule. Only `ready` includes the OOS reference.
 WGCF does not create or change repositories and does not write Catalog state.
 
+For existing-repository custody, OOS submits the canonical
+`repository_custody_request` to `POST /v1/readiness/repository-custody`. WGCF
+validates its canonical digest, exact pinned policy reference, first active
+capability, approval reference, and secret-free artifact references. An
+`allowed` decision permits provider readback only; it does not link custody.
+The immutable decision is retrieved from
+`GET /v1/readiness/repository-custody/{decision_token}`.
+
+This route remains disabled in the normal runtime until the upstream authority
+and explicit deployment gate both activate it. Sandbox tests may inject the
+service before activation. OOS owns the later command lifecycle, provider
+readback, custody mutation, and terminal receipt.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

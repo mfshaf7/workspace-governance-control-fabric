@@ -56,6 +56,10 @@ Current slice:
   admission-readiness evaluation against exact Workspace Governance authority
 - implement `GET /v1/readiness/repositories/{receipt_token}` for immutable
   repository-readiness receipt retrieval
+- implement `POST /v1/readiness/repository-custody` for authenticated,
+  non-mutating evaluation of one exact repository custody request
+- implement `GET /v1/readiness/repository-custody/{decision_token}` for
+  immutable custody-readiness decision retrieval
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -109,6 +113,13 @@ repository is mounted read-only. A `ready` receipt projects the exact OOS
 reference, while missing, retired, stale, and contract-mismatch outcomes remain
 non-applicable evidence. The service cannot create repositories or mutate
 Catalog state.
+
+Repository custody readiness is separate from admission readiness. Its route
+is present, but the normal runtime builder fails closed until both
+`WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED=true` and an upstream authority with
+`runtime_activation.enabled: true` exist. Injected sandbox services prove the
+contract before activation. Only OOS may issue a decision; the WGCF reconciler
+may read one.
 
 Future Governance Operations Console readiness criteria are documented at:
 

@@ -91,7 +91,10 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/readiness/prototype-ingress` and
   `GET /v1/readiness/prototype-ingress/{receipt_token}`. Repository admission
   readiness uses `POST /v1/readiness/repositories` and
-  `GET /v1/readiness/repositories/{receipt_token}`.
+  `GET /v1/readiness/repositories/{receipt_token}`. Existing-repository custody
+  policy readiness is a separate, disabled-by-default boundary at
+  `POST /v1/readiness/repository-custody` and
+  `GET /v1/readiness/repository-custody/{decision_token}`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
@@ -138,6 +141,9 @@ That surface is constrained by the workspace-owned contract in
 - `contracts/repository-readiness/` defines the non-mutating repository
   readiness request and receipt and pins the exact OOS consumer-reference
   schema. Workspace Governance remains the repository admission authority.
+- `contracts/repository-custody/` pins the exact Workspace Governance custody
+  authority and artifact schemas from Delivery `#1040`. WGCF uses the bundle
+  only to issue immutable readiness decisions; OOS remains workflow authority.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`

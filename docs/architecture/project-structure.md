@@ -7,7 +7,7 @@ The control fabric is split by runtime responsibility:
   run, receipt inspection, metrics, readiness decision, lifecycle retention,
   ART projection, dev-integration Delivery ART registry, and artifact-bound
   Delivery ART readiness surfaces, plus non-mutating Prototype ingress and
-  repository admission-readiness.
+  repository admission-readiness and repository custody-readiness.
   Deployment remains blocked until platform and security gates approve runtime
   adoption.
 - `apps/worker`: WGCF-owned Temporal activity adapter and guarded worker
@@ -32,6 +32,9 @@ The control fabric is split by runtime responsibility:
 - `contracts/repository-readiness`: WGCF request and receipt schemas plus the
   exact OOS consumer-reference schema pinned to its merged source commit.
   Runtime evaluation reads Workspace Governance authority without copying it.
+- `contracts/repository-custody`: digest-pinned upstream custody authority and
+  all four protocol artifact schemas. The bundle is an implementation input,
+  not a local policy fork.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.
@@ -355,6 +358,20 @@ retired, stale, or contract-inconsistent record. Only `ready` projects the
 exact reference consumed by OOS. Receipts and generations use the existing
 WGCF PostgreSQL ledger. Workspace Governance is mounted read-only, and neither
 the repository nor Catalog can be mutated through this surface.
+
+## Repository Custody Readiness
+
+Repository custody readiness evaluates the exact upstream
+`repository_custody_request` before OOS starts the existing-repository linkage
+workflow. The current evaluator supports only `link-existing`, verifies the
+request content digest and pinned policy authority, records an immutable
+idempotent decision, and exposes authenticated issue/read routes.
+
+The decision permits provider readback, not custody mutation. WGCF stores no
+provider credentials and does not call the provider, alter custody, admit a
+repository, update active inventory, or write Catalog. The runtime builder is
+disabled until both the Workspace Governance activation flag and the explicit
+dev-integration environment gate are present.
 
 ## Future Operator Console Readiness
 
