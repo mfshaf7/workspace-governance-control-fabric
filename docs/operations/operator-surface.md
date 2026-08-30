@@ -98,10 +98,25 @@ setting; its allowed decision returns those exact settings with
 custody. The immutable decision is retrieved from
 `GET /v1/readiness/repository-custody/{decision_token}`.
 
-This route remains disabled in the normal runtime until the upstream authority
+For repository lifecycle work, OOS submits the canonical
+`repository_lifecycle_request` to
+`POST /v1/readiness/repository-lifecycle`. WGCF checks the exact custody policy
+binding, immutable repository identity, current custody and provider versions,
+impact counts and disposition, action-specific confirmations, reversal
+evidence, and provider authority. An allowed decision identifies exactly one of
+`apply-workspace-custody`, `archive-provider`, `unarchive-provider`,
+`retire-workspace-record`, or `restore-workspace-record`. `defer` returns
+`requires-action`; stale, conflicting, unauthorized, unsupported, unavailable,
+or inconsistent requests fail closed. Every decision records
+`downstream_mutation: none` and performs no mutation. The immutable decision is
+retrieved from
+`GET /v1/readiness/repository-lifecycle/{decision_token}`.
+
+These routes remain disabled in the normal runtime until the upstream authority
 and explicit deployment gate both activate it. Sandbox tests may inject the
 service before activation. OOS owns the later command lifecycle, provider
-readback, custody mutation, and terminal receipt.
+or workspace readback, custody mutation, reversal, terminal receipts, and
+immutable history.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.

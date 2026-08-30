@@ -267,18 +267,19 @@ class RepositoryCustodyReadinessTests(TestCase):
             self.assertEqual("provision-new", row.action)
             self.assertIsNone(row.provider_repository_id)
 
-    def test_unsupported_custody_capability_is_denied(self) -> None:
+    def test_lifecycle_action_is_rejected_by_custody_request_schema(self) -> None:
         request = json.loads(self.request(action="transfer-custody"))
         request.pop("request_digest")
         request["request_digest"] = canonical_digest(request)
 
-        result = self.service.issue(
-            canonical_json_bytes(request),
-            actor="operator-orchestration-service",
-        )
-
-        self.assertEqual("denied", result.decision["outcome"])
-        self.assertEqual("custody-action-not-active", result.decision["findings"][0]["code"])
+        with self.assertRaisesRegex(
+            RepositoryCustodyReadinessRequestError,
+            "transfer-custody",
+        ):
+            self.service.issue(
+                canonical_json_bytes(request),
+                actor="operator-orchestration-service",
+            )
 
     def test_repository_provisioning_negative_conformance(self) -> None:
         personal = json.loads(self.provision_request())

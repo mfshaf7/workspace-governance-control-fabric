@@ -95,6 +95,9 @@ That surface is constrained by the workspace-owned contract in
   readiness is a separate, disabled-by-default boundary at
   `POST /v1/readiness/repository-custody` and
   `GET /v1/readiness/repository-custody/{decision_token}`.
+  Repository lifecycle readiness is exposed separately at
+  `POST /v1/readiness/repository-lifecycle` and
+  `GET /v1/readiness/repository-lifecycle/{decision_token}`.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
@@ -142,8 +145,8 @@ That surface is constrained by the workspace-owned contract in
   readiness request and receipt and pins the exact OOS consumer-reference
   schema. Workspace Governance remains the repository admission authority.
 - `contracts/repository-custody/` pins the exact Workspace Governance custody
-  authority and artifact schemas from Delivery `#1040`. WGCF uses the bundle
-  only to issue immutable readiness decisions; OOS remains workflow authority.
+  and lifecycle authority plus artifact schemas. WGCF uses the bundle only to
+  issue immutable readiness decisions; OOS remains workflow authority.
 - `schemas/governance-manifest.schema.json` defines the versioned runtime
   manifest input schema for repo, component, validator, and projection metadata.
 - `schemas/validation-receipt.schema.json` and `schemas/ledger-event.schema.json`

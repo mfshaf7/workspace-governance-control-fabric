@@ -58,6 +58,7 @@ REQUIRED_PATHS = (
     "packages/control_fabric_core/src/control_fabric_core/prototype_ingress_readiness.py",
     "packages/control_fabric_core/src/control_fabric_core/repository_custody_contracts.py",
     "packages/control_fabric_core/src/control_fabric_core/repository_custody_readiness.py",
+    "packages/control_fabric_core/src/control_fabric_core/repository_lifecycle_readiness.py",
     "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py",
     "packages/control_fabric_core/src/control_fabric_core/source_snapshots.py",
     "packages/control_fabric_core/src/control_fabric_core/validation_execution.py",
@@ -87,6 +88,7 @@ REQUIRED_PATHS = (
     "migrations/versions/0004_prototype_ingress_ready.py",
     "migrations/versions/0005_repository_readiness.py",
     "migrations/versions/0006_repository_custody.py",
+    "migrations/versions/0007_repository_lifecycle.py",
     "policies/opa/admission.rego",
     "policies/opa/policy_ledger.rego",
     "policies/opa/validation_blocking.rego",
@@ -134,6 +136,10 @@ REQUIRED_PATHS = (
     "contracts/repository-custody/repository-custody-decision.schema.json",
     "contracts/repository-custody/repository-provider-readback.schema.json",
     "contracts/repository-custody/repository-custody-receipt.schema.json",
+    "contracts/repository-custody/repository-lifecycle-request.schema.json",
+    "contracts/repository-custody/repository-lifecycle-decision.schema.json",
+    "contracts/repository-custody/repository-lifecycle-receipt.schema.json",
+    "contracts/repository-custody/repository-lifecycle-audit.schema.json",
 )
 
 REQUIRED_DB_TABLES = {
@@ -145,6 +151,7 @@ REQUIRED_DB_TABLES = {
     "prototype_ingress_readiness_receipts",
     "repository_readiness_receipts",
     "repository_custody_decisions",
+    "repository_lifecycle_decisions",
     "escalation_records",
     "governance_edges",
     "governance_nodes",

@@ -52,6 +52,9 @@ Current slice:
 - repository admission-readiness over exact Workspace Governance authority
   bytes and repo rules, with immutable generations and an exact OOS reference
   projection for ready repositories only
+- repository custody and lifecycle readiness over digest-pinned Workspace
+  Governance contracts, with immutable decisions, independent lifecycle state
+  axes, exact impact and confirmation controls, and no mutation authority
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -59,8 +62,8 @@ Current slice:
   and projection state, detect pre-mutation drift, and produce readiness
   receipts and OOS-safe recommendations without mutating ART
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
-  ledger, Delivery ART registry, custody-receipt, Prototype ingress, and
-  repository-readiness records
+  ledger, Delivery ART registry, custody-receipt, Prototype ingress,
+  repository-readiness, custody-decision, and lifecycle-decision records
 - Temporal-shaped worker settings and planned capability metadata without
   runtime connections or long-running workflow behavior
 

@@ -69,6 +69,11 @@ class FoundationTests(TestCase):
                 "migrations/versions/0006_repository_custody.py"
             ],
         )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0007_repository_lifecycle.py"
+            ],
+        )
         self.assertEqual(
             snapshot["authority_contract_ref"],
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",

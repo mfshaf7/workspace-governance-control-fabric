@@ -60,6 +60,10 @@ Current slice:
   non-mutating evaluation of one exact repository custody request
 - implement `GET /v1/readiness/repository-custody/{decision_token}` for
   immutable custody-readiness decision retrieval
+- implement `POST /v1/readiness/repository-lifecycle` for authenticated,
+  non-mutating evaluation of one exact repository lifecycle request
+- implement `GET /v1/readiness/repository-lifecycle/{decision_token}` for
+  immutable lifecycle-readiness decision retrieval
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -123,6 +127,13 @@ first organization-scoped GitHub provisioning controls. An allowed
 provisioning decision contains the exact approved settings and directs OOS to
 `create-provider`; it does not call GitHub. Only OOS may issue a decision; the
 WGCF reconciler may read one.
+
+Repository lifecycle readiness is a distinct activation-gated boundary. It
+keeps custody, provider archive state, and workspace-record retirement as
+independent axes; evaluates exact state versions, impact disposition,
+confirmations, provider authority, and reversal evidence; and returns one
+bounded next action. It never mutates repository, custody, downstream consumer,
+or workspace state. OOS remains the only lifecycle workflow authority.
 
 Future Governance Operations Console readiness criteria are documented at:
 
