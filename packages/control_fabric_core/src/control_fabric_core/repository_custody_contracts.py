@@ -78,6 +78,10 @@ class RepositoryCustodyContractBundle:
             "repository_custody_decision",
             "repository_provider_readback",
             "repository_custody_receipt",
+            "repository_lifecycle_request",
+            "repository_lifecycle_decision",
+            "repository_lifecycle_receipt",
+            "repository_lifecycle_audit",
         }
         if set(schema_entries) != expected_schema_types:
             raise RepositoryCustodyContractError("repository custody schemas are incomplete")
@@ -135,8 +139,20 @@ class RepositoryCustodyContractBundle:
         return dict(self.authority["provisioning_controls"]["first_provider_scope"])
 
     @property
+    def lifecycle_actions(self) -> dict[str, dict[str, Any]]:
+        return dict(self.authority["repository_lifecycle"]["actions"])
+
+    @property
+    def lifecycle_action_ids(self) -> frozenset[str]:
+        return frozenset(self.lifecycle_actions)
+
+    @property
     def policy_version(self) -> str:
         return "repository-custody/v1"
+
+    @property
+    def lifecycle_policy_version(self) -> str:
+        return "repository-lifecycle/v1"
 
     def errors(self, artifact_type: str, artifact: Any) -> tuple[str, ...]:
         validator = self.validators.get(artifact_type)
@@ -191,6 +207,47 @@ class RepositoryCustodyContractBundle:
         ):
             raise RepositoryCustodyContractError(
                 "repository provisioning readiness is not organization-scoped and readback-bound",
+            )
+
+        lifecycle = self.authority.get("repository_lifecycle", {})
+        lifecycle_actions = lifecycle.get("actions", {})
+        expected_lifecycle_actions = {
+            "transfer-workspace-custody",
+            "archive-provider",
+            "unarchive-provider",
+            "retire-workspace-record",
+            "restore-workspace-record",
+        }
+        if set(lifecycle_actions) != expected_lifecycle_actions:
+            raise RepositoryCustodyContractError(
+                "repository lifecycle actions are incomplete or ambiguous",
+            )
+        axes = lifecycle.get("state_axes", {})
+        if (
+            set(axes) != {"custody", "provider", "workspace_record"}
+            or set(axes["custody"].get("states", [])) != {"linked", "provisioned"}
+            or set(axes["provider"].get("states", []))
+            != {"active", "archived", "unavailable"}
+            or set(axes["workspace_record"].get("states", [])) != {"active", "retired"}
+        ):
+            raise RepositoryCustodyContractError(
+                "repository lifecycle state axes are incomplete or conflated",
+            )
+        impact = lifecycle.get("impact_preflight", {})
+        confirmations = lifecycle.get("confirmation_rules", {})
+        if (
+            impact.get("required_for_every_action") is not True
+            or impact.get("assessment_authority") != "workspace-governance-control-fabric"
+            or set(impact.get("blocker_dispositions", []))
+            != {"remove", "workaround", "accept-risk", "defer"}
+            or confirmations.get("every_action") != ["exact-operator-approval"]
+            or confirmations.get("transfer-workspace-custody")
+            != ["source-owner-acceptance", "target-owner-acceptance"]
+            or confirmations.get("provider_actions")
+            != ["governed-provider-credential-binding", "current-provider-version"]
+        ):
+            raise RepositoryCustodyContractError(
+                "repository lifecycle impact and confirmation controls are incomplete",
             )
 
 

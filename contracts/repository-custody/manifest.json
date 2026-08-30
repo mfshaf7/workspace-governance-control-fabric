@@ -3,39 +3,59 @@
   "contract_id": "wgcf.repository-custody-readiness.v1",
   "source": {
     "repo": "workspace-governance",
-    "commit": "3dd225fba5a3d619bb99340e2d2d29e6ae833087"
+    "commit": "965b41961bb1d12e1380af57b1ac303a72e9ef67"
   },
   "authority": {
     "path": "repository-custody.yaml",
     "source_path": "contracts/repository-custody.yaml",
     "uri": "repo://workspace-governance/contracts/repository-custody.yaml",
-    "sha256": "486bfbe534074b505a6a8a7d1fe2a5b9f180baa2af29654cd24abe62709406fa"
+    "sha256": "2e50df2e22bc233bf7abbf119a814a21c31b52659a9478f34ae4fb410e1f9f4f"
   },
   "schemas": {
     "repository_custody_contract": {
       "path": "repository-custody.schema.json",
       "source_path": "contracts/schemas/repository-custody.schema.json",
-      "sha256": "7247e9d8288665e4751303ff20a585a80405801c820d577eb475acc71b05a40a"
+      "sha256": "9d8c2bcd7624e13b87eb6339d4ef4fb07ad7e5433402bc7e23b303efa1521c43"
     },
     "repository_custody_request": {
       "path": "repository-custody-request.schema.json",
       "source_path": "contracts/schemas/repository-custody-request.schema.json",
-      "sha256": "ca15d8a65f1869bc2fe9488c016f68c299cf22a4eb09d872a28208b513dcaa2d"
+      "sha256": "1162d57a1f39b110a76d0c9567bcc83764e31c6629e92f4a716be95a558520f2"
     },
     "repository_custody_decision": {
       "path": "repository-custody-decision.schema.json",
       "source_path": "contracts/schemas/repository-custody-decision.schema.json",
-      "sha256": "303d40cc4d2b88a4a350a1df8d8710e6d2fb0527cfe313bc15a212ee283573e1"
+      "sha256": "25b4cbfec9b61b3e9072ef393e9d9f37020f012ce1deb78ecfc32229b4b8a49e"
     },
     "repository_provider_readback": {
       "path": "repository-provider-readback.schema.json",
       "source_path": "contracts/schemas/repository-provider-readback.schema.json",
-      "sha256": "76128d1cb9a70e92efd3700ba90039247e2b6a29b4b9cdb593290a0e0004c1d7"
+      "sha256": "60df03256f9be37fb17073970be5e3ac91bec95bedbb86bb45f244d1ed6df127"
     },
     "repository_custody_receipt": {
       "path": "repository-custody-receipt.schema.json",
       "source_path": "contracts/schemas/repository-custody-receipt.schema.json",
-      "sha256": "38e88906e1595bbbc3820ef4aa70a3fe388b76dad0d4758e228016702d44416f"
+      "sha256": "34aa1f617af6b63bb339cbfc76de1be528fea034e81c34888cf1a956e15b1308"
+    },
+    "repository_lifecycle_request": {
+      "path": "repository-lifecycle-request.schema.json",
+      "source_path": "contracts/schemas/repository-lifecycle-request.schema.json",
+      "sha256": "d8b88bf680cf64b52b40f1b4bfbb8f279ff78cfee37fb321c04f02e61fd4eaee"
+    },
+    "repository_lifecycle_decision": {
+      "path": "repository-lifecycle-decision.schema.json",
+      "source_path": "contracts/schemas/repository-lifecycle-decision.schema.json",
+      "sha256": "61e316ccf73ba8f7aebed13b582c729761f2a1eabe930f4a1560f4284ef5ed06"
+    },
+    "repository_lifecycle_receipt": {
+      "path": "repository-lifecycle-receipt.schema.json",
+      "source_path": "contracts/schemas/repository-lifecycle-receipt.schema.json",
+      "sha256": "46e937eac7a10442723838030fbdebea09f301063b8b8ea73b80a4f8a3086843"
+    },
+    "repository_lifecycle_audit": {
+      "path": "repository-lifecycle-audit.schema.json",
+      "source_path": "contracts/schemas/repository-lifecycle-audit.schema.json",
+      "sha256": "b3b9dc9bb834d2eaa9cf70313dc3b5bd90da86826a645181bae60465b25c0dda"
     }
   }
 }

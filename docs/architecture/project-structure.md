@@ -32,9 +32,10 @@ The control fabric is split by runtime responsibility:
 - `contracts/repository-readiness`: WGCF request and receipt schemas plus the
   exact OOS consumer-reference schema pinned to its merged source commit.
   Runtime evaluation reads Workspace Governance authority without copying it.
-- `contracts/repository-custody`: digest-pinned upstream custody authority and
-  all four protocol artifact schemas. The bundle is an implementation input,
-  not a local policy fork.
+- `contracts/repository-custody`: digest-pinned upstream custody and lifecycle
+  authority with the admission, provider-readback, lifecycle, receipt, and
+  audit schemas. The bundle is an implementation input, not a local policy
+  fork.
 - `schemas`: versioned runtime manifest, receipt, ART readiness, ART evidence
   packet, policy-decision, runtime governance record, evidence projection, and
   ledger event schemas consumed or emitted by the local runtime.

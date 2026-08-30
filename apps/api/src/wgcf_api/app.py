@@ -15,6 +15,7 @@ from control_fabric_core import (
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
     MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
     MAX_REPOSITORY_CUSTODY_READINESS_REQUEST_BYTES,
+    MAX_REPOSITORY_LIFECYCLE_READINESS_REQUEST_BYTES,
     MAX_REPOSITORY_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
@@ -52,6 +53,12 @@ from control_fabric_core import (
     RepositoryCustodyReadinessRequestError,
     RepositoryCustodyReadinessService,
     RepositoryCustodyReadinessUnavailable,
+    RepositoryLifecycleReadinessConflict,
+    RepositoryLifecycleReadinessError,
+    RepositoryLifecycleReadinessNotFound,
+    RepositoryLifecycleReadinessRequestError,
+    RepositoryLifecycleReadinessService,
+    RepositoryLifecycleReadinessUnavailable,
     RepositoryReadinessError,
     RepositoryReadinessNotFound,
     RepositoryReadinessRequestError,
@@ -63,6 +70,7 @@ from control_fabric_core import (
     build_delivery_art_readiness_runtime,
     build_prototype_ingress_readiness_runtime,
     build_repository_custody_readiness_runtime,
+    build_repository_lifecycle_readiness_runtime,
     build_repository_readiness_runtime,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
@@ -98,6 +106,7 @@ def create_app(
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
     prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
     repository_custody_readiness: RepositoryCustodyReadinessService | None = None,
+    repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
@@ -116,6 +125,7 @@ def create_app(
     resolved_delivery_art_readiness = delivery_art_readiness
     resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_repository_custody_readiness = repository_custody_readiness
+    resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
     resolved_agent_action_ledger_path = Path(
         agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
@@ -174,6 +184,16 @@ def create_app(
         if resolved_repository_custody_readiness is None:
             resolved_repository_custody_readiness = build_repository_custody_readiness_runtime()
         return resolved_repository_custody_readiness, authorizer
+
+    def repository_lifecycle_readiness_runtime() -> tuple[
+        RepositoryLifecycleReadinessService,
+        ArtifactRegistryAuthorizer,
+    ]:
+        nonlocal resolved_repository_lifecycle_readiness
+        authorizer = caller_authorizer()
+        if resolved_repository_lifecycle_readiness is None:
+            resolved_repository_lifecycle_readiness = build_repository_lifecycle_readiness_runtime()
+        return resolved_repository_lifecycle_readiness, authorizer
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -710,6 +730,38 @@ def create_app(
         except RepositoryCustodyReadinessError as exc:
             raise _repository_custody_readiness_http_exception(exc) from exc
 
+    @app.post("/v1/readiness/repository-lifecycle")
+    async def issue_repository_lifecycle_readiness(request: Request) -> dict[str, Any]:
+        try:
+            service, authorizer = repository_lifecycle_readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw_request = await _read_bounded_request(
+                request,
+                limit=MAX_REPOSITORY_LIFECYCLE_READINESS_REQUEST_BYTES,
+                label="repository lifecycle readiness request",
+            )
+            return service.issue(raw_request, actor=caller_id).to_record()
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except RepositoryLifecycleReadinessError as exc:
+            raise _repository_lifecycle_readiness_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/repository-lifecycle/{decision_token}")
+    async def read_repository_lifecycle_readiness(
+        decision_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            service, authorizer = repository_lifecycle_readiness_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "read-readiness")
+            return service.read(decision_token, actor=caller_id).to_record()
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except RepositoryLifecycleReadinessError as exc:
+            raise _repository_lifecycle_readiness_http_exception(exc) from exc
+
     @app.get("/v1/readiness/repositories/{receipt_token}")
     async def read_repository_readiness(
         receipt_token: str,
@@ -824,6 +876,18 @@ def _repository_custody_readiness_http_exception(exc: Exception) -> HTTPExceptio
     if isinstance(exc, RepositoryCustodyReadinessUnavailable):
         return HTTPException(status_code=503, detail="repository custody readiness is unavailable")
     return HTTPException(status_code=503, detail="repository custody readiness is unavailable")
+
+
+def _repository_lifecycle_readiness_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, RepositoryLifecycleReadinessNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RepositoryLifecycleReadinessConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, RepositoryLifecycleReadinessRequestError):
+        return HTTPException(status_code=400, detail={"code": exc.code, "message": str(exc)})
+    if isinstance(exc, RepositoryLifecycleReadinessUnavailable):
+        return HTTPException(status_code=503, detail="repository lifecycle readiness is unavailable")
+    return HTTPException(status_code=503, detail="repository lifecycle readiness is unavailable")
 
 
 def _resolve_manifest_path(repo_root: Path, manifest_path: str) -> Path:

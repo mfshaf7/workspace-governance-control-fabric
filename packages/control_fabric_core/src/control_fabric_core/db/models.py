@@ -417,6 +417,29 @@ class RepositoryCustodyDecisionRecord(TimestampMixin, Base):
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class RepositoryLifecycleDecisionRecord(TimestampMixin, Base):
+    """Immutable WGCF decision for one repository lifecycle request identity."""
+
+    __tablename__ = "repository_lifecycle_decisions"
+
+    decision_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    decision_uri: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    decision_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(192), unique=True, nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_repository_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    workspace_owner_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    custody_version: Mapped[str] = mapped_column(String(256), nullable=False)
+    provider_version: Mapped[str | None] = mapped_column(String(256))
+    policy_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    implementation_ref: Mapped[str] = mapped_column(String(40), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(32), nullable=False)
+    decision: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 Index("ix_governance_nodes_type_owner", GovernanceNode.node_type, GovernanceNode.owner_repo)
 Index("ix_governance_edges_source_type", GovernanceEdge.source_node_id, GovernanceEdge.edge_type)
 Index("ix_governance_edges_target_type", GovernanceEdge.target_node_id, GovernanceEdge.edge_type)
@@ -486,4 +509,15 @@ Index(
     "ix_repository_custody_decision_policy",
     RepositoryCustodyDecisionRecord.policy_digest,
     RepositoryCustodyDecisionRecord.outcome,
+)
+Index(
+    "ix_repository_lifecycle_decision_subject",
+    RepositoryLifecycleDecisionRecord.provider,
+    RepositoryLifecycleDecisionRecord.provider_repository_id,
+    RepositoryLifecycleDecisionRecord.workspace_owner_ref,
+)
+Index(
+    "ix_repository_lifecycle_decision_policy",
+    RepositoryLifecycleDecisionRecord.policy_digest,
+    RepositoryLifecycleDecisionRecord.outcome,
 )
