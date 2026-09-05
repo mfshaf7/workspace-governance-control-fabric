@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -110,7 +111,8 @@ class IntakeContracts:
     policy: dict[str, Any]
 
     @classmethod
-    def load(cls, root: Path = CONTRACT_ROOT) -> IntakeContracts:
+    def load(cls, root: Path | None = None) -> IntakeContracts:
+        root = Path(root or os.environ.get("WGCF_WORKSPACE_INTAKE_CONTRACT_ROOT") or CONTRACT_ROOT)
         try:
             manifest = parse_json((root / "manifest.json").read_bytes())
             if (

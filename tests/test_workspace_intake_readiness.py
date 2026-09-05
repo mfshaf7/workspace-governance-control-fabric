@@ -300,6 +300,8 @@ class WorkspaceIntakeReadinessTests(TestCase):
         source = Path(__file__).resolve().parents[1] / "contracts/workspace-intake"
         for path in source.iterdir():
             (root / path.name).write_bytes(path.read_bytes())
+        with patch.dict("os.environ", {"WGCF_WORKSPACE_INTAKE_CONTRACT_ROOT": str(root)}):
+            self.assertEqual(IntakeContracts.load().manifest, IntakeContracts.load(root).manifest)
         path = root / "workspace-intake-request.schema.json"
         path.write_text("{}", encoding="utf-8")
         with self.assertRaises(IntakeUnavailable):
