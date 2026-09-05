@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WGCF Workspace Intake Readiness Receipt",
+  "type": "object",
+  "required": ["schema_version", "artifact_type", "evaluation_id", "evaluation_digest", "session_ref", "execution_ref", "request_ref", "decision_ref", "target", "authority", "issuer", "evaluated_at", "canonical_mutation", "outcome", "next_action", "findings", "observed_state", "obligations", "receipt_digest"],
+  "$defs": {
+    "text": {"type": "string", "minLength": 1},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "ref": {
+      "type": "object", "required": ["id", "digest"],
+      "properties": {"id": {"$ref": "#/$defs/text"}, "digest": {"$ref": "#/$defs/digest"}},
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_type": {"const": "wgcf-workspace-intake-readiness"},
+    "evaluation_id": {"$ref": "#/$defs/text"},
+    "evaluation_digest": {"$ref": "#/$defs/digest"},
+    "session_ref": {"$ref": "#/$defs/text"},
+    "execution_ref": {"$ref": "#/$defs/text"},
+    "request_ref": {"$ref": "#/$defs/ref"},
+    "decision_ref": {"$ref": "#/$defs/ref"},
+    "target": {
+      "type": "object", "required": ["kind", "name", "record_id"],
+      "properties": {
+        "kind": {"enum": ["repo", "product", "component"]},
+        "name": {"$ref": "#/$defs/text"}, "record_id": {"$ref": "#/$defs/text"}
+      }, "additionalProperties": false
+    },
+    "authority": {
+      "type": "object", "required": ["repo", "revision", "files", "bundle_digest"],
+      "properties": {
+        "repo": {"const": "workspace-governance"}, "revision": {"$ref": "#/$defs/commit"},
+        "files": {"type": "object", "minProperties": 10, "additionalProperties": {"$ref": "#/$defs/digest"}},
+        "bundle_digest": {"$ref": "#/$defs/digest"}
+      }, "additionalProperties": false
+    },
+    "issuer": {
+      "type": "object", "required": ["service_identity_ref", "implementation_ref", "caller_id"],
+      "properties": {
+        "service_identity_ref": {"$ref": "#/$defs/text"}, "implementation_ref": {"$ref": "#/$defs/commit"},
+        "caller_id": {"$ref": "#/$defs/text"}
+      }, "additionalProperties": false
+    },
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "canonical_mutation": {"const": false},
+    "outcome": {"enum": ["allowed", "denied", "requires-action"]},
+    "next_action": {"enum": ["correct-request", "refresh-authority", "review-decision", "stop", "prepare-repository", "read-merged-record", "prepare-reviewed-source-change"]},
+    "findings": {
+      "type": "array", "items": {
+        "type": "object", "required": ["code", "severity", "message", "next_action"],
+        "properties": {
+          "code": {"$ref": "#/$defs/text"}, "severity": {"const": "blocking"},
+          "message": {"$ref": "#/$defs/text"}, "next_action": {"$ref": "#/$defs/text"}
+        }, "additionalProperties": false
+      }
+    },
+    "observed_state": {
+      "type": "object", "required": ["register_digest", "record_version", "record_digest", "canonical_replay"],
+      "properties": {
+        "register_digest": {"$ref": "#/$defs/digest"},
+        "record_version": {"type": ["integer", "null"], "minimum": 1},
+        "record_digest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "canonical_replay": {"type": "boolean"},
+        "repository_files": {"type": "object", "additionalProperties": {"type": "boolean"}},
+        "repository_present": {"type": "boolean"}
+      }, "additionalProperties": false
+    },
+    "obligations": {"type": "array", "items": {"$ref": "#/$defs/text"}, "minItems": 1, "uniqueItems": true},
+    "receipt_digest": {"$ref": "#/$defs/digest"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"outcome": {"const": "allowed"}}},
+      "then": {"properties": {"findings": {"maxItems": 0}}},
+      "else": {"properties": {"findings": {"minItems": 1}}}
+    }
+  ],
+  "additionalProperties": false
+}

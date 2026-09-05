@@ -92,6 +92,14 @@ from control_fabric_core import (
     status_snapshot,
 )
 from control_fabric_core.canonical_json import strict_json_loads
+from control_fabric_core.workspace_intake_contracts import IntakeRequestError, IntakeUnavailable
+from control_fabric_core.workspace_intake_readiness import (
+    MAX_INTAKE_REQUEST_BYTES,
+    IntakeConflict,
+    IntakeNotFound,
+    WorkspaceIntakeReadinessService,
+    build_workspace_intake_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -108,6 +116,7 @@ def create_app(
     repository_custody_readiness: RepositoryCustodyReadinessService | None = None,
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
+    workspace_intake_readiness: WorkspaceIntakeReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
 
@@ -127,6 +136,7 @@ def create_app(
     resolved_repository_custody_readiness = repository_custody_readiness
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
+    resolved_workspace_intake_readiness = workspace_intake_readiness
     resolved_agent_action_ledger_path = Path(
         agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
     ).resolve()
@@ -194,6 +204,37 @@ def create_app(
         if resolved_repository_lifecycle_readiness is None:
             resolved_repository_lifecycle_readiness = build_repository_lifecycle_readiness_runtime()
         return resolved_repository_lifecycle_readiness, authorizer
+
+    def workspace_intake_runtime() -> WorkspaceIntakeReadinessService:
+        nonlocal resolved_workspace_intake_readiness
+        if resolved_workspace_intake_readiness is None:
+            resolved_workspace_intake_readiness = build_workspace_intake_readiness_runtime()
+        return resolved_workspace_intake_readiness
+
+    @app.post("/v1/readiness/workspace-intake")
+    async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request, limit=MAX_INTAKE_REQUEST_BYTES, label="workspace intake evaluation",
+            )
+            return workspace_intake_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (IntakeRequestError, IntakeConflict, IntakeUnavailable) as exc:
+            raise _workspace_intake_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/workspace-intake/{receipt_token}")
+    async def read_workspace_intake_readiness(receipt_token: str, request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return workspace_intake_runtime().read(receipt_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (IntakeRequestError, IntakeNotFound, IntakeUnavailable) as exc:
+            raise _workspace_intake_http_exception(exc) from exc
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -854,6 +895,16 @@ def _prototype_ingress_readiness_http_exception(exc: Exception) -> HTTPException
     if isinstance(exc, PrototypeIngressReadinessUnavailable):
         return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
     return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
+
+
+def _workspace_intake_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, IntakeRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, IntakeConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, IntakeNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=503, detail="workspace intake readiness is unavailable")
 
 
 def _repository_readiness_http_exception(exc: Exception) -> HTTPException:

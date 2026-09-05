@@ -440,6 +440,18 @@ class RepositoryLifecycleDecisionRecord(TimestampMixin, Base):
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class WorkspaceIntakeEvaluationRecord(TimestampMixin, Base):
+    """Immutable intake evaluation; never a canonical classification record."""
+
+    __tablename__ = "workspace_intake_evaluations"
+
+    evaluation_id: Mapped[str] = mapped_column(String(192), primary_key=True)
+    evaluation_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    receipt_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    actor: Mapped[str] = mapped_column(String(256), nullable=False)
+    receipt: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+
+
 Index("ix_governance_nodes_type_owner", GovernanceNode.node_type, GovernanceNode.owner_repo)
 Index("ix_governance_edges_source_type", GovernanceEdge.source_node_id, GovernanceEdge.edge_type)
 Index("ix_governance_edges_target_type", GovernanceEdge.target_node_id, GovernanceEdge.edge_type)

@@ -118,6 +118,70 @@ service before activation. OOS owns the later command lifecycle, provider
 or workspace readback, custody mutation, reversal, terminal receipts, and
 immutable history.
 
+### Workspace Intake Readiness
+
+OOS uses `POST /v1/readiness/workspace-intake` with the existing
+`x-wgcf-caller-id` and `x-wgcf-caller-secret` authentication. Direct Console
+access is not authorized. The bounded 64 KiB body follows
+[`evaluation.schema.json`](../../contracts/workspace-intake/evaluation.schema.json):
+
+- `evaluation_id`: unique evaluation attempt identity
+- `session_ref` and `execution_ref`: OOS-owned workflow bindings
+- `authority_revision`: exact merged Workspace Governance commit
+- `request` and `decision`: unchanged, digest-bound Workspace Intake v2 artifacts
+- `evaluation_digest`: workspace-canonical-json-v1 digest omitting this field
+- `schema_version: 1`: evaluation transport version, distinct from intake v2
+
+WGCF validates the operator decision; it does not invent or accept a decision
+on the operator's behalf. Caller authentication establishes the OOS service
+boundary, not independent verification of a human's credentials or Security
+evidence. OOS must preserve the accepted operator and Security artifact chain.
+
+The response contains `receipt` and `ledger`. Receipts follow
+[`readiness.schema.json`](../../contracts/workspace-intake/readiness.schema.json)
+and bind the exact input digests, workflow references, issuer, implementation
+revision, authority revision, and every consumed authority file digest.
+Only references and findings are stored, not source briefs or credentials.
+
+An `allowed` outcome identifies `prepare-reviewed-source-change`, or
+`read-merged-record` when the exact mutation was already applied. Neither is
+a successful intake mutation. Source validation, exact-head review, human
+merge, and digest-matching merged readback remain mandatory.
+`requires-action` preserves a deferred operator decision. Other denied
+results include corrective next actions. No result activates a runtime or
+promotes active inventory.
+
+Read the immutable receipt using
+`GET /v1/readiness/workspace-intake/{receipt_token}`, where the token is the
+receipt digest without `sha256:`. Reads are bound to the originating caller.
+An exact retry reuses the receipt across service restarts. Reusing an evaluation
+ID with different content, caller, session, or execution returns HTTP 409.
+Re-evaluation after authority or request changes requires a new evaluation ID.
+Historical receipt reads and retries do not refresh readiness; OOS must compare
+the recorded authority revision before source preparation.
+
+Malformed artifacts or digest mismatches return 422, unauthorized calls 401/403,
+oversized requests 413, absent receipts 404, and untrusted authority or failed
+durable storage 503. Failed storage never returns a successful receipt.
+
+Authority is read through Git from the configured
+`WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT` at `refs/remotes/origin/main`.
+The service performs no fetch, checkout, branch, file write, or merge.
+The deployment owner must refresh that trusted ref; WGCF cannot prove remote
+freshness from an offline checkout. Contract changes fail closed until a
+reviewed bundle update. Repository admission additionally observes required
+owner files and repository presence under that checkout's workspace parent;
+those observations are explicit, not a provider or repository-custody claim.
+
+The manifest activation flag is false. The runtime requires its reviewed
+activation, `WGCF_WORKSPACE_INTAKE_READINESS_ENABLED=true`,
+`WGCF_RUNTIME_PROFILE=dev-integration`, configured service identity, an exact
+implementation revision, and the existing WGCF database. Migration
+`0008_workspace_intake` adds only immutable evaluation evidence storage.
+Security #1066 and activation #1082 remain separate gates; this source work
+does not enable them. For rollback, disable the endpoint and revert the
+implementation; retain existing receipts and ledger history.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 
