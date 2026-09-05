@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.workspace-intake-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "6fd843eb43405f6bdcc439d23b18e556eca05b26",
+  "runtime_activation": false,
+  "transport_schemas": {
+    "evaluation.schema.json": "1e14c2681857ad49a85eae386faaef3a1abe0c9b9290148cacfeffb1c3705fce",
+    "readiness.schema.json": "c5e8bad73f00e02d42838ec9a83d0aa969f3b3bdaa341b33d55ad0d0b9539b93"
+  },
+  "files": {
+    "contracts/workspace-intake.yaml": "9cc03be2bb119d7b5eead51ecd78b2c5cb1fcec41583a8e1f77af76ef3dc16e9",
+    "contracts/intake-policy.yaml": "9d58b8b2fb0afc47fd689b7a2421bc4bb7ba3cabdd874134caece27034f37b55",
+    "contracts/schemas/workspace-intake-request.schema.json": "c727eccb3fe492c4cbfd4840d97a5cf00842d8c4ce004e4668f6e1335fb0ef46",
+    "contracts/schemas/workspace-intake-decision.schema.json": "a770c3499fb019952dc026b436ee245bc7d826601fbec3286ca5f8d12a310fec",
+    "contracts/schemas/intake-register.schema.json": "b14bb6f07279dcb06bb91b581292b14ba42362c50a3d964cd9f6492db25508fc"
+  }
+}

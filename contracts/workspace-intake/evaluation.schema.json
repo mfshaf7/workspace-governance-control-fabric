@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WGCF Workspace Intake Evaluation",
+  "type": "object",
+  "required": ["schema_version", "evaluation_id", "session_ref", "execution_ref", "authority_revision", "request", "decision", "evaluation_digest"],
+  "$defs": {
+    "identity": {"type": "string", "minLength": 1, "maxLength": 192, "pattern": "\\S"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  },
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "evaluation_id": {"$ref": "#/$defs/identity"},
+    "session_ref": {"$ref": "#/$defs/identity"},
+    "execution_ref": {"$ref": "#/$defs/identity"},
+    "authority_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "request": {"type": "object", "description": "Validated separately against the pinned workspace-intake-request schema."},
+    "decision": {"type": "object", "description": "Validated separately against the pinned workspace-intake-decision schema."},
+    "evaluation_digest": {"$ref": "#/$defs/digest"}
+  },
+  "additionalProperties": false
+}

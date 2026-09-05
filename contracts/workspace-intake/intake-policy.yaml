@@ -1,0 +1,116 @@
+schema_version: 2
+contract_ref:
+  repo: workspace-governance
+  path: contracts/workspace-intake.yaml
+  schema_version: 2
+workspace_inventory:
+  scan_workspace_root_git_repos: true
+  allow_unclassified_git_repos: false
+statuses:
+  - out-of-scope
+  - proposed
+  - admitted
+governance_triggers:
+  - trust-boundary crossing
+  - production-impacting delivery surface
+  - shared platform or shared component role
+  - operator-facing runtime or service
+  - secrets, identity, AI, or host-control path
+ai_suggestions:
+  enabled: true
+  governed_profile_registry:
+    repo: platform-engineering
+    path: security/governed-ai-model-profiles.yaml
+  governed_intake_assist_contract:
+    repo: workspace-governance
+    path: contracts/governed-intake-assist.yaml
+  required_profile_status: active
+  required_purposes:
+    - workspace-intake-assist
+  require_human_approval: true
+repos:
+  admitted_requires_physical_repo: true
+  admitted_required_files:
+    - README.md
+    - AGENTS.md
+products:
+  require_owner_metadata_when_in_scope: true
+components:
+  require_owner_metadata_when_in_scope: true
+validation_behavior:
+  enabled: true
+  defining_work_item_ref: openproject://work_packages/504
+  catalog_ref:
+    repo: workspace-governance
+    path: contracts/governance-validator-catalog.yaml
+  repos:
+    require_for_active: true
+    require_for_in_scope_intake: true
+  products:
+    require_for_active: true
+    require_for_in_scope_intake: true
+  components:
+    require_for_active: true
+    require_for_in_scope_intake: true
+  runtime_profiles:
+    require_for_registered: true
+  allowed_postures:
+    - catalog-owner
+    - runtime-consumer
+    - profile-gated-external-owner
+    - covered-by-owner-repo
+    - interface-contract-backed
+    - proposed-profile-gated
+    - build-admitted-profile-gated
+  allowed_graph_roles:
+    - catalog-authority-source
+    - wgcf-runtime-source
+    - platform-authority-source
+    - security-authority-source
+    - product-runtime-source
+    - runtime-enforcement-source
+    - product-channel-source
+    - operator-workflow-source
+    - shared-platform-component
+    - shared-governance-runtime-component
+    - product-runtime-component
+    - product-channel-component
+    - product-plugin-component
+    - operator-workflow-component
+    - product-readiness-aggregate
+    - dev-integration-profile
+    - context-packet-provider
+    - proposed-shared-platform-component
+  allowed_graph_roles_by_posture:
+    proposed-profile-gated:
+      - proposed-shared-platform-component
+      - context-packet-provider
+    build-admitted-profile-gated:
+      - shared-platform-component
+      - context-packet-provider
+  direct_invocation_postures:
+    - catalog-owner
+    - profile-gated-external-owner
+    - interface-contract-backed
+  require_catalog_refs_for_direct_invocation: true
+  notes: New repos, products, components, and registered runtime profiles must declare how WGCF will see, plan, or suppress their validation before they can be admitted into active governance.
+context_behavior:
+  enabled: true
+  defining_work_item_ref: openproject://work_packages/606
+  contract_ref:
+    repo: workspace-governance
+    path: contracts/context-behavior.yaml
+  raw_context_retirement_ref:
+    repo: workspace-governance
+    path: contracts/raw-context-retirement.yaml
+  repos:
+    require_for_active: true
+    require_for_in_scope_intake: true
+  products:
+    require_source_owner_declarations: true
+  components:
+    require_for_active_shared_runtime: true
+  runtime_profiles:
+    require_context_projection_posture: true
+  default_model_projection: deny-raw-project-model-safe-packet
+  notes: New repos, products, components, and profiles must make an explicit context-behavior decision before operational context is projected to models, agents, operators, CI automation, or workflow adapters.
