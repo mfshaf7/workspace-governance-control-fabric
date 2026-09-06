@@ -21,6 +21,8 @@ no canonical mutation and activates no runtime.
 - Pin the exact #1071 promotion contract and v2 inventory schemas.
 - Evaluate admitted status, exact source bindings, inventory absence, typed
   active records, compatibility aliases, approval references, and identity reuse.
+- Reject missing and already-active targets as the wrong operation instead of
+  emitting a readiness artifact with invented observed state.
 - Expose authenticated issue and caller-scoped readback endpoints.
 - Persist readiness and ledger evidence atomically through migration `0009`.
 - Keep runtime activation disabled pending the later workflow and activation gates.
