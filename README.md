@@ -107,6 +107,11 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/workspace-inventory/{readiness_token}`. It checks one
   admitted entrant against committed intake and inventory truth and returns the
   exact Workspace Governance readiness artifact without changing canonical YAML.
+  Existing inventory lifecycle changes use the separate
+  `POST /v1/readiness/workspace-inventory-lifecycle` and
+  `GET /v1/readiness/workspace-inventory-lifecycle/{readiness_token}` routes.
+  They evaluate update, suspend, restore, and retire requests against committed
+  inventory plus append-only history without changing either source file.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an

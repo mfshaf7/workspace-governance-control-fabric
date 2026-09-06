@@ -2,18 +2,24 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-active-inventory-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "c7bf95ee0009a95331bf2bd5e07622ab34d1c0cf",
+  "authority_commit": "0926e18a6661e895169c47969894c41effcd2ff5",
   "runtime_activation": false,
   "transport_schemas": {
-    "evaluation.schema.json": "67106a28f630ef4d02376e4243e521d200c0bc55b8c68174ce3dc7a84ba6c5a4"
+    "evaluation.schema.json": "67106a28f630ef4d02376e4243e521d200c0bc55b8c68174ce3dc7a84ba6c5a4",
+    "lifecycle-evaluation.schema.json": "cde5ff21fcff1afe5d37c492912d51aa7b140e23aff065b3d8b0e70063cde30a"
   },
   "files": {
     "contracts/workspace-active-inventory.yaml": "68ec814d2bc814ddcb061faf7219807feb890201109fbfd1f9f65073f6c7a9e7",
+    "contracts/workspace-inventory-lifecycle.yaml": "c480cbdecad4b2decdbd86444a6037e2802d2bad8d66745ab14855eeb443d16c",
     "contracts/schemas/workspace-inventory-promotion-request.schema.json": "61fef759a3960dba8590a297931eb2eda326fa957057fe66f31e74f623e5cc25",
     "contracts/schemas/workspace-inventory-promotion-readiness.schema.json": "22a9a998afa70aee3bfd1b34e134fd49829fca9e79866b8638e3394a49d50887",
+    "contracts/schemas/workspace-inventory-lifecycle-request.schema.json": "aab4fd9b148fc372a276aa325b807cb068e7dcc8e5a4d82817429ec202a93ea3",
+    "contracts/schemas/workspace-inventory-lifecycle-readiness.schema.json": "6e614bb4ea9e77a2440ca9a3ad96ed0222213da73d9d91b3d1dcbf605c132cd5",
+    "contracts/schemas/workspace-inventory-lifecycle.schema.json": "b969d8d953c6ade97dad7272fb7dc76e65ccfa1fd81ee2b4d1efb79e3e14efda",
+    "contracts/schemas/workspace-inventory-history.schema.json": "e4c81c2583b1ca85208ec80141e36282db9ebcf31d7a3e8398eb146e1f7fc58a",
     "contracts/schemas/intake-register.schema.json": "b14bb6f07279dcb06bb91b581292b14ba42362c50a3d964cd9f6492db25508fc",
-    "contracts/schemas/repos.schema.json": "7b485f799c4d20e11f721f2461e139bedf36070f2312a53857b5e1472449309e",
-    "contracts/schemas/products.schema.json": "6af1f2ec1172fc09320c51a63d68463e81341f5a73f86a47b5e96b315f8c7808",
-    "contracts/schemas/components.schema.json": "e784ad800da8270d37ca42c8a589d7aa66fc5b806c5907abebbf892b8a7d420c"
+    "contracts/schemas/repos.schema.json": "fe8cf65f9d04dc4d246477cb3eb0c2bdc5b351e859e5376e3a610acd2df443c6",
+    "contracts/schemas/products.schema.json": "7d0c266211017a7b2dfae5dfaf3df8cb8f00ab7a85f721822765fb98dc3500d7",
+    "contracts/schemas/components.schema.json": "0c5d668fc9da6718efc2d0be1a629fd96ef1a7e079a815a911d6d30c83c45564"
   }
 }

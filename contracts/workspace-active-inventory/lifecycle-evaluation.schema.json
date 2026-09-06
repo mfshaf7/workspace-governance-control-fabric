@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "evaluation_id",
+    "session_ref",
+    "execution_ref",
+    "authority_revision",
+    "request",
+    "evaluation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "wgcf-workspace-inventory-lifecycle-evaluation" },
+    "evaluation_id": { "$ref": "#/$defs/text" },
+    "session_ref": { "$ref": "#/$defs/text" },
+    "execution_ref": { "$ref": "#/$defs/text" },
+    "authority_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "request": { "type": "object" },
+    "evaluation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

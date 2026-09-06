@@ -27,6 +27,8 @@ EXPECTED_TABLES = {
     "repository_readiness_receipts",
     "repository_custody_decisions",
     "repository_lifecycle_decisions",
+    "workspace_inventory_evaluations",
+    "workspace_inventory_lifecycle_evaluations",
     "escalation_records",
     "governance_edges",
     "governance_nodes",

@@ -214,6 +214,31 @@ Migration `0009_workspace_inventory` adds immutable evaluation storage only.
 WGCF does not fetch, mutate YAML, create a branch or pull request, merge, or
 claim Security approval. OOS #1073 owns those workflow steps.
 
+### Active Inventory Lifecycle Readiness
+
+OOS submits a digest-bound lifecycle evaluation to
+`POST /v1/readiness/workspace-inventory-lifecycle`. The request names one
+existing repository, product, or component and one `update`, `suspend`,
+`restore`, or `retire` action. WGCF compares it with the committed inventory,
+append-only lifecycle history, record version and digest, current posture, and
+the pinned Workspace Governance lifecycle policy.
+
+Only exact, currently valid requests return `ready`. Stale authority or source
+bindings, illegal transitions, invalid update values, incorrect restore-event
+bindings, reused request identities, and reused idempotency keys return
+`blocked` with deterministic findings. The response is the authority-owned
+`workspace-inventory-lifecycle-readiness` shape. Caller-scoped immutable
+readback is available at
+`GET /v1/readiness/workspace-inventory-lifecycle/{token}`.
+
+Evaluation never changes canonical inventory or history. Workspace Governance
+owns the reviewed source mutation and append-only event; OOS owns orchestration,
+review, merge observation, and reconciliation. Runtime activation remains off
+until the pinned manifest and
+`WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED=true` are approved for
+`dev-integration`. Migration `0010_inventory_lifecycle` stores immutable
+evaluation evidence only.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

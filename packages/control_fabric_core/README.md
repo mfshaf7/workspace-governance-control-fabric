@@ -58,6 +58,9 @@ Current slice:
 - Workspace active-inventory promotion readiness over a digest-pinned authority
   bundle and committed Git snapshot, with exact entrant, inventory, record,
   approval, replay, and caller bindings and no canonical mutation authority
+- Workspace Inventory lifecycle readiness over the same pinned authority and
+  committed Git snapshot, with exact history, posture, transition, update,
+  restore, replay, and caller bindings and no canonical mutation authority
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -67,7 +70,7 @@ Current slice:
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   ledger, Delivery ART registry, custody-receipt, Prototype ingress,
   repository-readiness, custody-decision, lifecycle-decision, Workspace Intake,
-  and active-inventory evaluation records
+  active-inventory promotion, and inventory lifecycle evaluation records
 - Temporal-shaped worker settings and planned capability metadata without
   runtime connections or long-running workflow behavior
 

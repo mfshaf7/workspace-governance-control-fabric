@@ -137,6 +137,10 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
             repo_root
             / "packages/control_fabric_core/src/control_fabric_core/repository_lifecycle_readiness.py"
         ),
+        "packages/control_fabric_core/src/control_fabric_core/workspace_inventory_lifecycle_readiness.py": (
+            repo_root
+            / "packages/control_fabric_core/src/control_fabric_core/workspace_inventory_lifecycle_readiness.py"
+        ),
         "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py": (
             repo_root / "packages/control_fabric_core/src/control_fabric_core/runtime_governance_records.py"
         ),
@@ -176,6 +180,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0007_repository_lifecycle.py": (
             repo_root / "migrations/versions/0007_repository_lifecycle.py"
         ),
+        "migrations/versions/0010_inventory_lifecycle.py": (
+            repo_root / "migrations/versions/0010_inventory_lifecycle.py"
+        ),
         "contracts/delivery-art/manifest.json": (
             repo_root / "contracts/delivery-art/manifest.json"
         ),
@@ -190,6 +197,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "contracts/repository-custody/manifest.json": (
             repo_root / "contracts/repository-custody/manifest.json"
+        ),
+        "contracts/workspace-active-inventory/manifest.json": (
+            repo_root / "contracts/workspace-active-inventory/manifest.json"
         ),
         "schemas/governance-manifest.schema.json": (
             repo_root / "schemas/governance-manifest.schema.json"

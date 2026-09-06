@@ -68,6 +68,9 @@ Current slice:
   for immutable Workspace Intake decision evaluation
 - implement `POST /v1/readiness/workspace-inventory` and caller-scoped readback
   for admitted-entrant promotion readiness against committed authority
+- implement `POST /v1/readiness/workspace-inventory-lifecycle` and
+  caller-scoped readback for non-mutating update, suspension, restoration, and
+  retirement readiness against committed inventory and append-only history
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to

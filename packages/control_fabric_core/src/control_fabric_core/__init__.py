@@ -144,6 +144,13 @@ from .repository_lifecycle_readiness import (
     build_repository_lifecycle_readiness_runtime,
     prepare_repository_lifecycle_request,
 )
+from .workspace_inventory_lifecycle_readiness import (
+    MAX_INVENTORY_LIFECYCLE_REQUEST_BYTES,
+    InventoryLifecycleConflict,
+    InventoryLifecycleNotFound,
+    WorkspaceInventoryLifecycleReadinessService,
+    build_workspace_inventory_lifecycle_readiness_runtime,
+)
 from .evidence_projection import (
     ArtCompletionEvidenceProjection,
     ChangeRecordReferenceProjection,
@@ -340,6 +347,7 @@ __all__ = [
     "MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES",
     "MAX_REPOSITORY_CUSTODY_READINESS_REQUEST_BYTES",
     "MAX_REPOSITORY_READINESS_REQUEST_BYTES",
+    "MAX_INVENTORY_LIFECYCLE_REQUEST_BYTES",
     "ArtCompletionEvidenceProjection",
     "ArtEvidencePacket",
     "ArtReadinessFinding",
@@ -393,6 +401,9 @@ __all__ = [
     "RepositoryReadinessResult",
     "RepositoryReadinessService",
     "RepositoryReadinessUnavailable",
+    "InventoryLifecycleConflict",
+    "InventoryLifecycleNotFound",
+    "WorkspaceInventoryLifecycleReadinessService",
     "WORKSPACE_GOVERNANCE_REPO_ROOT_ENV",
     "PolicyDecision",
     "PolicyReason",
@@ -455,6 +466,7 @@ __all__ = [
     "build_prototype_ingress_readiness_runtime",
     "build_repository_custody_readiness_runtime",
     "build_repository_readiness_runtime",
+    "build_workspace_inventory_lifecycle_readiness_runtime",
     "build_correlation_id",
     "build_governance_record_ledger_event",
     "build_graph_from_manifest_file",
