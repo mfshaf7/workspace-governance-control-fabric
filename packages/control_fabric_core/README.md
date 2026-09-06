@@ -55,6 +55,9 @@ Current slice:
 - repository custody and lifecycle readiness over digest-pinned Workspace
   Governance contracts, with immutable decisions, independent lifecycle state
   axes, exact impact and confirmation controls, and no mutation authority
+- Workspace active-inventory promotion readiness over a digest-pinned authority
+  bundle and committed Git snapshot, with exact entrant, inventory, record,
+  approval, replay, and caller bindings and no canonical mutation authority
 - compact evidence projection helpers that adapt control receipts into ART,
   Review Packet, and Git/change-record evidence references without copying raw
   artifacts
@@ -63,7 +66,8 @@ Current slice:
   receipts and OOS-safe recommendations without mutating ART
 - SQLAlchemy metadata for fabric-local graph, receipt, readiness, escalation,
   ledger, Delivery ART registry, custody-receipt, Prototype ingress,
-  repository-readiness, custody-decision, and lifecycle-decision records
+  repository-readiness, custody-decision, lifecycle-decision, Workspace Intake,
+  and active-inventory evaluation records
 - Temporal-shaped worker settings and planned capability metadata without
   runtime connections or long-running workflow behavior
 

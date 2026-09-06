@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.workspace-active-inventory-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "c7bf95ee0009a95331bf2bd5e07622ab34d1c0cf",
+  "runtime_activation": false,
+  "transport_schemas": {
+    "evaluation.schema.json": "67106a28f630ef4d02376e4243e521d200c0bc55b8c68174ce3dc7a84ba6c5a4"
+  },
+  "files": {
+    "contracts/workspace-active-inventory.yaml": "68ec814d2bc814ddcb061faf7219807feb890201109fbfd1f9f65073f6c7a9e7",
+    "contracts/schemas/workspace-inventory-promotion-request.schema.json": "61fef759a3960dba8590a297931eb2eda326fa957057fe66f31e74f623e5cc25",
+    "contracts/schemas/workspace-inventory-promotion-readiness.schema.json": "22a9a998afa70aee3bfd1b34e134fd49829fca9e79866b8638e3394a49d50887",
+    "contracts/schemas/intake-register.schema.json": "b14bb6f07279dcb06bb91b581292b14ba42362c50a3d964cd9f6492db25508fc",
+    "contracts/schemas/repos.schema.json": "7b485f799c4d20e11f721f2461e139bedf36070f2312a53857b5e1472449309e",
+    "contracts/schemas/products.schema.json": "6af1f2ec1172fc09320c51a63d68463e81341f5a73f86a47b5e96b315f8c7808",
+    "contracts/schemas/components.schema.json": "e784ad800da8270d37ca42c8a589d7aa66fc5b806c5907abebbf892b8a7d420c"
+  }
+}

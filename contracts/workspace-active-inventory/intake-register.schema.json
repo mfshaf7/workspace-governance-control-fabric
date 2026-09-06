@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "repos", "products", "components"],
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "aiSuggestion": {
+      "type": "object",
+      "required": ["profile_id", "policy_status", "decision_id", "generated_at", "confidence", "caller_id", "invocation_path", "suggested_decision", "operator_decision", "acceptance_state", "accepted_by", "accepted_at", "audit_ref"],
+      "properties": {
+        "profile_id": { "$ref": "#/$defs/text" },
+        "policy_status": { "$ref": "#/$defs/text" },
+        "decision_id": { "$ref": "#/$defs/text" },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "caller_id": { "$ref": "#/$defs/text" },
+        "invocation_path": { "$ref": "#/$defs/text" },
+        "suggested_decision": { "enum": ["out-of-scope", "proposed", "admitted"] },
+        "operator_decision": { "enum": ["out-of-scope", "proposed", "admitted"] },
+        "acceptance_state": { "enum": ["accepted", "overridden"] },
+        "accepted_by": { "$ref": "#/$defs/text" },
+        "accepted_at": { "type": "string", "format": "date-time" },
+        "audit_ref": { "$ref": "#/$defs/text" },
+        "override_reason": { "$ref": "#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "validationBehavior": {
+      "type": "object",
+      "required": ["posture", "wgcf_graph_role", "catalog_refs", "notes"],
+      "properties": {
+        "posture": { "$ref": "#/$defs/text" },
+        "wgcf_graph_role": { "$ref": "#/$defs/text" },
+        "catalog_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/text" },
+          "uniqueItems": true
+        },
+        "notes": { "$ref": "#/$defs/text" }
+      },
+      "additionalProperties": false
+    },
+    "recordEnvelope": {
+      "type": "object",
+      "required": ["status", "decision_source", "owner_route", "record"],
+      "properties": {
+        "status": { "enum": ["out-of-scope", "proposed", "admitted"] },
+        "decision_source": { "enum": ["operator", "ai-suggested"] },
+        "owner_route": { "$ref": "#/$defs/text" },
+        "record": {
+          "type": "object",
+          "required": ["id", "version", "source", "decision", "last_mutation"],
+          "properties": {
+            "id": { "type": "string", "pattern": "^(repo|product|component):[a-z0-9][a-z0-9._-]*$" },
+            "version": { "type": "integer", "minimum": 1 },
+            "source": {
+              "type": "object",
+              "required": ["class", "ref", "digest"],
+              "properties": {
+                "class": { "enum": ["direct", "repository-custody", "prototype", "delivery"] },
+                "ref": { "$ref": "#/$defs/text" },
+                "digest": { "$ref": "#/$defs/digest" }
+              },
+              "additionalProperties": false
+            },
+            "decision": {
+              "type": "object",
+              "required": ["id", "ref", "digest", "source", "operator_ref", "decided_at"],
+              "properties": {
+                "id": { "$ref": "#/$defs/text" },
+                "ref": { "$ref": "#/$defs/text" },
+                "digest": { "$ref": "#/$defs/digest" },
+                "source": { "enum": ["operator", "ai-suggested"] },
+                "operator_ref": { "$ref": "#/$defs/text" },
+                "decided_at": { "type": "string", "format": "date-time" }
+              },
+              "additionalProperties": false
+            },
+            "last_mutation": {
+              "type": "object",
+              "required": ["id", "idempotency_key", "request_ref", "request_digest", "decision_ref", "decision_digest", "applied_at"],
+              "properties": {
+                "id": { "$ref": "#/$defs/text" },
+                "idempotency_key": { "$ref": "#/$defs/text" },
+                "request_ref": { "$ref": "#/$defs/text" },
+                "request_digest": { "$ref": "#/$defs/digest" },
+                "decision_ref": { "$ref": "#/$defs/text" },
+                "decision_digest": { "$ref": "#/$defs/digest" },
+                "applied_at": { "type": "string", "format": "date-time" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "validation_behavior": { "$ref": "#/$defs/validationBehavior" },
+        "ai_suggestion": { "$ref": "#/$defs/aiSuggestion" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "decision_source": { "const": "ai-suggested" } }, "required": ["decision_source"] },
+          "then": { "required": ["ai_suggestion"] }
+        },
+        {
+          "if": { "properties": { "decision_source": { "const": "operator" } }, "required": ["decision_source"] },
+          "then": { "not": { "required": ["ai_suggestion"] } }
+        }
+      ]
+    },
+    "repoEntry": {
+      "properties": {
+        "status": {},
+        "decision_source": {},
+        "owner_route": {},
+        "record": {},
+        "validation_behavior": {},
+        "ai_suggestion": {},
+        "repo_class": {},
+        "requires_security_bindings": {},
+        "security_owner": {},
+        "notes": {}
+      },
+      "allOf": [
+        { "$ref": "#/$defs/recordEnvelope" },
+        {
+          "type": "object",
+          "required": ["repo_class", "requires_security_bindings", "security_owner", "notes"],
+          "properties": {
+            "repo_class": { "type": ["string", "null"] },
+            "requires_security_bindings": { "type": ["boolean", "null"] },
+            "security_owner": { "type": ["string", "null"] },
+            "notes": { "$ref": "#/$defs/text" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "productEntry": {
+      "properties": {
+        "status": {},
+        "decision_source": {},
+        "owner_route": {},
+        "record": {},
+        "validation_behavior": {},
+        "ai_suggestion": {},
+        "platform_owner": {},
+        "security_owner": {},
+        "runtime_owner": {},
+        "source_owners": {},
+        "intended_endpoint": {},
+        "notes": {}
+      },
+      "allOf": [
+        { "$ref": "#/$defs/recordEnvelope" },
+        {
+          "type": "object",
+          "required": ["platform_owner", "security_owner", "runtime_owner", "source_owners", "intended_endpoint", "notes"],
+          "properties": {
+            "platform_owner": { "type": ["string", "null"] },
+            "security_owner": { "type": ["string", "null"] },
+            "runtime_owner": { "type": ["string", "null"] },
+            "source_owners": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/text" },
+              "uniqueItems": true
+            },
+            "intended_endpoint": { "type": ["string", "null"] },
+            "notes": { "$ref": "#/$defs/text" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "componentEntry": {
+      "properties": {
+        "status": {},
+        "decision_source": {},
+        "owner_route": {},
+        "record": {},
+        "validation_behavior": {},
+        "ai_suggestion": {},
+        "component_class": {},
+        "owner_repo": {},
+        "security_owner": {},
+        "product": {},
+        "notes": {}
+      },
+      "allOf": [
+        { "$ref": "#/$defs/recordEnvelope" },
+        {
+          "type": "object",
+          "required": ["component_class", "owner_repo", "security_owner", "product", "notes"],
+          "properties": {
+            "component_class": { "type": ["string", "null"] },
+            "owner_repo": { "type": ["string", "null"] },
+            "security_owner": { "type": ["string", "null"] },
+            "product": { "type": ["string", "null"] },
+            "notes": { "$ref": "#/$defs/text" }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    }
+  },
+  "properties": {
+    "schema_version": { "const": 2 },
+    "repos": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/repoEntry" }
+    },
+    "products": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/productEntry" }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/componentEntry" }
+    }
+  },
+  "additionalProperties": false
+}

@@ -64,6 +64,10 @@ Current slice:
   non-mutating evaluation of one exact repository lifecycle request
 - implement `GET /v1/readiness/repository-lifecycle/{decision_token}` for
   immutable lifecycle-readiness decision retrieval
+- implement `POST /v1/readiness/workspace-intake` and caller-scoped readback
+  for immutable Workspace Intake decision evaluation
+- implement `POST /v1/readiness/workspace-inventory` and caller-scoped readback
+  for admitted-entrant promotion readiness against committed authority
 
 The API can run bounded local validation checks through the same core-library
 safety controls used by the CLI. It writes raw stdout/stderr only to
@@ -134,6 +138,13 @@ independent axes; evaluates exact state versions, impact disposition,
 confirmations, provider authority, and reversal evidence; and returns one
 bounded next action. It never mutates repository, custody, downstream consumer,
 or workspace state. OOS remains the only lifecycle workflow authority.
+
+Workspace active-inventory readiness consumes the authority-owned promotion
+request and emits the exact authority-owned readiness artifact. It reads only a
+configured committed Workspace Governance ref, rejects missing or already
+active targets as the wrong operation, and classifies current requests as
+`ready`, `blocked`, or `stale`. It never changes intake or inventory YAML,
+prepares a branch, merges a pull request, or replaces OOS workflow custody.
 
 Future Governance Operations Console readiness criteria are documented at:
 

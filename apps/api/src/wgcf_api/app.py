@@ -100,6 +100,17 @@ from control_fabric_core.workspace_intake_readiness import (
     WorkspaceIntakeReadinessService,
     build_workspace_intake_readiness_runtime,
 )
+from control_fabric_core.workspace_inventory_contracts import (
+    InventoryRequestError,
+    InventoryUnavailable,
+)
+from control_fabric_core.workspace_inventory_readiness import (
+    MAX_INVENTORY_REQUEST_BYTES,
+    InventoryConflict,
+    InventoryNotFound,
+    WorkspaceInventoryReadinessService,
+    build_workspace_inventory_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -117,6 +128,7 @@ def create_app(
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
     workspace_intake_readiness: WorkspaceIntakeReadinessService | None = None,
+    workspace_inventory_readiness: WorkspaceInventoryReadinessService | None = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
 
@@ -137,6 +149,7 @@ def create_app(
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
     resolved_workspace_intake_readiness = workspace_intake_readiness
+    resolved_workspace_inventory_readiness = workspace_inventory_readiness
     resolved_agent_action_ledger_path = Path(
         agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
     ).resolve()
@@ -211,6 +224,12 @@ def create_app(
             resolved_workspace_intake_readiness = build_workspace_intake_readiness_runtime()
         return resolved_workspace_intake_readiness
 
+    def workspace_inventory_runtime() -> WorkspaceInventoryReadinessService:
+        nonlocal resolved_workspace_inventory_readiness
+        if resolved_workspace_inventory_readiness is None:
+            resolved_workspace_inventory_readiness = build_workspace_inventory_readiness_runtime()
+        return resolved_workspace_inventory_readiness
+
     @app.post("/v1/readiness/workspace-intake")
     async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
         try:
@@ -235,6 +254,36 @@ def create_app(
             raise _artifact_registry_http_exception(exc) from exc
         except (IntakeRequestError, IntakeNotFound, IntakeUnavailable) as exc:
             raise _workspace_intake_http_exception(exc) from exc
+
+    @app.post("/v1/readiness/workspace-inventory")
+    async def issue_workspace_inventory_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request,
+                limit=MAX_INVENTORY_REQUEST_BYTES,
+                label="workspace active inventory evaluation",
+            )
+            return workspace_inventory_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (InventoryRequestError, InventoryConflict, InventoryUnavailable) as exc:
+            raise _workspace_inventory_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/workspace-inventory/{readiness_token}")
+    async def read_workspace_inventory_readiness(
+        readiness_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return workspace_inventory_runtime().read(readiness_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (InventoryRequestError, InventoryNotFound, InventoryUnavailable) as exc:
+            raise _workspace_inventory_http_exception(exc) from exc
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -905,6 +954,16 @@ def _workspace_intake_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, IntakeNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=503, detail="workspace intake readiness is unavailable")
+
+
+def _workspace_inventory_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, InventoryRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, InventoryConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, InventoryNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=503, detail="workspace active inventory readiness is unavailable")
 
 
 def _repository_readiness_http_exception(exc: Exception) -> HTTPException:
