@@ -111,6 +111,13 @@ from control_fabric_core.workspace_inventory_readiness import (
     WorkspaceInventoryReadinessService,
     build_workspace_inventory_readiness_runtime,
 )
+from control_fabric_core.workspace_inventory_lifecycle_readiness import (
+    MAX_INVENTORY_LIFECYCLE_REQUEST_BYTES,
+    InventoryLifecycleConflict,
+    InventoryLifecycleNotFound,
+    WorkspaceInventoryLifecycleReadinessService,
+    build_workspace_inventory_lifecycle_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -129,6 +136,9 @@ def create_app(
     repository_readiness: RepositoryReadinessService | None = None,
     workspace_intake_readiness: WorkspaceIntakeReadinessService | None = None,
     workspace_inventory_readiness: WorkspaceInventoryReadinessService | None = None,
+    workspace_inventory_lifecycle_readiness: (
+        WorkspaceInventoryLifecycleReadinessService | None
+    ) = None,
 ) -> FastAPI:
     """Create the API app without mutating authority state."""
 
@@ -150,6 +160,9 @@ def create_app(
     resolved_repository_readiness = repository_readiness
     resolved_workspace_intake_readiness = workspace_intake_readiness
     resolved_workspace_inventory_readiness = workspace_inventory_readiness
+    resolved_workspace_inventory_lifecycle_readiness = (
+        workspace_inventory_lifecycle_readiness
+    )
     resolved_agent_action_ledger_path = Path(
         agent_action_ledger_path or resolved_repo_root / DEFAULT_LEDGER_PATH,
     ).resolve()
@@ -230,6 +243,15 @@ def create_app(
             resolved_workspace_inventory_readiness = build_workspace_inventory_readiness_runtime()
         return resolved_workspace_inventory_readiness
 
+    def workspace_inventory_lifecycle_runtime(
+    ) -> WorkspaceInventoryLifecycleReadinessService:
+        nonlocal resolved_workspace_inventory_lifecycle_readiness
+        if resolved_workspace_inventory_lifecycle_readiness is None:
+            resolved_workspace_inventory_lifecycle_readiness = (
+                build_workspace_inventory_lifecycle_readiness_runtime()
+            )
+        return resolved_workspace_inventory_lifecycle_readiness
+
     @app.post("/v1/readiness/workspace-intake")
     async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
         try:
@@ -284,6 +306,49 @@ def create_app(
             raise _artifact_registry_http_exception(exc) from exc
         except (InventoryRequestError, InventoryNotFound, InventoryUnavailable) as exc:
             raise _workspace_inventory_http_exception(exc) from exc
+
+    @app.post("/v1/readiness/workspace-inventory-lifecycle")
+    async def issue_workspace_inventory_lifecycle_readiness(
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request,
+                limit=MAX_INVENTORY_LIFECYCLE_REQUEST_BYTES,
+                label="workspace inventory lifecycle evaluation",
+            )
+            return workspace_inventory_lifecycle_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            InventoryRequestError,
+            InventoryLifecycleConflict,
+            InventoryUnavailable,
+        ) as exc:
+            raise _workspace_inventory_lifecycle_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/workspace-inventory-lifecycle/{readiness_token}")
+    async def read_workspace_inventory_lifecycle_readiness(
+        readiness_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return workspace_inventory_lifecycle_runtime().read(
+                readiness_token,
+                actor=caller_id,
+            )
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            InventoryRequestError,
+            InventoryLifecycleNotFound,
+            InventoryUnavailable,
+        ) as exc:
+            raise _workspace_inventory_lifecycle_http_exception(exc) from exc
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -964,6 +1029,19 @@ def _workspace_inventory_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, InventoryNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=503, detail="workspace active inventory readiness is unavailable")
+
+
+def _workspace_inventory_lifecycle_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, InventoryRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, InventoryLifecycleConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, InventoryLifecycleNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(
+        status_code=503,
+        detail="workspace inventory lifecycle readiness is unavailable",
+    )
 
 
 def _repository_readiness_http_exception(exc: Exception) -> HTTPException:

@@ -32,7 +32,8 @@ INVENTORY_PATHS = {
     "product": "contracts/products.yaml",
     "component": "contracts/components.yaml",
 }
-SNAPSHOT_PATHS = ("contracts/intake-register.yaml", *INVENTORY_PATHS.values())
+HISTORY_PATH = "contracts/workspace-inventory-history.yaml"
+SNAPSHOT_PATHS = ("contracts/intake-register.yaml", *INVENTORY_PATHS.values(), HISTORY_PATH)
 
 
 class InventoryRequestError(ValueError):
@@ -101,8 +102,13 @@ class InventoryContracts:
                 raise ValueError("invalid active inventory bundle manifest")
             expected = {
                 "contracts/workspace-active-inventory.yaml",
+                "contracts/workspace-inventory-lifecycle.yaml",
                 "contracts/schemas/workspace-inventory-promotion-request.schema.json",
                 "contracts/schemas/workspace-inventory-promotion-readiness.schema.json",
+                "contracts/schemas/workspace-inventory-lifecycle-request.schema.json",
+                "contracts/schemas/workspace-inventory-lifecycle-readiness.schema.json",
+                "contracts/schemas/workspace-inventory-lifecycle.schema.json",
+                "contracts/schemas/workspace-inventory-history.schema.json",
                 "contracts/schemas/intake-register.schema.json",
                 "contracts/schemas/repos.schema.json",
                 "contracts/schemas/products.schema.json",
@@ -110,7 +116,10 @@ class InventoryContracts:
             }
             if set(manifest["files"]) != expected:
                 raise ValueError("incomplete active inventory contract bundle")
-            if set(manifest["transport_schemas"]) != {"evaluation.schema.json"}:
+            if set(manifest["transport_schemas"]) != {
+                "evaluation.schema.json",
+                "lifecycle-evaluation.schema.json",
+            }:
                 raise ValueError("incomplete active inventory transport contract")
 
             files: dict[str, bytes] = {}
@@ -232,6 +241,11 @@ class InventoryAuthority:
                     f"{COLLECTIONS[kind]}.schema.json",
                     records[Path(path).stem],
                 )
+            self.contracts.validate(
+                "workspace-inventory-history.schema.json",
+                records[Path(HISTORY_PATH).stem],
+            )
+            validate_history(records[Path(HISTORY_PATH).stem])
         except InventoryRequestError as exc:
             raise InventoryUnavailable("canonical active inventory authority is invalid") from exc
 
@@ -243,3 +257,49 @@ class InventoryAuthority:
                 for path, raw in raw_files.items()
             },
         )
+
+
+def validate_history(history: dict[str, Any]) -> None:
+    """Validate append-only event identity, digest, order, and chain continuity."""
+
+    seen_ids: set[str] = set()
+    seen_idempotency: set[str] = set()
+    seen_requests: set[str] = set()
+    by_target: dict[str, list[dict[str, Any]]] = {}
+    for event in history["events"]:
+        event_id = event["event_id"]
+        idempotency_key = event["idempotency_key"]
+        if event_id in seen_ids:
+            raise InventoryUnavailable("active inventory history reuses an event identity")
+        if idempotency_key in seen_idempotency:
+            raise InventoryUnavailable("active inventory history reuses an idempotency key")
+        request_id = event["request_ref"]["id"]
+        if request_id in seen_requests:
+            raise InventoryUnavailable("active inventory history reuses a request identity")
+        seen_ids.add(event_id)
+        seen_idempotency.add(idempotency_key)
+        seen_requests.add(request_id)
+        projection = dict(event)
+        projection.pop("event_digest")
+        if event["event_digest"] != digest(projection):
+            raise InventoryUnavailable("active inventory history event digest is invalid")
+        target = event["target"]
+        if target["record_id"] != f"{target['kind']}:{target['name']}":
+            raise InventoryUnavailable("active inventory history target identity is invalid")
+        by_target.setdefault(target["record_id"], []).append(event)
+
+    for events in by_target.values():
+        for index, event in enumerate(events, start=1):
+            if event["sequence"] != index:
+                raise InventoryUnavailable("active inventory history sequence is not contiguous")
+            previous_ref = None
+            if index > 1:
+                previous = events[index - 2]
+                previous_ref = {
+                    "id": previous["event_id"],
+                    "digest": previous["event_digest"],
+                }
+                if event["before"] != previous["after"]:
+                    raise InventoryUnavailable("active inventory history chain is discontinuous")
+            if event["previous_event_ref"] != previous_ref:
+                raise InventoryUnavailable("active inventory history predecessor is invalid")

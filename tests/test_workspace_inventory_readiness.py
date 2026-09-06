@@ -84,6 +84,7 @@ class WorkspaceInventoryReadinessTests(TestCase):
         self.write("intake-register", self.register)
         for name, value in self.inventories.items():
             self.write(name, value)
+        self.write("workspace-inventory-history", {"schema_version": 1, "events": []})
         self.commit()
         self.pin = self.git("rev-parse", "HEAD")
         self.contracts = replace(

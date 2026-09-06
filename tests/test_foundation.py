@@ -74,6 +74,16 @@ class FoundationTests(TestCase):
                 "migrations/versions/0007_repository_lifecycle.py"
             ],
         )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0010_inventory_lifecycle.py"
+            ],
+        )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "packages/control_fabric_core/src/control_fabric_core/workspace_inventory_lifecycle_readiness.py"
+            ],
+        )
         self.assertEqual(
             snapshot["authority_contract_ref"],
             "workspace-governance/contracts/governance-control-fabric-operator-surface.yaml",
