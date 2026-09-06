@@ -182,6 +182,38 @@ Security #1066 and activation #1082 remain separate gates; this source work
 does not enable them. For rollback, disable the endpoint and revert the
 implementation; retain existing receipts and ledger history.
 
+### Active Inventory Promotion Readiness
+
+OOS submits one digest-bound promotion evaluation to
+`POST /v1/readiness/workspace-inventory` using the existing authenticated WGCF
+caller headers. Direct Console access is not authorized. The request binds an
+exact merged Workspace Governance revision, OOS session and execution refs,
+and the authority-owned `workspace-inventory-promotion-request` artifact.
+
+WGCF reads `contracts/intake-register.yaml` and the target repository, product,
+or component inventory from the configured committed Git ref. It checks exact
+entry versions and digests, admitted status, target identity, absence from
+active inventory, typed active-record content, compatibility aliases, approval
+references, and mutation identity reuse. Source drift returns `stale`; policy
+or content failures return `blocked`; only an exact current request is `ready`.
+
+The response contains `readiness` and `ledger`. `readiness` is the exact
+Workspace Governance `workspace-inventory-promotion-readiness` artifact, not a
+WGCF-owned canonical record. `GET /v1/readiness/workspace-inventory/{token}`
+returns immutable caller-scoped readback, where `token` is the readiness digest
+without `sha256:`. Exact retries reuse stored evidence; conflicting reuse of an
+evaluation identity returns 409. Missing or already-active targets and malformed artifacts return
+422, unauthorized calls 401/403, oversized requests 413, absent readback 404,
+and untrusted authority or storage failure 503.
+
+Runtime activation remains disabled in the pinned manifest. Enabling the
+service later requires `WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED=true`, the
+`dev-integration` runtime profile, configured service identity, an exact
+implementation revision, and a Workspace Governance authority checkout.
+Migration `0009_workspace_inventory` adds immutable evaluation storage only.
+WGCF does not fetch, mutate YAML, create a branch or pull request, merge, or
+claim Security approval. OOS #1073 owns those workflow steps.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 
