@@ -256,11 +256,11 @@ minutes and must be refreshed before apply.
 
 WGCF does not write Prototype source, resolve unadmitted external source,
 inspect an import without an authoritative receipt, activate runtime, approve
-real data, grant external exposure, or claim Security acceptance. Runtime
-activation remains disabled until the pinned manifest and
-`WGCF_PROTOTYPE_LANDING_READINESS_ENABLED=true` are approved for
-`dev-integration`. Migration `0011_prototype_landing` stores evaluation
-evidence only.
+real data, grant external exposure, or claim Security acceptance. The source
+capability pins the merged normal-availability review and is active only for
+`dev-integration`; the runtime still refuses availability unless Platform sets
+`WGCF_PROTOTYPE_LANDING_READINESS_ENABLED=true` in the approved composition.
+Migration `0011_prototype_landing` stores evaluation evidence only.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.

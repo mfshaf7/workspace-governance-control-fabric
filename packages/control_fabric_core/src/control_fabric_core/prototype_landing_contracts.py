@@ -93,15 +93,22 @@ class PrototypeLandingContracts:
         root = Path(root or os.environ.get("WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT") or CONTRACT_ROOT)
         try:
             manifest = parse_json((root / "manifest.json").read_bytes())
+            activation_review = manifest["activation_review"]
             if (
                 manifest["contract_id"] != "wgcf.prototype-landing-readiness.v1"
                 or manifest["authority_repo"] != "workspace-governance"
                 or not COMMIT_PATTERN.fullmatch(manifest["authority_commit"])
                 or manifest["security_review"]["repo"] != "security-architecture"
                 or not COMMIT_PATTERN.fullmatch(manifest["security_review"]["commit"])
+                or activation_review["repo"] != "security-architecture"
+                or not COMMIT_PATTERN.fullmatch(activation_review["commit"])
+                or not activation_review["path"].startswith("docs/reviews/components/")
+                or not activation_review["path"].endswith(".md")
+                or not re.fullmatch(r"[0-9a-f]{64}", activation_review["content_sha256"])
+                or activation_review["decision"] != "approved-with-findings"
                 or manifest["source_authority"]["repo"] != "workspace-prototype-studio"
                 or not COMMIT_PATTERN.fullmatch(manifest["source_authority"]["minimum_commit"])
-                or manifest["runtime_activation"] is not False
+                or manifest["runtime_activation"] is not True
                 or manifest["security_review"]["decision"] != "approved-with-findings"
             ):
                 raise ValueError("invalid Prototype Landing bundle manifest")

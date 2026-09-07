@@ -9,7 +9,14 @@
     "path": "docs/reviews/components/2026-09-07-prototype-landing-trust-boundary.md",
     "decision": "approved-with-findings"
   },
-  "runtime_activation": false,
+  "activation_review": {
+    "repo": "security-architecture",
+    "commit": "7acfd9f86c24e8d454c7df8ee29abfbf2ad8ae20",
+    "path": "docs/reviews/components/2026-09-08-prototype-landing-normal-availability.md",
+    "content_sha256": "80091cb2ac0154711ed011edd832d07ef540ad7e9732e9eae2c68b9c237d076f",
+    "decision": "approved-with-findings"
+  },
+  "runtime_activation": true,
   "source_authority": {
     "repo": "workspace-prototype-studio",
     "minimum_commit": "2d18349ffab42bff052061e5adbc1d2c76d6210c",
