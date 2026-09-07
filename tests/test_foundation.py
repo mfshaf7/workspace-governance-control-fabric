@@ -47,6 +47,7 @@ class FoundationTests(TestCase):
         self.assertTrue(snapshot["required_paths"]["examples/governance-manifest.example.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/delivery-art/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/prototype-ingress/manifest.json"])
+        self.assertTrue(snapshot["required_paths"]["contracts/prototype-landing/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/repository-readiness/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/repository-custody/manifest.json"])
         self.assertTrue(
@@ -77,6 +78,11 @@ class FoundationTests(TestCase):
         self.assertTrue(
             snapshot["required_paths"][
                 "migrations/versions/0010_inventory_lifecycle.py"
+            ],
+        )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0011_prototype_landing.py"
             ],
         )
         self.assertTrue(

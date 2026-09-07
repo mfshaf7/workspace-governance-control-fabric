@@ -239,6 +239,29 @@ until the pinned manifest and
 `dev-integration`. Migration `0010_inventory_lifecycle` stores immutable
 evaluation evidence only.
 
+### Prototype Landing Readiness
+
+OOS submits the exact Entry Packet, accepted Landing request, and Landing plan
+to `POST /v1/readiness/prototype-landing`. WGCF validates the pinned Workspace
+Governance contract and Security review, then compares the artifact chain with
+the current committed Prototype Studio registry, record identity, source path,
+and source revision.
+
+The response contains the authority-owned `prototype-landing-readiness`
+artifact and immutable ledger metadata. A hard policy denial returns
+`blocked`; source drift without another denial returns `stale`; only an exact
+safe local Landing returns `ready`. Readback is caller-scoped at
+`GET /v1/readiness/prototype-landing/{token}`. Readiness expires after 15
+minutes and must be refreshed before apply.
+
+WGCF does not write Prototype source, resolve unadmitted external source,
+inspect an import without an authoritative receipt, activate runtime, approve
+real data, grant external exposure, or claim Security acceptance. Runtime
+activation remains disabled until the pinned manifest and
+`WGCF_PROTOTYPE_LANDING_READINESS_ENABLED=true` are approved for
+`dev-integration`. Migration `0011_prototype_landing` stores evaluation
+evidence only.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 
