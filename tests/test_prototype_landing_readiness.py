@@ -496,13 +496,41 @@ class PrototypeLandingReadinessTests(TestCase):
         value = self.envelope()
         self.assertEqual(self.post(value).status_code, 503)
 
-    def test_default_runtime_activation_is_denied(self) -> None:
+    def test_source_activation_is_pinned_to_normal_availability_review(self) -> None:
+        contracts = PrototypeLandingContracts.load()
+        self.assertTrue(contracts.manifest["runtime_activation"])
+        self.assertEqual(
+            contracts.manifest["activation_review"],
+            {
+                "repo": "security-architecture",
+                "commit": "7acfd9f86c24e8d454c7df8ee29abfbf2ad8ae20",
+                "path": (
+                    "docs/reviews/components/"
+                    "2026-09-08-prototype-landing-normal-availability.md"
+                ),
+                "content_sha256": (
+                    "80091cb2ac0154711ed011edd832d07ef"
+                    "540ad7e9732e9eae2c68b9c237d076f"
+                ),
+                "decision": "approved-with-findings",
+            },
+        )
+
+    def test_runtime_still_requires_profile_and_explicit_environment_activation(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"WGCF_RUNTIME_PROFILE": "dev-integration"},
+            clear=True,
+        ):
+            with self.assertRaises(PrototypeLandingUnavailable):
+                build_prototype_landing_readiness_runtime()
         with patch.dict(
             "os.environ",
             {
-                "WGCF_RUNTIME_PROFILE": "dev-integration",
+                "WGCF_RUNTIME_PROFILE": "stage",
                 "WGCF_PROTOTYPE_LANDING_READINESS_ENABLED": "true",
             },
+            clear=True,
         ):
             with self.assertRaises(PrototypeLandingUnavailable):
                 build_prototype_landing_readiness_runtime()
