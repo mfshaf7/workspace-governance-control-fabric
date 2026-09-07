@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.prototype-landing-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "eb7fb3c182073d050e2cb95c4f3256be3c535eaa",
+  "security_review": {
+    "repo": "security-architecture",
+    "commit": "484de62d69b5291d39a0e3d317862cdf44f77150",
+    "path": "docs/reviews/components/2026-09-07-prototype-landing-trust-boundary.md",
+    "decision": "approved-with-findings"
+  },
+  "runtime_activation": false,
+  "source_authority": {
+    "repo": "workspace-prototype-studio",
+    "minimum_commit": "2d18349ffab42bff052061e5adbc1d2c76d6210c",
+    "files": {
+      "schemas/prototype-registry.schema.json": "a4951c88070c14b0f4ef9b5a93f0471a3845a6aa21d3ca17d55a59d5cba767f7"
+    }
+  },
+  "files": {
+    "prototype-landing.yaml": "6977315400094e8db2b8f76a505d16e8304293bbd5a2cf905f9ba2adf80223e3",
+    "prototype-landing.schema.json": "aac9b1c1213e8821d833a33c12d16a0b53b8a026dd414c3488b62c6258533e53",
+    "prototype-landing-entry-packet.schema.json": "62b0216695898254d7088f6b709ba53c5a4bfb0e5a28c0a0e0a288405e4e222a",
+    "prototype-landing-request.schema.json": "1102471f8cf883bf2470a309718f648dfb3873e2c03dbb3657d6ac6dcd0a4a0d",
+    "prototype-landing-plan.schema.json": "1baa300b6b387bebed73a31c9eed978ec2f3f6f5e3a44d3877765e0c54bf9a7b",
+    "prototype-landing-readiness.schema.json": "49fdf9c0d44dcacc131778f14a8857a66dff0f2e85296b3e9c153a04fb6357c3"
+  },
+  "transport_schemas": {
+    "evaluation.schema.json": "28f8a8736a9d6330c2a38ab96cfabf248986859b7c14765f35fbb6e67022781b"
+  }
+}

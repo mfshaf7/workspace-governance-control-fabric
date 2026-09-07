@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workspace Prototype Registry",
+  "type": "object",
+  "required": ["schema_version", "studio", "prototypes"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "studio": { "type": "object" },
+    "prototypes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/prototype" }
+    }
+  },
+  "$defs": {
+    "prototype": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "lifecycle",
+        "owner",
+        "visibility_tier",
+        "data_mode",
+        "mutation_boundary",
+        "paths"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+        "name": { "type": "string", "minLength": 1 },
+        "objective": { "type": "string", "minLength": 1 },
+        "portfolio": {
+          "enum": ["internal-product", "client-app", "workspace-system", "experiment"]
+        },
+        "lifecycle": {
+          "enum": [
+            "exploring",
+            "candidate",
+            "baseline-approved",
+            "graduating",
+            "graduated",
+            "retired"
+          ]
+        },
+        "project_phase": {
+          "enum": ["incubating", "delivery", "operational", "retired"]
+        },
+        "visibility_tier": {
+          "enum": ["private-internal", "operator-review", "client-review", "public-demo"]
+        },
+        "data_mode": {
+          "enum": ["mock", "synthetic", "real-readonly", "real-mutable"]
+        },
+        "mutation_boundary": {
+          "enum": ["none", "read-only", "prototype-local", "external-sandbox", "real-system"]
+        },
+        "delivery_packet_ref": {
+          "type": ["string", "null"],
+          "pattern": "^record://delivery-packets/[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "landing_record_ref": {
+          "type": "string",
+          "pattern": "^record://prototype-landings/[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "linked_records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/linked_record" }
+        }
+      }
+    },
+    "linked_record": {
+      "type": "object",
+      "required": ["role", "ref", "system", "level", "label"],
+      "properties": {
+        "role": {
+          "enum": [
+            "proposal-source",
+            "landing-record",
+            "delivery-initiative",
+            "studio-anchor",
+            "candidate-record",
+            "baseline-record",
+            "delivery-packet",
+            "graduation-record",
+            "retirement-record"
+          ]
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^(openproject://work_packages/[0-9]+|repo://.+|record://.+)$"
+        },
+        "system": {
+          "enum": ["openproject", "repo", "prototype-studio"]
+        },
+        "level": {
+          "enum": ["proposal", "epic", "feature", "user-story", "record", "repo"]
+        },
+        "label": { "type": "string", "minLength": 1 },
+        "parent_ref": {
+          "type": "string",
+          "pattern": "^openproject://work_packages/[0-9]+$"
+        }
+      }
+    }
+  }
+}

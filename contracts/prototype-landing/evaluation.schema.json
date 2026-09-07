@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "evaluation_id",
+    "session_ref",
+    "execution_ref",
+    "authority_revision",
+    "entry_packet",
+    "request",
+    "plan",
+    "evaluation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "wgcf-prototype-landing-evaluation" },
+    "evaluation_id": {
+      "type": "string",
+      "pattern": "^prototype-landing-evaluation:[a-z0-9][a-z0-9._-]*:[0-9]+$"
+    },
+    "session_ref": { "$ref": "#/$defs/text" },
+    "execution_ref": { "$ref": "#/$defs/text" },
+    "authority_revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "entry_packet": { "type": "object" },
+    "request": { "type": "object" },
+    "plan": { "type": "object" },
+    "evaluation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

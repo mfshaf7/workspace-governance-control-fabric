@@ -183,6 +183,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         "migrations/versions/0010_inventory_lifecycle.py": (
             repo_root / "migrations/versions/0010_inventory_lifecycle.py"
         ),
+        "migrations/versions/0011_prototype_landing.py": (
+            repo_root / "migrations/versions/0011_prototype_landing.py"
+        ),
         "contracts/delivery-art/manifest.json": (
             repo_root / "contracts/delivery-art/manifest.json"
         ),
@@ -191,6 +194,9 @@ def repo_required_paths(repo_root: Path) -> dict[str, bool]:
         ),
         "contracts/prototype-ingress/manifest.json": (
             repo_root / "contracts/prototype-ingress/manifest.json"
+        ),
+        "contracts/prototype-landing/manifest.json": (
+            repo_root / "contracts/prototype-landing/manifest.json"
         ),
         "contracts/repository-readiness/manifest.json": (
             repo_root / "contracts/repository-readiness/manifest.json"
