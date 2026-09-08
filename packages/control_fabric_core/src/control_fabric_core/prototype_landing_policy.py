@@ -116,13 +116,13 @@ def evaluate_prototype_landing(
     ]
 
     unresolved = sorted(
-        row["dimension"] for row in rows if row["state"] not in {"ready", "not-needed"}
+        row["dimension"] for row in rows if row["state"] in {"unknown", "blocked"}
     )
     if unresolved:
         fail(
             "support-row-readiness", "support-rows-unresolved",
             "Required support remains unresolved: " + ", ".join(unresolved) + ".",
-            "Resolve each needed, unknown, or blocked support row.",
+            "Resolve each unknown or blocked support row.",
             owner="workspace-prototype-studio",
         )
     checks["support-row-readiness"]["evidence_refs"] = [

@@ -584,6 +584,12 @@ spec:
                   key: secret-key
             - name: WGCF_EVIDENCE_STORAGE_IDENTITY_REF
               value: kubernetes://${NAMESPACE}/serviceaccount/${COMPONENT_NAME}
+            - name: WGCF_PROTOTYPE_LANDING_READINESS_ENABLED
+              value: "true"
+            - name: WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT
+              value: /app/contracts/prototype-landing
+            - name: WGCF_PROTOTYPE_LANDING_SERVICE_IDENTITY_REF
+              value: service-identity://workspace-governance-control-fabric/dev-integration
             - name: WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID
               value: ${REGISTRY_OOS_CALLER_ID}
             - name: WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET
