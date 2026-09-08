@@ -704,6 +704,14 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("readOnly: true", manifest)
             self.assertIn("name: WGCF_PROTOTYPE_STUDIO_REPO_ROOT", manifest)
             self.assertIn("value: /sources/workspace-prototype-studio", manifest)
+            self.assertIn("name: WGCF_PROTOTYPE_LANDING_READINESS_ENABLED", manifest)
+            self.assertIn("name: WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT", manifest)
+            self.assertIn("value: /app/contracts/prototype-landing", manifest)
+            self.assertIn("name: WGCF_PROTOTYPE_LANDING_SERVICE_IDENTITY_REF", manifest)
+            self.assertIn(
+                "value: service-identity://workspace-governance-control-fabric/dev-integration",
+                manifest,
+            )
             self.assertIn("mountPath: /sources/workspace-prototype-studio", manifest)
             self.assertIn(
                 f"path: {REPO_ROOT.parent}/workspace-prototype-studio",

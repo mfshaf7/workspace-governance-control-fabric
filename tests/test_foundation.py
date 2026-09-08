@@ -123,6 +123,10 @@ class FoundationTests(TestCase):
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("COPY scripts ./scripts", dockerfile)
+        self.assertIn(
+            "WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT=/app/contracts/prototype-landing",
+            dockerfile,
+        )
 
     def test_runtime_images_bake_provenance_and_provision_worker_evidence_roots(self) -> None:
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")

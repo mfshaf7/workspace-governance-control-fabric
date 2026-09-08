@@ -31,6 +31,7 @@ from .prototype_landing_policy import evaluate_prototype_landing
 
 MAX_PROTOTYPE_LANDING_EVALUATION_BYTES = 256 * 1024
 READINESS_TTL = timedelta(minutes=15)
+PROTOTYPE_LANDING_SERVICE_IDENTITY_ENV = "WGCF_PROTOTYPE_LANDING_SERVICE_IDENTITY_REF"
 
 
 class PrototypeLandingConflict(RuntimeError):
@@ -257,6 +258,9 @@ def build_prototype_landing_readiness_runtime() -> PrototypeLandingReadinessServ
     return PrototypeLandingReadinessService(
         session_factory=create_session_factory(),
         authority=PrototypeLandingAuthority(Path(root), contracts),
-        service_identity_ref=os.environ.get(SERVICE_IDENTITY_ENV, ""),
+        service_identity_ref=os.environ.get(
+            PROTOTYPE_LANDING_SERVICE_IDENTITY_ENV,
+            os.environ.get(SERVICE_IDENTITY_ENV, ""),
+        ),
         implementation_ref=read_implementation_ref(),
     )

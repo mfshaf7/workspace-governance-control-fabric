@@ -371,6 +371,20 @@ class PrototypeLandingReadinessTests(TestCase):
             (self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")), before
         )
 
+    def test_needed_support_is_preserved_without_blocking_landing(self) -> None:
+        value = self.envelope(row_state="needed")
+
+        response = self.post(value)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        readiness = response.json()["readiness"]
+        self.assertEqual(readiness["outcome"], "ready")
+        support_check = next(
+            item for item in readiness["checks"] if item["id"] == "support-row-readiness"
+        )
+        self.assertEqual(support_check["state"], "ready")
+        self.assertEqual(readiness["findings"], [])
+
     def test_stale_authority_and_expected_state_are_explicitly_stale(self) -> None:
         cases = {
             "authority": lambda value: value.update(authority_revision="0" * 40),
