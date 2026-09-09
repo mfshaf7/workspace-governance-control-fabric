@@ -48,6 +48,7 @@ class FoundationTests(TestCase):
         self.assertTrue(snapshot["required_paths"]["contracts/delivery-art/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/prototype-ingress/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/prototype-landing/manifest.json"])
+        self.assertTrue(snapshot["required_paths"]["contracts/prototype-maturity/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/repository-readiness/manifest.json"])
         self.assertTrue(snapshot["required_paths"]["contracts/repository-custody/manifest.json"])
         self.assertTrue(
@@ -83,6 +84,11 @@ class FoundationTests(TestCase):
         self.assertTrue(
             snapshot["required_paths"][
                 "migrations/versions/0011_prototype_landing.py"
+            ],
+        )
+        self.assertTrue(
+            snapshot["required_paths"][
+                "migrations/versions/0012_prototype_maturity.py"
             ],
         )
         self.assertTrue(
@@ -125,6 +131,10 @@ class FoundationTests(TestCase):
         self.assertIn("COPY scripts ./scripts", dockerfile)
         self.assertIn(
             "WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT=/app/contracts/prototype-landing",
+            dockerfile,
+        )
+        self.assertIn(
+            "WGCF_PROTOTYPE_MATURITY_CONTRACT_ROOT=/app/contracts/prototype-maturity",
             dockerfile,
         )
 

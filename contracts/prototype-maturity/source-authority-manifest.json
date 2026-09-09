@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "contract_id": "prototype-studio.prototype-maturity-source.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "3a7e73dfdc4d96593f98ad76f4792dc2ea45f349",
+  "security_review": {
+    "repo": "security-architecture",
+    "commit": "61c96e53cf87491e8d42ba076fa241844b5132e5",
+    "path": "docs/reviews/components/2026-09-09-prototype-maturity-trust-boundary.md",
+    "decision": "approved-with-findings"
+  },
+  "files": {
+    "prototype-maturity.yaml": "d0d863334385c197ddf1a1d838688be2dd41bc7ec0aa3bfbc7314a97a5c2e63a",
+    "prototype-maturity.schema.json": "e7b692e237cf86a75315b241d00df0ef5acde3ffadf45a3e94b33af0eb321b9b",
+    "prototype-maturity-request.schema.json": "8b21578ec5dc7fb21eddd1cd6ec2fbb91f4e26d93c7409c18cf96c54a899d2ed",
+    "prototype-maturity-packet.schema.json": "47e154bbf21138ce6ad9599e1121bbc089ee96347e8065dfb7d513da84c48514",
+    "prototype-maturity-readiness.schema.json": "027bfd687ad87ccb5b240ef8a08e677e3d345b2bc6b46a7adbab3394da7c1392",
+    "prototype-maturity-decision.schema.json": "e79090073513f4fe7b1fc819f7b54ba4ef8eec882bb30ba0b9dc65e9defb1fcc",
+    "prototype-maturity-readback.schema.json": "83e91d8787801cb582b0054fc8eeae605d29c700a6a2ac221ddf2edb591e2282",
+    "prototype-maturity-receipt.schema.json": "bf42988406ebeaebd0c91913bfe0c58ce1bb2087f1c80a53eaa5de38418711dd"
+  }
+}

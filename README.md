@@ -89,7 +89,12 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/delivery-art/{receipt_token}`. Prototype-to-Delivery
   ingress readiness is exposed separately at
   `POST /v1/readiness/prototype-ingress` and
-  `GET /v1/readiness/prototype-ingress/{receipt_token}`. Repository admission
+  `GET /v1/readiness/prototype-ingress/{receipt_token}`. Candidate and Baseline
+  Promotion readiness is exposed at
+  `POST /v1/readiness/prototype-maturity` and
+  `GET /v1/readiness/prototype-maturity/{readiness_token}`; its runtime
+  activation remains disabled pending the final normal-availability review.
+  Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy
   readiness is a separate, disabled-by-default boundary at

@@ -52,6 +52,8 @@ Current slice:
   non-mutating evaluation of one exact Prototype Delivery packet
 - implement `GET /v1/readiness/prototype-ingress/{receipt_token}` for immutable
   Prototype ingress readiness receipt retrieval
+- implement `POST /v1/readiness/prototype-maturity` and caller-scoped readback
+  for non-mutating Candidate and Baseline Promotion readiness evaluation
 - implement `POST /v1/readiness/repositories` for authenticated repository
   admission-readiness evaluation against exact Workspace Governance authority
 - implement `GET /v1/readiness/repositories/{receipt_token}` for immutable

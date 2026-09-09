@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "delivery_art_readiness_receipts",
     "prototype_ingress_readiness_receipts",
     "prototype_landing_readiness",
+    "prototype_maturity_readiness",
     "repository_readiness_receipts",
     "repository_custody_decisions",
     "repository_lifecycle_decisions",
