@@ -853,13 +853,19 @@ Approved classes are limited to:
 - `delivery_art_work_start_record`
 - `art_review_packet`
 
-Architecture packets may use schema v1 or v2. The v1 shape remains readable
-for compatibility. For artifact-bound readiness, WGCF validates the work
-dependency graph, exact Landing Unit coverage and owner binding, source-backed
-Landing Unit graph, and required human-gate references against the durable
-artifact. Source landing order is therefore addressed by Landing Unit id,
-including when one repository owns more than one Landing Unit. Invalid,
-incomplete, cyclic, or ambiguous topology cannot receive a ready decision.
+Architecture packets may use schema v1, v2, or v3. The v1 and v2 shapes remain
+readable for compatibility. For artifact-bound readiness, WGCF validates exact
+Landing Unit coverage and owner binding, the source-backed Landing Unit graph,
+and required human-gate references against the durable artifact. V2 uses the
+work dependency graph. V3 instead validates the exact per-item start/close
+execution plan, requires an executable acyclic schedule, binds each declared
+gate to exactly one emitting authority work item, preserves gate evidence
+prerequisites, and requires every Security-owned work item to emit an explicit
+gate. The readiness receipt binds the complete durable artifact digest, so its
+gate and Security-authority semantics cannot be changed without a different
+receipt subject. Invalid, incomplete, cyclic, or ambiguous topology cannot
+receive a ready decision. V3 normal-path production remains unavailable until
+the separate activation work lands.
 
 The API surface is:
 
