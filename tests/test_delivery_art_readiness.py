@@ -73,6 +73,8 @@ class SequenceClock:
                 datetime(2026, 8, 8, 2, 10, tzinfo=timezone.utc),
                 datetime(2026, 8, 8, 3, 15, tzinfo=timezone.utc),
                 datetime(2026, 8, 8, 3, 45, tzinfo=timezone.utc),
+                datetime(2026, 8, 8, 4, 15, tzinfo=timezone.utc),
+                datetime(2026, 8, 8, 4, 45, tzinfo=timezone.utc),
             ],
         )
 
@@ -148,6 +150,38 @@ def architecture_v2() -> dict:
             "evidence_requirement": "Bind the exact implementation review head.",
         },
     ]
+    return refresh_architecture_scope(packet)
+
+
+def architecture_v3() -> dict:
+    packet = architecture_v2()
+    packet["schema_version"] = 3
+    packet["artifact_id"] = "architecture-packet:delivery-698-v3"
+    architecture = packet["architecture"]
+    architecture.pop("work_dependency_graph")
+    architecture["work_item_execution_plan"] = [
+        {
+            "work_item_id": "work-item-801",
+            "start_after_work_item_ids": [],
+            "close_after_work_item_ids": [],
+            "emits_human_gate_ids": ["gate:security-source-merge"],
+        },
+        {
+            "work_item_id": "work-item-802",
+            "start_after_work_item_ids": ["work-item-801"],
+            "close_after_work_item_ids": [],
+            "emits_human_gate_ids": [],
+        },
+    ]
+    architecture["descendant_owner_map"][0]["owner_repo"] = "security-architecture"
+    architecture["landing_units"][0]["owner_repo"] = "security-architecture"
+    architecture["required_human_gates"][0].update(
+        {
+            "authority_owner_repo": "security-architecture",
+            "evidence_prerequisite_work_item_ids": [],
+        },
+    )
+    packet["source_snapshot"]["repo_revisions"][0]["repo"] = "security-architecture"
     return refresh_architecture_scope(packet)
 
 
@@ -317,22 +351,48 @@ class DeliveryArtReadinessTests(TestCase):
             ),
         )
 
-    def test_v1_and_v2_architecture_packets_share_validation_and_custody(self) -> None:
+    def test_v1_v2_and_v3_architecture_packets_share_validation_and_custody(self) -> None:
         self.assertEqual(self.contract_bundle.validation_errors(self.architecture), ())
-        candidate = architecture_v2()
-        self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
+        for candidate in (architecture_v2(), architecture_v3()):
+            with self.subTest(schema_version=candidate["schema_version"]):
+                self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
+                durable = self._register(candidate)
+                result = self.service.issue(
+                    readiness_request(durable, "architecture-ready"),
+                    actor="operator-orchestration-service",
+                )
 
-        durable = self._register(candidate)
+                self.assertEqual(
+                    durable["schema_version"],
+                    candidate["schema_version"],
+                )
+                self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+                self.assertEqual(
+                    result.artifact["subject"]["digest"],
+                    durable["integrity"]["content_digest"],
+                )
+
+    def test_v3_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
+        durable = self._register(architecture_v3())
         result = self.service.issue(
             readiness_request(durable, "architecture-ready"),
             actor="operator-orchestration-service",
         )
-
-        self.assertEqual(durable["schema_version"], 2)
-        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
-        self.assertEqual(
+        resolved = self.registry.read(
             result.artifact["subject"]["digest"],
-            durable["integrity"]["content_digest"],
+            actor="workspace-governance-control-fabric-reconciler",
+        ).artifact
+        gate = resolved["architecture"]["required_human_gates"][0]
+
+        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+        self.assertEqual(gate["authority_owner_repo"], "security-architecture")
+        self.assertEqual(gate["authority_work_item_id"], "work-item-801")
+        self.assertEqual(gate["evidence_prerequisite_work_item_ids"], [])
+        self.assertEqual(
+            resolved["architecture"]["work_item_execution_plan"][0][
+                "emits_human_gate_ids"
+            ],
+            ["gate:security-source-merge"],
         )
 
     def test_v2_architecture_topology_rejects_ambiguous_or_unsafe_ordering(self) -> None:
@@ -426,6 +486,73 @@ class DeliveryArtReadinessTests(TestCase):
         with self.assertRaisesRegex(
             DeliveryArtReadinessContractError,
             "source_landing_graph must be acyclic",
+        ):
+            self.service.issue(
+                readiness_request(durable, "architecture-ready"),
+                actor="operator-orchestration-service",
+            )
+
+    def test_v3_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
+        cases = []
+
+        duplicate_plan = architecture_v3()
+        duplicate_plan["architecture"]["work_item_execution_plan"].append(
+            copy.deepcopy(
+                duplicate_plan["architecture"]["work_item_execution_plan"][0],
+            ),
+        )
+        cases.append((duplicate_plan, "must contain one entry per work item"))
+
+        impossible_schedule = architecture_v3()
+        impossible_schedule["architecture"]["work_item_execution_plan"][0][
+            "close_after_work_item_ids"
+        ] = ["work-item-802"]
+        cases.append((impossible_schedule, "has no executable start-and-close schedule"))
+
+        missing_gate_emission = architecture_v3()
+        missing_gate_emission["architecture"]["work_item_execution_plan"][0][
+            "emits_human_gate_ids"
+        ] = []
+        cases.append((missing_gate_emission, "must emit every declared human gate"))
+
+        unknown_gate_emission = architecture_v3()
+        unknown_gate_emission["architecture"]["work_item_execution_plan"][1][
+            "emits_human_gate_ids"
+        ] = ["gate:unknown"]
+        cases.append((unknown_gate_emission, "emits unknown human gates"))
+
+        wrong_gate_authority = architecture_v3()
+        wrong_gate_authority["architecture"]["work_item_execution_plan"][0][
+            "emits_human_gate_ids"
+        ] = []
+        wrong_gate_authority["architecture"]["work_item_execution_plan"][1][
+            "emits_human_gate_ids"
+        ] = ["gate:security-source-merge"]
+        cases.append((wrong_gate_authority, "must be emitted by its authority work item"))
+
+        unordered_gate_evidence = architecture_v3()
+        unordered_gate_evidence["architecture"]["required_human_gates"][0][
+            "evidence_prerequisite_work_item_ids"
+        ] = ["work-item-802"]
+        cases.append(
+            (
+                unordered_gate_evidence,
+                "evidence prerequisites are absent from authority work item",
+            ),
+        )
+
+        for packet, expected in cases:
+            with self.subTest(expected=expected):
+                refresh_architecture_scope(packet)
+                errors = self.contract_bundle.validation_errors(packet)
+                self.assertTrue(any(expected in error for error in errors), errors)
+
+        invalid = impossible_schedule
+        refresh_architecture_scope(invalid)
+        durable = self._register(invalid)
+        with self.assertRaisesRegex(
+            DeliveryArtReadinessContractError,
+            "has no executable start-and-close schedule",
         ):
             self.service.issue(
                 readiness_request(durable, "architecture-ready"),

@@ -157,26 +157,97 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture merge order violates {before} before {after}",
                     )
 
-    if schema_version == 2:
-        work_graph = architecture.get("work_dependency_graph")
-        work_graph = work_graph if isinstance(work_graph, dict) else {}
-        work_nodes = set(_strings(work_graph.get("nodes")))
-        if work_nodes != covered:
-            errors.append(
-                "architecture.work_dependency_graph.nodes must exactly cover covered_work_item_ids",
-            )
-        work_edges: list[tuple[str, str]] = []
-        for edge in _objects(work_graph.get("edges")):
-            prerequisite = edge.get("prerequisite_work_item_id")
-            dependent = edge.get("dependent_work_item_id")
-            if not isinstance(prerequisite, str) or not isinstance(dependent, str):
-                continue
-            if prerequisite not in work_nodes or dependent not in work_nodes:
-                errors.append("architecture work dependency edge references unknown nodes")
-                continue
-            work_edges.append((prerequisite, dependent))
-        if not _graph_is_acyclic(work_nodes, work_edges):
-            errors.append("architecture.work_dependency_graph must be acyclic")
+    if schema_version in {2, 3}:
+        execution_plan_by_work_item: dict[str, dict[str, Any]] = {}
+        emitted_gate_authorities: dict[str, list[str]] = {}
+        if schema_version == 2:
+            work_graph = architecture.get("work_dependency_graph")
+            work_graph = work_graph if isinstance(work_graph, dict) else {}
+            work_nodes = set(_strings(work_graph.get("nodes")))
+            if work_nodes != covered:
+                errors.append(
+                    "architecture.work_dependency_graph.nodes must exactly cover covered_work_item_ids",
+                )
+            work_edges: list[tuple[str, str]] = []
+            for edge in _objects(work_graph.get("edges")):
+                prerequisite = edge.get("prerequisite_work_item_id")
+                dependent = edge.get("dependent_work_item_id")
+                if not isinstance(prerequisite, str) or not isinstance(dependent, str):
+                    continue
+                if prerequisite not in work_nodes or dependent not in work_nodes:
+                    errors.append("architecture work dependency edge references unknown nodes")
+                    continue
+                work_edges.append((prerequisite, dependent))
+            if not _graph_is_acyclic(work_nodes, work_edges):
+                errors.append("architecture.work_dependency_graph must be acyclic")
+        else:
+            execution_plan = _objects(architecture.get("work_item_execution_plan"))
+            execution_plan_ids = [
+                entry.get("work_item_id")
+                for entry in execution_plan
+                if isinstance(entry.get("work_item_id"), str)
+            ]
+            if len(execution_plan_ids) != len(set(execution_plan_ids)):
+                errors.append(
+                    "architecture.work_item_execution_plan must contain one entry per work item",
+                )
+            if set(execution_plan_ids) != covered:
+                errors.append(
+                    "architecture.work_item_execution_plan must exactly cover covered_work_item_ids",
+                )
+
+            start_edges: list[tuple[str, str]] = []
+            combined_schedule_edges: list[tuple[str, str]] = []
+            for entry in execution_plan:
+                work_item_id = entry.get("work_item_id")
+                if not isinstance(work_item_id, str):
+                    continue
+                execution_plan_by_work_item[work_item_id] = entry
+                start_prerequisites = set(_strings(entry.get("start_after_work_item_ids")))
+                close_prerequisites = set(_strings(entry.get("close_after_work_item_ids")))
+                repeated_prerequisites = start_prerequisites & close_prerequisites
+                if repeated_prerequisites:
+                    errors.append(
+                        f"architecture execution plan {work_item_id} repeats "
+                        "prerequisites across start_after and close_after: "
+                        + ", ".join(sorted(repeated_prerequisites)),
+                    )
+                all_prerequisites = start_prerequisites | close_prerequisites
+                unknown_prerequisites = all_prerequisites - covered
+                if unknown_prerequisites:
+                    errors.append(
+                        f"architecture execution plan {work_item_id} references "
+                        "unknown prerequisite work items: "
+                        + ", ".join(sorted(unknown_prerequisites)),
+                    )
+                if work_item_id in all_prerequisites:
+                    errors.append(
+                        f"architecture execution plan {work_item_id} cannot depend on itself",
+                    )
+                valid_start_prerequisites = (
+                    start_prerequisites - unknown_prerequisites - {work_item_id}
+                )
+                valid_close_prerequisites = (
+                    close_prerequisites - unknown_prerequisites - {work_item_id}
+                )
+                start_edges.extend(
+                    (prerequisite, work_item_id)
+                    for prerequisite in valid_start_prerequisites
+                )
+                combined_schedule_edges.extend(
+                    (prerequisite, work_item_id)
+                    for prerequisite in valid_start_prerequisites | valid_close_prerequisites
+                )
+                for gate_id in _strings(entry.get("emits_human_gate_ids")):
+                    emitted_gate_authorities.setdefault(gate_id, []).append(work_item_id)
+            if not _graph_is_acyclic(covered, start_edges):
+                errors.append(
+                    "architecture.work_item_execution_plan start prerequisites must be acyclic",
+                )
+            if not _graph_is_acyclic(covered, combined_schedule_edges):
+                errors.append(
+                    "architecture.work_item_execution_plan has no executable start-and-close schedule",
+                )
 
         landing_units = _objects(architecture.get("landing_units"))
         landing_unit_ids = [unit.get("id") for unit in landing_units]
@@ -250,6 +321,82 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     f"architecture human gate {gate_id} blocks source merge for non-source Landing Units",
                 )
+            if schema_version == 3:
+                evidence_prerequisites = set(
+                    _strings(gate.get("evidence_prerequisite_work_item_ids")),
+                )
+                unknown_evidence_prerequisites = evidence_prerequisites - covered
+                if unknown_evidence_prerequisites:
+                    errors.append(
+                        f"architecture human gate {gate_id} references unknown "
+                        "evidence prerequisite work items: "
+                        + ", ".join(sorted(unknown_evidence_prerequisites)),
+                    )
+                authority_plan = execution_plan_by_work_item.get(
+                    authority_work_item_id,
+                    {},
+                )
+                authority_prerequisites = set(
+                    _strings(authority_plan.get("start_after_work_item_ids")),
+                ) | set(_strings(authority_plan.get("close_after_work_item_ids")))
+                missing_authority_prerequisites = (
+                    evidence_prerequisites - authority_prerequisites
+                )
+                if missing_authority_prerequisites:
+                    errors.append(
+                        f"architecture human gate {gate_id} evidence prerequisites "
+                        "are absent from authority work item "
+                        f"{authority_work_item_id} execution prerequisites: "
+                        + ", ".join(sorted(missing_authority_prerequisites)),
+                    )
+
+        if schema_version == 3:
+            declared_gate_ids = set(gate_ids)
+            emitted_gate_ids = set(emitted_gate_authorities)
+            unknown_emitted_gates = emitted_gate_ids - declared_gate_ids
+            if unknown_emitted_gates:
+                errors.append(
+                    "architecture.work_item_execution_plan emits unknown human gates: "
+                    + ", ".join(sorted(unknown_emitted_gates)),
+                )
+            missing_emitted_gates = declared_gate_ids - emitted_gate_ids
+            if missing_emitted_gates:
+                errors.append(
+                    "architecture.work_item_execution_plan must emit every declared human gate: "
+                    + ", ".join(sorted(missing_emitted_gates)),
+                )
+            gate_by_id = {
+                gate.get("gate_id"): gate
+                for gate in gates
+                if isinstance(gate.get("gate_id"), str)
+            }
+            for gate_id, emitter_ids in emitted_gate_authorities.items():
+                if len(emitter_ids) != 1:
+                    errors.append(
+                        f"architecture human gate {gate_id} must be emitted exactly once",
+                    )
+                    continue
+                gate = gate_by_id.get(gate_id)
+                if (
+                    gate is not None
+                    and gate.get("authority_work_item_id") != emitter_ids[0]
+                ):
+                    errors.append(
+                        f"architecture human gate {gate_id} must be emitted by its "
+                        f"authority work item {gate.get('authority_work_item_id')}",
+                    )
+            for work_item_id, owner_repo in owner_by_work_item.items():
+                if owner_repo != "security-architecture":
+                    continue
+                if not _strings(
+                    execution_plan_by_work_item.get(work_item_id, {}).get(
+                        "emits_human_gate_ids",
+                    ),
+                ):
+                    errors.append(
+                        f"architecture Security-owned work item {work_item_id} "
+                        "must emit at least one explicit human gate",
+                    )
 
     source_snapshot = artifact.get("source_snapshot")
     source_snapshot = source_snapshot if isinstance(source_snapshot, dict) else {}
