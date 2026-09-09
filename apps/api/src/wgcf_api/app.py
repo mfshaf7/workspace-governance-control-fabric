@@ -129,6 +129,17 @@ from control_fabric_core.prototype_landing_readiness import (
     PrototypeLandingReadinessService,
     build_prototype_landing_readiness_runtime,
 )
+from control_fabric_core.prototype_maturity_contracts import (
+    PrototypeMaturityRequestError,
+    PrototypeMaturityUnavailable,
+)
+from control_fabric_core.prototype_maturity_readiness import (
+    MAX_PROTOTYPE_MATURITY_EVALUATION_BYTES,
+    PrototypeMaturityConflict,
+    PrototypeMaturityNotFound,
+    PrototypeMaturityReadinessService,
+    build_prototype_maturity_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -143,6 +154,7 @@ def create_app(
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
     prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
     prototype_landing_readiness: PrototypeLandingReadinessService | None = None,
+    prototype_maturity_readiness: PrototypeMaturityReadinessService | None = None,
     repository_custody_readiness: RepositoryCustodyReadinessService | None = None,
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
@@ -168,6 +180,7 @@ def create_app(
     resolved_delivery_art_readiness = delivery_art_readiness
     resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_prototype_landing_readiness = prototype_landing_readiness
+    resolved_prototype_maturity_readiness = prototype_maturity_readiness
     resolved_repository_custody_readiness = repository_custody_readiness
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
@@ -219,6 +232,12 @@ def create_app(
         if resolved_prototype_landing_readiness is None:
             resolved_prototype_landing_readiness = build_prototype_landing_readiness_runtime()
         return resolved_prototype_landing_readiness
+
+    def prototype_maturity_runtime() -> PrototypeMaturityReadinessService:
+        nonlocal resolved_prototype_maturity_readiness
+        if resolved_prototype_maturity_readiness is None:
+            resolved_prototype_maturity_readiness = build_prototype_maturity_readiness_runtime()
+        return resolved_prototype_maturity_readiness
 
     def repository_readiness_runtime() -> tuple[
         RepositoryReadinessService,
@@ -308,6 +327,44 @@ def create_app(
             PrototypeLandingUnavailable,
         ) as exc:
             raise _prototype_landing_http_exception(exc) from exc
+
+    @app.post("/v1/readiness/prototype-maturity")
+    async def issue_prototype_maturity_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request,
+                limit=MAX_PROTOTYPE_MATURITY_EVALUATION_BYTES,
+                label="Prototype maturity evaluation",
+            )
+            return prototype_maturity_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            PrototypeMaturityRequestError,
+            PrototypeMaturityConflict,
+            PrototypeMaturityUnavailable,
+        ) as exc:
+            raise _prototype_maturity_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/prototype-maturity/{readiness_token}")
+    async def read_prototype_maturity_readiness(
+        readiness_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return prototype_maturity_runtime().read(readiness_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            PrototypeMaturityRequestError,
+            PrototypeMaturityNotFound,
+            PrototypeMaturityUnavailable,
+        ) as exc:
+            raise _prototype_maturity_http_exception(exc) from exc
 
     @app.post("/v1/readiness/workspace-intake")
     async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
@@ -1076,6 +1133,16 @@ def _prototype_landing_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, PrototypeLandingNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=503, detail="Prototype Landing readiness is unavailable")
+
+
+def _prototype_maturity_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, PrototypeMaturityRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, PrototypeMaturityConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, PrototypeMaturityNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=503, detail="Prototype maturity readiness is unavailable")
 
 
 def _workspace_intake_http_exception(exc: Exception) -> HTTPException:

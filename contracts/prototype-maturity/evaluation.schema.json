@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "evaluation_id",
+    "session_ref",
+    "execution_ref",
+    "authority_revision",
+    "policy_ref",
+    "security_review_ref",
+    "request",
+    "packet",
+    "evaluation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "wgcf-prototype-maturity-evaluation" },
+    "evaluation_id": {
+      "type": "string",
+      "pattern": "^prototype-maturity-evaluation:[a-z0-9][a-z0-9._-]*:[0-9]+$"
+    },
+    "session_ref": { "$ref": "#/$defs/text" },
+    "execution_ref": { "$ref": "#/$defs/text" },
+    "authority_revision": { "$ref": "#/$defs/commit" },
+    "policy_ref": {
+      "type": "object",
+      "required": ["id", "authority_commit", "digest"],
+      "properties": {
+        "id": { "const": "workspace-governance.prototype-maturity.v1" },
+        "authority_commit": { "$ref": "#/$defs/commit" },
+        "digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "security_review_ref": {
+      "type": "object",
+      "required": ["repo", "commit", "path", "digest", "decision"],
+      "properties": {
+        "repo": { "const": "security-architecture" },
+        "commit": { "$ref": "#/$defs/commit" },
+        "path": {
+          "type": "string",
+          "pattern": "^docs/reviews/components/[A-Za-z0-9._-]+\\.md$"
+        },
+        "digest": { "$ref": "#/$defs/digest" },
+        "decision": { "const": "approved-with-findings" }
+      },
+      "additionalProperties": false
+    },
+    "request": { "type": "object" },
+    "packet": { "type": "object" },
+    "evaluation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}

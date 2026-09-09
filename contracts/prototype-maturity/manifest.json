@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.prototype-maturity-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "3a7e73dfdc4d96593f98ad76f4792dc2ea45f349",
+  "security_review": {
+    "repo": "security-architecture",
+    "commit": "61c96e53cf87491e8d42ba076fa241844b5132e5",
+    "path": "docs/reviews/components/2026-09-09-prototype-maturity-trust-boundary.md",
+    "content_sha256": "60ba959a5df1c9fb540ff2d14ded4e64c05cb31741d66a5da7cba5401763f739",
+    "decision": "approved-with-findings"
+  },
+  "runtime_activation": false,
+  "source_authority": {
+    "repo": "workspace-prototype-studio",
+    "minimum_commit": "31a73628b0bfd5af1133bc3b633921a18e6e3941",
+    "contract_manifest_path": "contracts/prototype-maturity/manifest.json",
+    "contract_manifest_sha256": "5a63ad65bcf9b012aa70247997004c088dd488fa06b3f4dbcc62518f219127f3",
+    "files": {
+      "schemas/prototype-registry.schema.json": "a4951c88070c14b0f4ef9b5a93f0471a3845a6aa21d3ca17d55a59d5cba767f7",
+      "schemas/prototype-candidate-record.schema.json": "721a822e56422a90b5c995a05ea09f54c106e12b82408b3d70298609a722d326"
+    }
+  },
+  "files": {
+    "prototype-maturity.yaml": "d0d863334385c197ddf1a1d838688be2dd41bc7ec0aa3bfbc7314a97a5c2e63a",
+    "prototype-maturity.schema.json": "e7b692e237cf86a75315b241d00df0ef5acde3ffadf45a3e94b33af0eb321b9b",
+    "prototype-maturity-request.schema.json": "8b21578ec5dc7fb21eddd1cd6ec2fbb91f4e26d93c7409c18cf96c54a899d2ed",
+    "prototype-maturity-packet.schema.json": "47e154bbf21138ce6ad9599e1121bbc089ee96347e8065dfb7d513da84c48514",
+    "prototype-maturity-readiness.schema.json": "027bfd687ad87ccb5b240ef8a08e677e3d345b2bc6b46a7adbab3394da7c1392",
+    "prototype-maturity-decision.schema.json": "e79090073513f4fe7b1fc819f7b54ba4ef8eec882bb30ba0b9dc65e9defb1fcc",
+    "prototype-maturity-readback.schema.json": "83e91d8787801cb582b0054fc8eeae605d29c700a6a2ac221ddf2edb591e2282",
+    "prototype-maturity-receipt.schema.json": "bf42988406ebeaebd0c91913bfe0c58ce1bb2087f1c80a53eaa5de38418711dd"
+  },
+  "transport_schemas": {
+    "evaluation.schema.json": "2292178513037ba495b954decfa2157d66a7fe8c5bfba1e5af10f072a6ba18e4"
+  }
+}

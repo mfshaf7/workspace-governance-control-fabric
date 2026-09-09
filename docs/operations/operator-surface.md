@@ -262,6 +262,21 @@ capability pins the merged normal-availability review and is active only for
 `WGCF_PROTOTYPE_LANDING_READINESS_ENABLED=true` in the approved composition.
 Migration `0011_prototype_landing` stores evaluation evidence only.
 
+### Prototype Maturity Readiness
+
+OOS submits one digest-bound Candidate Promotion or Baseline Promotion request
+and its assembled packet to `POST /v1/readiness/prototype-maturity`. WGCF reads
+the committed Prototype Studio registry and authority-backed evidence, then
+returns exactly eight contract-defined checks with `ready`, `blocked`, or
+`stale` outcome. Caller-scoped immutable readback is available at
+`GET /v1/readiness/prototype-maturity/{token}` for 15 minutes.
+
+This boundary does not edit Prototype Studio, make the operator decision,
+apply a lifecycle transition, or claim Delivery, runtime, publication, or
+Security approval. Its normal runtime remains unavailable because the pinned
+manifest keeps activation disabled until the later availability gate.
+Migration `0012_prototype_maturity` stores evaluation evidence only.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 
