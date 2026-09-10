@@ -273,9 +273,12 @@ returns exactly eight contract-defined checks with `ready`, `blocked`, or
 
 This boundary does not edit Prototype Studio, make the operator decision,
 apply a lifecycle transition, or claim Delivery, runtime, publication, or
-Security approval. Its normal runtime remains unavailable because the pinned
-manifest keeps activation disabled until the later availability gate.
-Migration `0012_prototype_maturity` stores evaluation evidence only.
+Security approval. The source capability pins the merged normal-availability
+review, composed conformance, and dedicated identity evidence and is active
+only for `dev-integration`; the runtime still refuses availability unless
+Platform sets `WGCF_PROTOTYPE_MATURITY_READINESS_ENABLED=true` in the approved
+composition. Migration `0012_prototype_maturity` stores evaluation evidence
+only.
 
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.

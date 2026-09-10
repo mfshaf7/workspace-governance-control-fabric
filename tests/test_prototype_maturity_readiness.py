@@ -480,12 +480,90 @@ class PrototypeMaturityReadinessTests(TestCase):
             "expired",
         )
 
-    def test_runtime_activation_stays_unavailable(self) -> None:
-        self.assertFalse(PrototypeMaturityContracts.load().manifest["runtime_activation"])
+    def test_source_activation_is_pinned_to_approved_evidence(self) -> None:
+        contracts = PrototypeMaturityContracts.load()
+        self.assertTrue(contracts.manifest["runtime_activation"])
+        self.assertEqual(
+            contracts.manifest["activation_review"],
+            {
+                "repo": "security-architecture",
+                "commit": "087118a5f79034684f0ca895a85cb735d1298627",
+                "path": (
+                    "docs/reviews/components/"
+                    "2026-09-10-prototype-maturity-normal-availability.md"
+                ),
+                "content_sha256": (
+                    "e0923786d5e19f7843ec4a8941fc007c"
+                    "701dec55e7b3d523695d2049923665da"
+                ),
+                "decision": "approved-with-findings",
+            },
+        )
+        self.assertEqual(
+            contracts.manifest["activation_evidence"],
+            {
+                "conformance_review_packet": {
+                    "uri": (
+                        "wgcf://artifacts/delivery-art/sha256/"
+                        "1267af69967d433caea791dbadc600bef718b8489ddd9ac5778799431d86f01f"
+                    ),
+                    "digest": (
+                        "sha256:1267af69967d433caea791dbadc600bef"
+                        "718b8489ddd9ac5778799431d86f01f"
+                    ),
+                },
+                "identity_review_packet": {
+                    "uri": (
+                        "wgcf://artifacts/delivery-art/sha256/"
+                        "1a1ec22ccd4456db99f67157c084a3c46ce4fb03ed1f4be820afadd60e676c45"
+                    ),
+                    "digest": (
+                        "sha256:1a1ec22ccd4456db99f67157c084a3c4"
+                        "6ce4fb03ed1f4be820afadd60e676c45"
+                    ),
+                },
+                "identity_definition": {
+                    "repo": "platform-engineering",
+                    "commit": "f2b3b5f0f96b13217487250fd16d59dc77496d16",
+                    "path": "security/prototype-maturity-identity.yaml",
+                    "content_sha256": (
+                        "a951e0c46de67cd53e362075d0c2d585"
+                        "a56678bfdf4031de04c97d09d692738c"
+                    ),
+                },
+            },
+        )
+
+    def test_malformed_activation_evidence_is_unavailable(self) -> None:
+        root = self.root / "tampered-prototype-maturity-contracts"
+        shutil.copytree(REPO_ROOT / "contracts/prototype-maturity", root)
+        path = root / "manifest.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["activation_evidence"]["identity_review_packet"]["uri"] = (
+            "wgcf://artifacts/delivery-art/sha256/" + "0" * 64
+        )
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        with self.assertRaises(PrototypeMaturityUnavailable):
+            PrototypeMaturityContracts.load(root)
+
+        manifest["activation_evidence"]["identity_review_packet"] = []
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaises(PrototypeMaturityUnavailable):
+            PrototypeMaturityContracts.load(root)
+
+    def test_runtime_requires_profile_and_explicit_environment_activation(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {"WGCF_RUNTIME_PROFILE": "dev-integration"},
+            clear=True,
+        ):
+            with self.assertRaises(PrototypeMaturityUnavailable):
+                build_prototype_maturity_readiness_runtime()
         with patch.dict(
             "os.environ",
             {
-                "WGCF_RUNTIME_PROFILE": "dev-integration",
+                "WGCF_RUNTIME_PROFILE": "stage",
                 "WGCF_PROTOTYPE_MATURITY_READINESS_ENABLED": "true",
                 "WGCF_PROTOTYPE_STUDIO_REPO_ROOT": str(self.repo),
             },
@@ -493,3 +571,27 @@ class PrototypeMaturityReadinessTests(TestCase):
         ):
             with self.assertRaises(PrototypeMaturityUnavailable):
                 build_prototype_maturity_readiness_runtime()
+        with patch.dict(
+            "os.environ",
+            {
+                "WGCF_RUNTIME_PROFILE": "dev-integration",
+                "WGCF_PROTOTYPE_MATURITY_READINESS_ENABLED": "true",
+                "WGCF_PROTOTYPE_STUDIO_REPO_ROOT": str(self.repo),
+                "WGCF_PROTOTYPE_MATURITY_SERVICE_IDENTITY_REF": (
+                    "service-identity://workspace-governance-control-fabric/"
+                    "prototype-maturity/dev-integration"
+                ),
+                "WGCF_DATABASE_URL": f"sqlite:///{self.root / 'runtime.sqlite'}",
+            },
+            clear=True,
+        ), patch(
+            "control_fabric_core.prototype_maturity_readiness.read_implementation_ref",
+            return_value="2" * 40,
+        ):
+            runtime = build_prototype_maturity_readiness_runtime()
+            self.assertEqual(
+                runtime.identity,
+                "service-identity://workspace-governance-control-fabric/"
+                "prototype-maturity/dev-integration",
+            )
+            self.assertEqual(runtime.implementation, "2" * 40)

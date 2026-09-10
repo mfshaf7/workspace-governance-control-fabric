@@ -10,7 +10,30 @@
     "content_sha256": "60ba959a5df1c9fb540ff2d14ded4e64c05cb31741d66a5da7cba5401763f739",
     "decision": "approved-with-findings"
   },
-  "runtime_activation": false,
+  "activation_review": {
+    "repo": "security-architecture",
+    "commit": "087118a5f79034684f0ca895a85cb735d1298627",
+    "path": "docs/reviews/components/2026-09-10-prototype-maturity-normal-availability.md",
+    "content_sha256": "e0923786d5e19f7843ec4a8941fc007c701dec55e7b3d523695d2049923665da",
+    "decision": "approved-with-findings"
+  },
+  "activation_evidence": {
+    "conformance_review_packet": {
+      "uri": "wgcf://artifacts/delivery-art/sha256/1267af69967d433caea791dbadc600bef718b8489ddd9ac5778799431d86f01f",
+      "digest": "sha256:1267af69967d433caea791dbadc600bef718b8489ddd9ac5778799431d86f01f"
+    },
+    "identity_review_packet": {
+      "uri": "wgcf://artifacts/delivery-art/sha256/1a1ec22ccd4456db99f67157c084a3c46ce4fb03ed1f4be820afadd60e676c45",
+      "digest": "sha256:1a1ec22ccd4456db99f67157c084a3c46ce4fb03ed1f4be820afadd60e676c45"
+    },
+    "identity_definition": {
+      "repo": "platform-engineering",
+      "commit": "f2b3b5f0f96b13217487250fd16d59dc77496d16",
+      "path": "security/prototype-maturity-identity.yaml",
+      "content_sha256": "a951e0c46de67cd53e362075d0c2d585a56678bfdf4031de04c97d09d692738c"
+    }
+  },
+  "runtime_activation": true,
   "source_authority": {
     "repo": "workspace-prototype-studio",
     "minimum_commit": "31a73628b0bfd5af1133bc3b633921a18e6e3941",
