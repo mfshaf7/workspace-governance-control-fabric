@@ -92,8 +92,10 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/prototype-ingress/{receipt_token}`. Candidate and Baseline
   Promotion readiness is exposed at
   `POST /v1/readiness/prototype-maturity` and
-  `GET /v1/readiness/prototype-maturity/{readiness_token}`; its runtime
-  activation remains disabled pending the final normal-availability review.
+  `GET /v1/readiness/prototype-maturity/{readiness_token}`. The source
+  capability pins the merged normal-availability review, composed conformance,
+  and dedicated identity evidence; runtime availability still requires the
+  separate OOS and Platform activation gates.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy

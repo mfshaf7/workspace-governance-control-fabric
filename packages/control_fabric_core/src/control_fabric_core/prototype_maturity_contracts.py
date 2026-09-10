@@ -81,6 +81,18 @@ def artifact_digest(value: dict[str, Any], field: str) -> str:
         raise PrototypeMaturityRequestError(str(exc)) from exc
 
 
+def _durable_artifact_ref(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    digest_value = value.get("digest")
+    return bool(
+        isinstance(digest_value, str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", digest_value)
+        and value.get("uri")
+        == "wgcf://artifacts/delivery-art/" + digest_value.replace(":", "/", 1)
+    )
+
+
 @dataclass(frozen=True)
 class PrototypeMaturityContracts:
     manifest: dict[str, Any]
@@ -94,6 +106,11 @@ class PrototypeMaturityContracts:
         try:
             manifest = parse_json((root / "manifest.json").read_bytes())
             security = manifest["security_review"]
+            activation_review = manifest["activation_review"]
+            activation_evidence = manifest["activation_evidence"]
+            conformance_packet = activation_evidence["conformance_review_packet"]
+            identity_packet = activation_evidence["identity_review_packet"]
+            identity_definition = activation_evidence["identity_definition"]
             source = manifest["source_authority"]
             if (
                 manifest["contract_id"] != "wgcf.prototype-maturity-readiness.v1"
@@ -104,10 +121,22 @@ class PrototypeMaturityContracts:
                 or security["decision"] != "approved-with-findings"
                 or not security["path"].startswith("docs/reviews/components/")
                 or not re.fullmatch(r"[0-9a-f]{64}", security["content_sha256"])
+                or activation_review["repo"] != "security-architecture"
+                or not COMMIT_PATTERN.fullmatch(activation_review["commit"])
+                or not activation_review["path"].startswith("docs/reviews/components/")
+                or not activation_review["path"].endswith(".md")
+                or not re.fullmatch(r"[0-9a-f]{64}", activation_review["content_sha256"])
+                or activation_review["decision"] != "approved-with-findings"
+                or not _durable_artifact_ref(conformance_packet)
+                or not _durable_artifact_ref(identity_packet)
+                or identity_definition["repo"] != "platform-engineering"
+                or not COMMIT_PATTERN.fullmatch(identity_definition["commit"])
+                or identity_definition["path"] != "security/prototype-maturity-identity.yaml"
+                or not re.fullmatch(r"[0-9a-f]{64}", identity_definition["content_sha256"])
                 or source["repo"] != "workspace-prototype-studio"
                 or not COMMIT_PATTERN.fullmatch(source["minimum_commit"])
                 or not re.fullmatch(r"[0-9a-f]{64}", source["contract_manifest_sha256"])
-                or manifest["runtime_activation"] is not False
+                or manifest["runtime_activation"] is not True
             ):
                 raise ValueError("invalid Prototype maturity bundle manifest")
             if set(manifest["files"]) != AUTHORITY_FILES:
