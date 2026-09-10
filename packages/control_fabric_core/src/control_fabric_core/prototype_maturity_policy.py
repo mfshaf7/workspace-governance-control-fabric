@@ -70,7 +70,7 @@ def evaluate_prototype_maturity(
         check_id: {
             "id": check_id,
             "state": "ready",
-            "evidence_refs": [f"contract:prototype-maturity#{check_id}"],
+            "evidence_refs": [f"wgcf://prototype-maturity/checks/{check_id}"],
         }
         for check_id in CHECK_IDS
     }
@@ -112,13 +112,13 @@ def evaluate_prototype_maturity(
             owner_ref="operator-orchestration-service",
         )
     checks["request-integrity"]["evidence_refs"] = [
-        f"{request['request_id']}@{request['request_digest']}",
-        f"{packet['packet_id']}@{packet['packet_digest']}",
+        f"wgcf://prototype-maturity/requests/{request['request_id']}@{request['request_digest']}",
+        f"wgcf://prototype-maturity/packets/{packet['packet_id']}@{packet['packet_digest']}",
     ]
 
     lifecycle_evidence = [
         f"repo://workspace-prototype-studio/prototypes.yaml@{snapshot.revision}",
-        f"record-digest:{snapshot.record_digest}",
+        f"wgcf://prototype-maturity/record-digest/{snapshot.record_digest}",
     ]
     if not snapshot.landing_record_valid:
         fail(
@@ -166,9 +166,9 @@ def evaluate_prototype_maturity(
             state="stale",
         )
     checks["source-version-freshness"]["evidence_refs"] = [
-        f"git://workspace-prototype-studio@{snapshot.revision}",
-        f"policy:{contracts.policy_ref['digest']}",
-        f"security-review:{contracts.security_review_ref['digest']}",
+        f"repo://workspace-prototype-studio@{snapshot.revision}",
+        f"wgcf://prototype-maturity/policy/{contracts.policy_ref['digest']}",
+        f"security-review://prototype-maturity/{contracts.security_review_ref['digest']}",
     ]
 
     sections = packet["sections"]
@@ -187,8 +187,8 @@ def evaluate_prototype_maturity(
             owner_ref="operator-orchestration-service",
         )
     checks["packet-integrity"]["evidence_refs"] = [
-        f"packet-kind:{packet['packet_kind']}",
-        "packet-sections:" + digest(sorted(section_ids)),
+        f"wgcf://prototype-maturity/packet-kind/{packet['packet_kind']}",
+        "wgcf://prototype-maturity/packet-sections/" + digest(sorted(section_ids)),
     ]
 
     resolution_by_ref = {item.ref: item for item in snapshot.evidence}
@@ -228,8 +228,10 @@ def evaluate_prototype_maturity(
             owner_ref="operator-orchestration-service",
         )
     checks["boundary-coherence"]["evidence_refs"] = [
-        "editable-values:" + digest(request["inputs"]["editable_values"]),
-        "source-refs:" + digest(request["inputs"]["source_refs"]),
+        "wgcf://prototype-maturity/editable-values/"
+        + digest(request["inputs"]["editable_values"]),
+        "wgcf://prototype-maturity/source-refs/"
+        + digest(request["inputs"]["source_refs"]),
     ]
 
     security_sections = {
@@ -250,8 +252,11 @@ def evaluate_prototype_maturity(
             owner_ref="security-architecture",
         )
     checks["security-trigger-disposition"]["evidence_refs"] = [
-        f"security-review:{contracts.security_review_ref['digest']}",
-        *[f"section:{section_id}" for section_id in sorted(security_sections)],
+        f"security-review://prototype-maturity/{contracts.security_review_ref['digest']}",
+        *[
+            f"wgcf://prototype-maturity/sections/{section_id}"
+            for section_id in sorted(security_sections)
+        ],
     ]
 
     issue_field = (
@@ -269,7 +274,7 @@ def evaluate_prototype_maturity(
             owner_ref="operator-orchestration-service",
         )
     checks["open-issue-disposition"]["evidence_refs"] = [
-        f"request-field:{issue_field}"
+        f"wgcf://prototype-maturity/request-fields/{issue_field}"
     ]
 
     states = {check["state"] for check in checks.values()}

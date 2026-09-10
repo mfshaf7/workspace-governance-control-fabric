@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -46,6 +47,10 @@ CHECKS = (
     "boundary-coherence",
     "security-trigger-disposition",
     "open-issue-disposition",
+)
+CONSUMER_SAFE_EVIDENCE_REF = re.compile(
+    r"^(?:record|repo|openproject|evidence|proof|security-review|console|wgcf)://"
+    r"[A-Za-z0-9][A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$"
 )
 SECTIONS = {
     "candidate-promotion": (
@@ -146,6 +151,12 @@ class PrototypeMaturityReadinessTests(TestCase):
             implementation_ref="2" * 40,
             clock=clock,
         )
+
+    def assert_consumer_safe_evidence(self, result: dict) -> None:
+        for check in result["readiness"]["checks"]:
+            self.assertTrue(check["evidence_refs"])
+            for evidence_ref in check["evidence_refs"]:
+                self.assertRegex(evidence_ref, CONSUMER_SAFE_EVIDENCE_REF)
 
     def git(self, *args: str) -> str:
         return subprocess.run(
@@ -352,6 +363,7 @@ class PrototypeMaturityReadinessTests(TestCase):
         result = response.json()
         self.assertEqual(result["readiness"]["outcome"], "ready")
         self.assertEqual([item["id"] for item in result["readiness"]["checks"]], list(CHECKS))
+        self.assert_consumer_safe_evidence(result)
         self.assertEqual(result["ledger"]["resolution"], "created")
         replay = self.service.issue(canonical_bytes(candidate), actor="operator-orchestration-service")
         self.assertEqual(replay["ledger"]["resolution"], "reused")
@@ -363,6 +375,7 @@ class PrototypeMaturityReadinessTests(TestCase):
         response = self.post(baseline)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["readiness"]["outcome"], "ready")
+        self.assert_consumer_safe_evidence(response.json())
         self.assertEqual((self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")), before)
 
         token = response.json()["readiness"]["readiness_digest"].removeprefix("sha256:")
