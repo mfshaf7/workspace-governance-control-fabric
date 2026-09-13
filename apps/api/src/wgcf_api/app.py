@@ -140,6 +140,17 @@ from control_fabric_core.prototype_maturity_readiness import (
     PrototypeMaturityReadinessService,
     build_prototype_maturity_readiness_runtime,
 )
+from control_fabric_core.prototype_closure_authority import (
+    PrototypeClosureRequestError,
+    PrototypeClosureUnavailable,
+)
+from control_fabric_core.prototype_closure_readiness import (
+    MAX_PROTOTYPE_CLOSURE_EVALUATION_BYTES,
+    PrototypeClosureConflict,
+    PrototypeClosureNotFound,
+    PrototypeClosureReadinessService,
+    build_prototype_closure_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -155,6 +166,7 @@ def create_app(
     prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
     prototype_landing_readiness: PrototypeLandingReadinessService | None = None,
     prototype_maturity_readiness: PrototypeMaturityReadinessService | None = None,
+    prototype_closure_readiness: PrototypeClosureReadinessService | None = None,
     repository_custody_readiness: RepositoryCustodyReadinessService | None = None,
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
@@ -181,6 +193,7 @@ def create_app(
     resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_prototype_landing_readiness = prototype_landing_readiness
     resolved_prototype_maturity_readiness = prototype_maturity_readiness
+    resolved_prototype_closure_readiness = prototype_closure_readiness
     resolved_repository_custody_readiness = repository_custody_readiness
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
@@ -238,6 +251,12 @@ def create_app(
         if resolved_prototype_maturity_readiness is None:
             resolved_prototype_maturity_readiness = build_prototype_maturity_readiness_runtime()
         return resolved_prototype_maturity_readiness
+
+    def prototype_closure_runtime() -> PrototypeClosureReadinessService:
+        nonlocal resolved_prototype_closure_readiness
+        if resolved_prototype_closure_readiness is None:
+            resolved_prototype_closure_readiness = build_prototype_closure_readiness_runtime()
+        return resolved_prototype_closure_readiness
 
     def repository_readiness_runtime() -> tuple[
         RepositoryReadinessService,
@@ -365,6 +384,38 @@ def create_app(
             PrototypeMaturityUnavailable,
         ) as exc:
             raise _prototype_maturity_http_exception(exc) from exc
+
+    @app.post("/v1/readiness/prototype-closure")
+    async def issue_prototype_closure_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request, limit=MAX_PROTOTYPE_CLOSURE_EVALUATION_BYTES,
+                label="Prototype Closure evaluation",
+            )
+            return prototype_closure_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            PrototypeClosureRequestError, PrototypeClosureConflict, PrototypeClosureUnavailable
+        ) as exc:
+            raise _prototype_closure_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/prototype-closure/{readiness_token}")
+    async def read_prototype_closure_readiness(
+        readiness_token: str, request: Request
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return prototype_closure_runtime().read(readiness_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            PrototypeClosureRequestError, PrototypeClosureNotFound, PrototypeClosureUnavailable
+        ) as exc:
+            raise _prototype_closure_http_exception(exc) from exc
 
     @app.post("/v1/readiness/workspace-intake")
     async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
@@ -1143,6 +1194,16 @@ def _prototype_maturity_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, PrototypeMaturityNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=503, detail="Prototype maturity readiness is unavailable")
+
+
+def _prototype_closure_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, PrototypeClosureRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, PrototypeClosureConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, PrototypeClosureNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=503, detail="Prototype Closure readiness is unavailable")
 
 
 def _workspace_intake_http_exception(exc: Exception) -> HTTPException:

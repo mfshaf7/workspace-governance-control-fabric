@@ -96,6 +96,12 @@ That surface is constrained by the workspace-owned contract in
   capability pins the merged normal-availability review, composed conformance,
   and dedicated identity evidence; runtime availability still requires the
   separate OOS and Platform activation gates.
+  Prototype Closure readiness has a separate inactive boundary at
+  `POST /v1/readiness/prototype-closure` and
+  `GET /v1/readiness/prototype-closure/{readiness_token}`. It evaluates
+  committed Studio source and action-specific owner evidence without mutating
+  source or target. Normal runtime availability remains denied until the
+  owner evidence resolver and Closure identity are commissioned.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy

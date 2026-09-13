@@ -280,6 +280,33 @@ Platform sets `WGCF_PROTOTYPE_MATURITY_READINESS_ENABLED=true` in the approved
 composition. Migration `0012_prototype_maturity` stores evaluation evidence
 only.
 
+### Prototype Closure Readiness
+
+The inactive Closure evaluator accepts one digest-bound evaluation at
+`POST /v1/readiness/prototype-closure`. Its request must match the pinned
+Workspace Governance Closure v2 schema and the current committed Studio
+revision and record digest. WGCF checks the action-specific lifecycle, source
+custody, Studio history, and owner-backed target evidence. It returns an
+immutable `prototype-closure-readiness` artifact with `ready`, `blocked`, or
+`stale` outcome. `GET /v1/readiness/prototype-closure/{token}` is scoped to the
+original OOS caller; its ledger state becomes `stale` if Studio advances and
+`expired` after 15 minutes.
+The artifact retains bounded owner, reference, digest, and subject metadata for
+each evaluated proof, not the receipt body or credential.
+
+This route does not accept caller-submitted evidence as owner proof. The
+evidence resolver is an internal trust-boundary dependency and is not yet
+commissioned. The normal runtime therefore returns `503` even if an enable
+flag is set. ART #1105 must provide owner-backed reconciliation, and Platform
+and Security activation gates must commission the Closure identity before OOS
+can use readiness for an action. `ready` is an evidence assessment, not human
+approval or permission to mutate Studio. The request digest binds operator,
+correlation, idempotency, action, and source revision; OOS must re-check ledger
+state and exact authority before any source mutation. Migration
+`0013_prototype_closure` stores evaluation evidence only.
+Readback does not detect later target revocation; OOS must resolve target
+authority again at the mutation boundary.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

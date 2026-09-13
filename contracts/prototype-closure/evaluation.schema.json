@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifact_type", "evaluation_id", "evaluation_digest", "expected_record_digest", "request"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "artifact_type": {"const": "prototype-closure-evaluation"},
+    "evaluation_id": {"type": "string", "pattern": "^prototype-closure-evaluation:[a-zA-Z0-9._:-]{1,150}$", "maxLength": 192},
+    "evaluation_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "expected_record_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "request": {"type": "object"}
+  }
+}
