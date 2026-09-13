@@ -1,0 +1,20 @@
+{
+  "contract_id": "wgcf.prototype-closure-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "eb9ec14e9191535a358bc80418aa0a14ad8b8609",
+  "source_authority": {
+    "repo": "workspace-prototype-studio",
+    "contract_manifest_sha256": "4869d4cd7ad1b8c5c1781050b01f92d7e584f778835107df7ca6962da01e4087",
+    "registry_schema_sha256": "defdc5c2e994e7472e8827759c7c2dfc2f55f421313e665c3147d79fb98802d0"
+  },
+  "security_review": {
+    "repo": "security-architecture",
+    "merge_commit": "e7a4ffae7761fab892ec1da99677f01b899c2562",
+    "decision": "approved-with-findings"
+  },
+  "runtime_activation": false,
+  "transport_schemas": {
+    "evaluation.schema.json": "2dfbb414999d7b26c24ca9832c3df5ee5147eebfd92893992ce74941c7b49c10",
+    "readiness.schema.json": "940d7c37a20a8d4f7c1dc02d1ac891dedd48c8750ce72a244563200ab803d70c"
+  }
+}
