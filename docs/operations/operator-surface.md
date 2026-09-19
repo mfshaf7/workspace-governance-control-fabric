@@ -291,8 +291,13 @@ immutable `prototype-closure-readiness` artifact with `ready`, `blocked`, or
 `stale` outcome. `GET /v1/readiness/prototype-closure/{token}` is scoped to the
 original OOS caller; its ledger state becomes `stale` if Studio advances and
 `expired` after 15 minutes.
-The artifact retains bounded owner, reference, digest, and subject metadata for
-each evaluated proof, not the receipt body or credential.
+The artifact retains bounded owner, reference, digest, subject, Prototype id,
+and source-packet metadata for each evaluated proof, not the receipt body or
+credential. For `apply-delivery`, the accepted Baseline and Prototype-to-Delivery
+ingress receipts are OOS-issued proof. The ART owns the exact target readback,
+not either OOS receipt. WGCF requires the ingress receipt to bind the committed
+Studio packet and Prototype id to that exact target before Closure can start.
+The existing-item target route remains unsupported.
 
 This route does not accept caller-submitted evidence as owner proof. The
 source-level resolver routes each action-specific lookup to a configured

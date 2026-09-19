@@ -65,7 +65,8 @@ def source(action: str, *, custody: str = "incubation-repo") -> ClosureSource:
                       design_baseline_ref="record://design-baselines/sample-tool")
     if action == "graduate-source":
         record.update(project_phase="delivery-governed",
-                      accepted_delivery_target_receipt_ref="openproject://receipts/accepted-target")
+                      delivery_packet_ref="record://delivery-packets/sample-tool",
+                      accepted_delivery_target_receipt_ref="oos://receipts/prototype-delivery-application/" + "f" * 64)
     if action == "reopen-incubation":
         record.update(retirement_ref="record://prototype-closure/sample-tool/history/retired",
                       closure_event_ref="record://prototype-closure/sample-tool/history/retired")
@@ -88,10 +89,10 @@ def request(action: str) -> dict:
     }
     if action == "apply-delivery":
         value.update(accepted_baseline_receipt_ref="record://baseline/accepted",
-                     target_kind="existing-delivery-item",
-                     target_delivery_ref="openproject://work_packages/100")
+                     accepted_delivery_target_receipt_ref="oos://receipts/prototype-delivery-application/" + "f" * 64,
+                     target_kind="new-delivery-epic", target_delivery_ref="openproject://work_packages/100")
     elif action == "graduate-source":
-        value.update(accepted_delivery_target_receipt_ref="openproject://receipts/accepted-target",
+        value.update(accepted_delivery_target_receipt_ref="oos://receipts/prototype-delivery-application/" + "f" * 64,
                      durable_owner_ref=OWNER, durable_repo_ref=REPO,
                      durable_owner_acceptance_ref="repo://product-owner/acceptance",
                      transfer_strategy="transfer")
@@ -107,18 +108,19 @@ def request(action: str) -> dict:
 def proofs(action: str) -> dict[str, VerifiedReference]:
     req = request(action)
     def proof(field: str, owner: str, *, ref: str | None = None,
-              subject: str | None = None, revision: str | None = None) -> VerifiedReference:
+              subject: str | None = None, revision: str | None = None,
+              packet: str | None = None, prototype_id: str | None = None) -> VerifiedReference:
         return VerifiedReference(ref or req[field], owner, "sha256:" + "e" * 64,
-                                 "accepted", subject, revision)
+                                 "accepted", subject, revision, packet, prototype_id)
     if action == "apply-delivery":
         return {
-            "accepted_baseline_receipt_ref": proof("accepted_baseline_receipt_ref", "workspace-prototype-studio", subject="record://design-baselines/sample-tool"),
-            "accepted_delivery_target_receipt_ref": proof("accepted_delivery_target_receipt_ref", "workspace-delivery-art", ref="openproject://receipts/accepted-target", subject="openproject://work_packages/100"),
+            "accepted_baseline_receipt_ref": proof("accepted_baseline_receipt_ref", "operator-orchestration-service", subject="record://design-baselines/sample-tool", prototype_id="sample-tool"),
+            "accepted_delivery_target_receipt_ref": proof("accepted_delivery_target_receipt_ref", "operator-orchestration-service", subject="openproject://work_packages/100", packet="record://delivery-packets/sample-tool", prototype_id="sample-tool"),
             "target_delivery_ref": proof("target_delivery_ref", "workspace-delivery-art"),
         }
     if action == "graduate-source":
         return {
-            "accepted_delivery_target_receipt_ref": proof("accepted_delivery_target_receipt_ref", "workspace-delivery-art"),
+            "accepted_delivery_target_receipt_ref": proof("accepted_delivery_target_receipt_ref", "operator-orchestration-service", packet="record://delivery-packets/sample-tool", prototype_id="sample-tool"),
             "durable_owner_acceptance_ref": proof("durable_owner_acceptance_ref", OWNER, subject=REPO),
             "source_transfer_receipt_ref": proof("source_transfer_receipt_ref", OWNER, ref="repo://product-owner/transfer", subject=REPO, revision=REVISION),
         }
@@ -210,6 +212,10 @@ class PrototypeClosureReadinessTests(TestCase):
                         lookups["accepted_delivery_target_receipt_ref"].subject_ref,
                         request(action)["target_delivery_ref"],
                     )
+                    self.assertEqual(
+                        lookups["accepted_delivery_target_receipt_ref"].source_packet_ref,
+                        source(action).record["delivery_packet_ref"],
+                    )
                 if action == "retire-incubation":
                     self.assertIsNone(lookups["runtime_disposition_proof_ref"].requested_ref)
                     self.assertEqual(
@@ -254,6 +260,34 @@ class PrototypeClosureReadinessTests(TestCase):
         actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
         result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
         self.assertIn("evidence-reference-mismatch", {finding["code"] for finding in result["findings"]})
+
+    def test_apply_delivery_rejects_unbound_or_unsupported_ingress(self) -> None:
+        req, src = request("apply-delivery"), source("apply-delivery")
+        expected = proofs("apply-delivery")
+        for field, changed in (
+            ("accepted_delivery_target_receipt_ref", {"source_packet_ref": "record://delivery-packets/other"}),
+            ("accepted_delivery_target_receipt_ref", {"prototype_id": "other"}),
+            ("accepted_delivery_target_receipt_ref", {"subject_ref": "openproject://work_packages/999"}),
+            ("accepted_baseline_receipt_ref", {"prototype_id": "other"}),
+        ):
+            with self.subTest(field=field, changed=changed):
+                actual = {**expected, field: replace(expected[field], **changed)}
+                self.assertEqual(
+                    evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)["outcome"],
+                    "blocked",
+                )
+        unsupported = {**req, "target_kind": "existing-delivery-item"}
+        self.assertIn("source-precondition-missing", {
+            finding["code"] for finding in evaluate_prototype_closure(
+                unsupported, src, expected, POLICY, src.record_digest
+            )["findings"]
+        })
+        invalid_target = {**req, "target_delivery_ref": "repo://not-an-art-target"}
+        self.assertIn("source-precondition-missing", {
+            finding["code"] for finding in evaluate_prototype_closure(
+                invalid_target, src, expected, POLICY, src.record_digest
+            )["findings"]
+        })
 
     def test_already_owned_graduation_reads_alternate_proof_only(self) -> None:
         req, src = request("graduate-source"), source("graduate-source")

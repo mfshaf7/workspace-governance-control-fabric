@@ -15,6 +15,6 @@
   "runtime_activation": false,
   "transport_schemas": {
     "evaluation.schema.json": "2dfbb414999d7b26c24ca9832c3df5ee5147eebfd92893992ce74941c7b49c10",
-    "readiness.schema.json": "940d7c37a20a8d4f7c1dc02d1ac891dedd48c8750ce72a244563200ab803d70c"
+    "readiness.schema.json": "1541f010aefb5be742445ed5fb5e74c6b3b03e4547cb4f1d63d811bf99a01ac8"
   }
 }
