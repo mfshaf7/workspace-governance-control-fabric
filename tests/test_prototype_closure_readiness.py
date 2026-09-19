@@ -238,6 +238,23 @@ class PrototypeClosureReadinessTests(TestCase):
         self.assertEqual(result["outcome"], "blocked")
         self.assertIn("evidence-unavailable", {finding["code"] for finding in result["findings"]})
 
+        for state in ("revoked", "stale", "denied"):
+            with self.subTest(state=state):
+                readers["workspace-delivery-art"].evidence["target_delivery_ref"] = replace(
+                    expected["target_delivery_ref"], state=state
+                )
+                actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+                result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
+                self.assertEqual(result["outcome"], "blocked")
+                self.assertIn("evidence-unavailable", {finding["code"] for finding in result["findings"]})
+
+        readers["workspace-delivery-art"].evidence["target_delivery_ref"] = replace(
+            expected["target_delivery_ref"], ref="openproject://work_packages/999"
+        )
+        actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+        result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
+        self.assertIn("evidence-reference-mismatch", {finding["code"] for finding in result["findings"]})
+
     def test_already_owned_graduation_reads_alternate_proof_only(self) -> None:
         req, src = request("graduate-source"), source("graduate-source")
         req["transfer_strategy"] = "already-owned"
