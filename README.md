@@ -101,7 +101,8 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/prototype-closure/{readiness_token}`. It evaluates
   committed Studio source and action-specific owner evidence without mutating
   source or target. Normal runtime availability remains denied until the
-  owner evidence resolver and Closure identity are commissioned.
+  configured owner readers, OOS composition, and Closure identity are
+  commissioned. Source-level test readers do not activate this route.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy
