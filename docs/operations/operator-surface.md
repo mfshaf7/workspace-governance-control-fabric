@@ -295,12 +295,13 @@ The artifact retains bounded owner, reference, digest, and subject metadata for
 each evaluated proof, not the receipt body or credential.
 
 This route does not accept caller-submitted evidence as owner proof. The
-evidence resolver is an internal trust-boundary dependency and is not yet
-commissioned. The normal runtime therefore returns `503` even if an enable
-flag is set. ART #1105 must provide owner-backed reconciliation, and Platform
-and Security activation gates must commission the Closure identity before OOS
-can use readiness for an action. `ready` is an evidence assessment, not human
-approval or permission to mutate Studio. The request digest binds operator,
+source-level resolver routes each action-specific lookup to a configured
+reader for the required owner and fails closed when a reader is absent. Test
+readers prove contract behavior, not live authority. The normal runtime still
+returns `503` even if an enable flag is set; owner readers, OOS reconciliation,
+and the Closure identity require later commissioning. `ready` is an evidence
+assessment, not human approval or permission to mutate Studio. The request
+digest binds operator,
 correlation, idempotency, action, and source revision; OOS must re-check ledger
 state and exact authority before any source mutation. Migration
 `0013_prototype_closure` stores evaluation evidence only.

@@ -21,7 +21,12 @@ from control_fabric_core.prototype_closure_authority import (
     ClosureSource, PrototypeClosureAuthority, PrototypeClosureRequestError,
     PrototypeClosureUnavailable, studio_digest,
 )
-from control_fabric_core.prototype_closure_policy import VerifiedReference, evaluate_prototype_closure
+from control_fabric_core.prototype_closure_evidence import (
+    ClosureEvidenceLookup, OwnerBackedClosureEvidenceResolver,
+)
+from control_fabric_core.prototype_closure_policy import (
+    VerifiedReference, evaluate_prototype_closure, resolve_evidence,
+)
 from control_fabric_core.prototype_closure_readiness import (
     PrototypeClosureNotFound, PrototypeClosureReadinessService,
     build_prototype_closure_readiness_runtime,
@@ -159,7 +164,119 @@ class FakeResolver:
         return self.evidence
 
 
+class RecordingOwnerReader:
+    def __init__(self, evidence: dict[str, VerifiedReference]):
+        self.evidence = evidence
+        self.lookups: list[ClosureEvidenceLookup] = []
+
+    def read(self, lookup: ClosureEvidenceLookup) -> VerifiedReference | None:
+        self.lookups.append(lookup)
+        return self.evidence.get(lookup.field)
+
+
 class PrototypeClosureReadinessTests(TestCase):
+    def test_owner_readers_are_action_scoped_and_bind_lookup_context(self) -> None:
+        for action in ("apply-delivery", "graduate-source", "retire-incubation", "reopen-incubation"):
+            with self.subTest(action=action):
+                expected = proofs(action)
+                readers = {
+                    owner: RecordingOwnerReader({
+                        field: proof for field, proof in expected.items()
+                        if proof.owner_ref == owner
+                    })
+                    for owner in {proof.owner_ref for proof in expected.values()}
+                }
+                actual = resolve_evidence(
+                    OwnerBackedClosureEvidenceResolver(readers), request(action), source(action)
+                )
+                self.assertEqual(actual, expected)
+                self.assertEqual(
+                    {lookup.field for reader in readers.values() for lookup in reader.lookups},
+                    set(expected),
+                )
+                for owner, reader in readers.items():
+                    self.assertTrue(all(lookup.owner_ref == owner for lookup in reader.lookups))
+                    self.assertTrue(all(lookup.source_revision == REVISION for lookup in reader.lookups))
+                lookups = {
+                    lookup.field: lookup
+                    for reader in readers.values() for lookup in reader.lookups
+                }
+                if action == "apply-delivery":
+                    self.assertEqual(
+                        lookups["accepted_baseline_receipt_ref"].subject_ref,
+                        source(action).record["design_baseline_ref"],
+                    )
+                    self.assertEqual(
+                        lookups["accepted_delivery_target_receipt_ref"].subject_ref,
+                        request(action)["target_delivery_ref"],
+                    )
+                if action == "retire-incubation":
+                    self.assertIsNone(lookups["runtime_disposition_proof_ref"].requested_ref)
+                    self.assertEqual(
+                        lookups["runtime_disposition_proof_ref"].subject_ref,
+                        request(action)["runtime_disposition_plan_ref"],
+                    )
+                result = evaluate_prototype_closure(
+                    request(action), source(action), actual, POLICY, source(action).record_digest
+                )
+                self.assertEqual(result["outcome"], "ready")
+
+    def test_owner_reader_absence_and_unaccepted_proof_fail_closed(self) -> None:
+        req, src = request("apply-delivery"), source("apply-delivery")
+        with self.assertRaises(PrototypeClosureUnavailable):
+            resolve_evidence(OwnerBackedClosureEvidenceResolver({}), req, src)
+        expected = proofs("apply-delivery")
+        readers = {
+            owner: RecordingOwnerReader({
+                field: proof for field, proof in expected.items() if proof.owner_ref == owner
+            })
+            for owner in {proof.owner_ref for proof in expected.values()}
+        }
+        readers["workspace-delivery-art"].evidence.pop("target_delivery_ref")
+        actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+        result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
+        self.assertEqual(result["outcome"], "blocked")
+        self.assertIn("evidence-unavailable", {finding["code"] for finding in result["findings"]})
+
+        for state in ("revoked", "stale", "denied"):
+            with self.subTest(state=state):
+                readers["workspace-delivery-art"].evidence["target_delivery_ref"] = replace(
+                    expected["target_delivery_ref"], state=state
+                )
+                actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+                result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
+                self.assertEqual(result["outcome"], "blocked")
+                self.assertIn("evidence-unavailable", {finding["code"] for finding in result["findings"]})
+
+        readers["workspace-delivery-art"].evidence["target_delivery_ref"] = replace(
+            expected["target_delivery_ref"], ref="openproject://work_packages/999"
+        )
+        actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+        result = evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)
+        self.assertIn("evidence-reference-mismatch", {finding["code"] for finding in result["findings"]})
+
+    def test_already_owned_graduation_reads_alternate_proof_only(self) -> None:
+        req, src = request("graduate-source"), source("graduate-source")
+        req["transfer_strategy"] = "already-owned"
+        expected = proofs("graduate-source")
+        expected.pop("source_transfer_receipt_ref")
+        expected["already_owned_source_proof_ref"] = VerifiedReference(
+            "repo://product-owner/already-owned", OWNER, "sha256:" + "e" * 64,
+            "accepted", REPO, REVISION,
+        )
+        readers = {
+            owner: RecordingOwnerReader({
+                field: proof for field, proof in expected.items() if proof.owner_ref == owner
+            })
+            for owner in {proof.owner_ref for proof in expected.values()}
+        }
+        actual = resolve_evidence(OwnerBackedClosureEvidenceResolver(readers), req, src)
+        self.assertEqual(set(actual), set(expected))
+        self.assertEqual(
+            evaluate_prototype_closure(req, src, actual, POLICY, src.record_digest)["outcome"],
+            "ready",
+        )
+
     def test_studio_unicode_digest_matches_closure_source_algorithm(self) -> None:
         self.assertEqual(
             studio_digest({"note": "caf\u00e9"}),
