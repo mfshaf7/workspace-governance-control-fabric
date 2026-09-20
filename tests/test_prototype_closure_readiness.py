@@ -209,6 +209,14 @@ class PrototypeClosureReadinessTests(TestCase):
                         source(action).record["design_baseline_ref"],
                     )
                     self.assertEqual(
+                        lookups["target_delivery_ref"].source_packet_ref,
+                        source(action).record["delivery_packet_ref"],
+                    )
+                    self.assertEqual(
+                        lookups["target_delivery_ref"].accepted_delivery_target_receipt_ref,
+                        request(action)["accepted_delivery_target_receipt_ref"],
+                    )
+                    self.assertEqual(
                         lookups["accepted_delivery_target_receipt_ref"].subject_ref,
                         request(action)["target_delivery_ref"],
                     )
