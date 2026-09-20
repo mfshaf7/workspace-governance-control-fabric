@@ -100,8 +100,10 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/readiness/prototype-closure` and
   `GET /v1/readiness/prototype-closure/{readiness_token}`. It evaluates
   committed Studio source and action-specific owner evidence without mutating
-  source or target. Normal runtime availability remains denied until the
-  configured owner readers, OOS composition, and Closure identity are
+  source or target. Apply-Delivery requires OOS-issued Baseline and ingress
+  receipts bound to the Studio packet and exact ART target; the ART supplies
+  target readback, not the ingress receipt. Normal runtime availability remains
+  denied until the configured owner readers, OOS composition, and Closure identity are
   commissioned. Source-level test readers do not activate this route.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and

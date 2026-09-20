@@ -18,6 +18,7 @@ class ClosureEvidenceLookup:
     requested_ref: str | None
     subject_ref: str | None
     source_revision: str
+    source_packet_ref: str | None
 
 
 class ClosureOwnerReader(Protocol):
@@ -52,6 +53,10 @@ class OwnerBackedClosureEvidenceResolver:
                 requested_ref=request.get(field),
                 subject_ref=self._subject(field, request, source),
                 source_revision=source.revision,
+                source_packet_ref=(
+                    source.record.get("delivery_packet_ref")
+                    if field == "accepted_delivery_target_receipt_ref" else None
+                ),
             )
             proof = reader.read(lookup)
             if proof is not None:

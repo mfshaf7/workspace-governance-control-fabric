@@ -20,6 +20,8 @@ class VerifiedReference:
     state: str
     subject_ref: str | None = None
     source_revision: str | None = None
+    source_packet_ref: str | None = None
+    prototype_id: str | None = None
 
 
 class ClosureEvidenceResolver(Protocol):
@@ -30,12 +32,12 @@ class ClosureEvidenceResolver(Protocol):
 
 ACTION_EVIDENCE = {
     "apply-delivery": {
-        "accepted_baseline_receipt_ref": "workspace-prototype-studio",
-        "accepted_delivery_target_receipt_ref": "workspace-delivery-art",
+        "accepted_baseline_receipt_ref": "operator-orchestration-service",
+        "accepted_delivery_target_receipt_ref": "operator-orchestration-service",
         "target_delivery_ref": "workspace-delivery-art",
     },
     "graduate-source": {
-        "accepted_delivery_target_receipt_ref": "workspace-delivery-art",
+        "accepted_delivery_target_receipt_ref": "operator-orchestration-service",
         "durable_owner_acceptance_ref": "requested-owner",
         "source_transfer_receipt_ref": "requested-owner",
     },
@@ -52,6 +54,7 @@ ACTION_EVIDENCE = {
 SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_REF = re.compile(r"^[a-z][a-z0-9+.-]*://[A-Za-z0-9][A-Za-z0-9._~:/%+=-]*$")
 SAFE_OWNER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+DELIVERY_TARGET = re.compile(r"^openproject://work_packages/[1-9][0-9]*$")
 
 
 def evaluate_prototype_closure(
@@ -103,10 +106,17 @@ def evaluate_prototype_closure(
 
     source_valid = True
     if action == "apply-delivery":
-        source_valid = bool(source.record.get("delivery_packet_ref") and source.record.get("design_baseline_ref"))
+        source_valid = bool(
+            source.record.get("delivery_packet_ref")
+            and source.record.get("design_baseline_ref")
+            and request.get("target_kind") == "new-delivery-epic"
+            and DELIVERY_TARGET.fullmatch(request.get("target_delivery_ref", ""))
+            and request.get("accepted_delivery_target_receipt_ref")
+        )
     elif action == "graduate-source":
         source_valid = (
             source.record.get("project_phase") == "delivery-governed"
+            and bool(source.record.get("delivery_packet_ref"))
             and source.record.get("accepted_delivery_target_receipt_ref")
             == request["accepted_delivery_target_receipt_ref"]
         )
@@ -147,6 +157,12 @@ def evaluate_prototype_closure(
                 check(field, "blocked", "delivery-target-mismatch",
                       "Accepted Delivery target differs from committed Studio truth.", expected_owner)
                 continue
+        if field == "accepted_delivery_target_receipt_ref":
+            if (proof.source_packet_ref != source.record.get("delivery_packet_ref")
+                    or proof.prototype_id != request["prototype_id"]):
+                check(field, "blocked", "delivery-source-mismatch",
+                      "Delivery acceptance does not bind this Prototype packet.", expected_owner)
+                continue
         if field == "accepted_delivery_target_receipt_ref" and action == "apply-delivery":
             target = evidence.get("target_delivery_ref")
             if target is None or proof.subject_ref != target.ref:
@@ -157,6 +173,10 @@ def evaluate_prototype_closure(
             if proof.subject_ref != source.record.get("design_baseline_ref"):
                 check(field, "blocked", "baseline-receipt-mismatch",
                       "Accepted baseline receipt does not bind the staged design baseline.", expected_owner)
+                continue
+            if proof.prototype_id != request["prototype_id"]:
+                check(field, "blocked", "baseline-source-mismatch",
+                      "Accepted baseline receipt does not bind this Prototype.", expected_owner)
                 continue
         if field in {"source_transfer_receipt_ref", "already_owned_source_proof_ref", "durable_owner_acceptance_ref"}:
             if proof.subject_ref != request.get("durable_repo_ref"):
@@ -206,6 +226,8 @@ def evaluate_prototype_closure(
             "state": proof.state,
             "subject_ref": proof.subject_ref,
             "source_revision": proof.source_revision,
+            "source_packet_ref": proof.source_packet_ref,
+            "prototype_id": proof.prototype_id,
         }
         for field, proof in sorted(evidence.items())
     ]
@@ -248,6 +270,10 @@ def resolve_evidence(
                 len(proof.subject_ref) > 512 or not SAFE_REF.fullmatch(proof.subject_ref)
             ))
             or (proof.source_revision is not None and not re.fullmatch(r"[0-9a-f]{40}", proof.source_revision))
+            or (proof.source_packet_ref is not None and (
+                len(proof.source_packet_ref) > 512 or not SAFE_REF.fullmatch(proof.source_packet_ref)
+            ))
+            or (proof.prototype_id is not None and not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", proof.prototype_id))
         ):
             raise PrototypeClosureUnavailable("Closure evidence resolver returned unsafe proof metadata")
     return evidence
