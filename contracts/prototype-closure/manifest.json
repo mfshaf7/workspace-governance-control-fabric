@@ -5,14 +5,15 @@
   "source_authority": {
     "repo": "workspace-prototype-studio",
     "contract_manifest_sha256": "bef41533bc0df2cf1208923e7cbb687a50c3efd8386d827e726af7c38055a6fe",
-    "registry_schema_sha256": "defdc5c2e994e7472e8827759c7c2dfc2f55f421313e665c3147d79fb98802d0"
+    "registry_schema_sha256": "defdc5c2e994e7472e8827759c7c2dfc2f55f421313e665c3147d79fb98802d0",
+    "retention_plan_schema_sha256": "5e62b3a22d5127737f0ae37f87174129a46d176b2d72af9b3687be46f27970ad"
   },
   "security_review": {
     "repo": "security-architecture",
     "merge_commit": "e7a4ffae7761fab892ec1da99677f01b899c2562",
     "decision": "approved-with-findings"
   },
-  "runtime_activation": false,
+  "runtime_activation": true,
   "transport_schemas": {
     "evaluation.schema.json": "2dfbb414999d7b26c24ca9832c3df5ee5147eebfd92893992ce74941c7b49c10",
     "readiness.schema.json": "1541f010aefb5be742445ed5fb5e74c6b3b03e4547cb4f1d63d811bf99a01ac8"

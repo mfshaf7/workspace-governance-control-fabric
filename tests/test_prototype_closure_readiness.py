@@ -480,6 +480,28 @@ class PrototypeClosureReadinessTests(TestCase):
             with self.assertRaises(PrototypeClosureUnavailable):
                 build_prototype_closure_readiness_runtime()
 
+    def test_runtime_builder_routes_owner_readers_only_with_complete_configuration(self) -> None:
+        with patch.dict("os.environ", {
+            "WGCF_RUNTIME_PROFILE": "dev-integration",
+            "WGCF_PROTOTYPE_CLOSURE_READINESS_ENABLED": "true",
+            "WGCF_PROTOTYPE_STUDIO_REPO_ROOT": str(self.temp.name),
+            "WGCF_PROTOTYPE_CLOSURE_OOS_URL": "http://127.0.0.1:8111",
+            "WGCF_PROTOTYPE_CLOSURE_OOS_CREDENTIAL_FILE": str(Path(self.temp.name) / "credential"),
+            "WGCF_PROTOTYPE_CLOSURE_SERVICE_IDENTITY_REF": "service://prototype-closure",
+        }), patch(
+            "control_fabric_core.prototype_closure_readiness.create_session_factory",
+            return_value=self.sessions,
+        ), patch(
+            "control_fabric_core.prototype_closure_readiness.read_implementation_ref",
+            return_value=REVISION,
+        ):
+            runtime = build_prototype_closure_readiness_runtime()
+        self.assertIsInstance(runtime.evidence_resolver, OwnerBackedClosureEvidenceResolver)
+        self.assertEqual(set(runtime.evidence_resolver.readers), {
+            "workspace-prototype-studio", "operator-orchestration-service",
+            "workspace-delivery-art", "platform-engineering", "requested-owner",
+        })
+
     def test_committed_studio_readback_ignores_dirty_tree_and_rejects_history_conflict(self) -> None:
         repo = Path(self.temp.name) / "studio"
         repo.mkdir()

@@ -21,6 +21,8 @@ class ClosureEvidenceLookup:
     source_packet_ref: str | None
     target_delivery_ref: str | None
     accepted_delivery_target_receipt_ref: str | None
+    operator_id: str
+    retirement_reason: str | None
 
 
 class ClosureOwnerReader(Protocol):
@@ -46,6 +48,8 @@ class OwnerBackedClosureEvidenceResolver:
         for field, owner in needed.items():
             owner_ref = request["durable_owner_ref"] if owner == "requested-owner" else owner
             reader = self.readers.get(owner_ref)
+            if reader is None and owner == "requested-owner":
+                reader = self.readers.get("requested-owner")
             if reader is None:
                 raise PrototypeClosureUnavailable(f"Closure owner reader is unavailable: {owner_ref}")
             lookup = ClosureEvidenceLookup(
@@ -64,6 +68,8 @@ class OwnerBackedClosureEvidenceResolver:
                     request.get("accepted_delivery_target_receipt_ref")
                     or source.record.get("accepted_delivery_target_receipt_ref")
                 ),
+                operator_id=request["operator_id"],
+                retirement_reason=request.get("retirement_reason"),
             )
             proof = reader.read(lookup)
             if proof is not None:
