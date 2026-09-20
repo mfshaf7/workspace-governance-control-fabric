@@ -55,7 +55,7 @@ class OwnerBackedClosureEvidenceResolver:
                 source_revision=source.revision,
                 source_packet_ref=(
                     source.record.get("delivery_packet_ref")
-                    if field == "accepted_delivery_target_receipt_ref" else None
+                    if field in {"accepted_delivery_target_receipt_ref", "target_delivery_ref"} else None
                 ),
             )
             proof = reader.read(lookup)
