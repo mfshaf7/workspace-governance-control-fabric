@@ -42,10 +42,11 @@ def load_bundle_manifest() -> dict[str, Any]:
         or source.get("repo") != "workspace-prototype-studio"
         or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("contract_manifest_sha256", "")))
         or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("registry_schema_sha256", "")))
+        or not re.fullmatch(r"[0-9a-f]{64}", str(source.get("retention_plan_schema_sha256", "")))
         or security.get("repo") != "security-architecture"
         or security.get("decision") != "approved-with-findings"
         or not COMMIT.fullmatch(str(security.get("merge_commit", "")))
-        or manifest.get("runtime_activation") is not False
+        or manifest.get("runtime_activation") is not True
         or set(manifest.get("transport_schemas", {}))
         != {"evaluation.schema.json", "readiness.schema.json"}
     ):

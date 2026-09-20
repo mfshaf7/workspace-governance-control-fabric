@@ -302,12 +302,13 @@ The existing-item target route remains unsupported.
 This route does not accept caller-submitted evidence as owner proof. The
 source-level resolver routes each action-specific lookup to a configured
 reader for the required owner and fails closed when a reader is absent. Test
-readers prove contract behavior, not live authority. The normal runtime still
-returns `503` even if an enable flag is set; owner readers, OOS reconciliation,
-and the Closure identity require later commissioning. The dedicated OOS HTTP
-reader implements bounded baseline and Delivery receipt lookups with a
-caller-specific credential; it is not mounted in the normal evaluator until
-the remaining Studio, Platform, and durable-owner readers are commissioned.
+readers prove contract behavior, not live authority. The normal runtime remains
+disabled by default. A `dev-integration` enable flag only constructs the reader
+graph when the committed Studio root, OOS endpoint, caller credential file, and
+service identity are configured. The Studio reader verifies the committed
+retention plan and exact retained Git objects. The OOS reader carries bounded
+owner lookups with its own credential; fields not yet implemented by OOS fail
+closed. OOS reconciliation and Platform activation remain separate work.
 `ready` is an evidence assessment, not human approval or permission to mutate
 Studio. The request digest binds operator,
 correlation, idempotency, action, and source revision; OOS must re-check ledger

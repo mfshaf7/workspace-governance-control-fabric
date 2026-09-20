@@ -18,6 +18,12 @@ FIELDS = {
     "accepted_baseline_receipt_ref",
     "target_delivery_ref",
     "accepted_delivery_target_receipt_ref",
+    "durable_owner_acceptance_ref",
+    "source_transfer_receipt_ref",
+    "already_owned_source_proof_ref",
+    "runtime_disposition_plan_ref",
+    "runtime_disposition_proof_ref",
+    "prior_retirement_receipt_ref",
 }
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -52,7 +58,7 @@ class OosClosureOwnerReader:
             "source_revision": lookup.source_revision,
         }
         for field in (
-            "source_packet_ref", "target_delivery_ref", "accepted_delivery_target_receipt_ref"
+            "source_packet_ref", "target_delivery_ref", "accepted_delivery_target_receipt_ref",
         ):
             value = getattr(lookup, field)
             if value is not None:

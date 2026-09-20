@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+from pathlib import Path
 import re
 from typing import Any, Callable
 from uuid import uuid4
@@ -16,7 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
-from .artifact_registry import RUNTIME_PROFILE_ENV
+from .artifact_registry import RUNTIME_PROFILE_ENV, read_implementation_ref
+from .database import create_session_factory
 from .db.models import LedgerEvent, PrototypeClosureReadinessRecord
 from .prototype_closure_authority import (
     PrototypeClosureAuthority,
@@ -26,7 +28,10 @@ from .prototype_closure_authority import (
     load_bundle_manifest,
     studio_digest,
 )
+from .prototype_closure_evidence import OwnerBackedClosureEvidenceResolver
+from .prototype_closure_oos_reader import OosClosureOwnerReader
 from .prototype_closure_policy import ClosureEvidenceResolver, evaluate_prototype_closure, resolve_evidence
+from .prototype_closure_studio_reader import StudioClosureOwnerReader
 from .prototype_maturity_contracts import artifact_digest, digest
 
 
@@ -240,10 +245,33 @@ class PrototypeClosureReadinessService:
 
 
 def build_prototype_closure_readiness_runtime() -> PrototypeClosureReadinessService:
+    manifest = load_bundle_manifest()
     if (
         os.environ.get(RUNTIME_PROFILE_ENV) != "dev-integration"
         or os.environ.get("WGCF_PROTOTYPE_CLOSURE_READINESS_ENABLED") != "true"
+        or manifest["runtime_activation"] is not True
     ):
         raise PrototypeClosureUnavailable("Prototype Closure awaits approved runtime activation")
-    # Owner-backed evidence adapters and Closure identity are commissioned by later ART work.
-    raise PrototypeClosureUnavailable("Prototype Closure evidence authority is not configured")
+    studio_root = os.environ.get("WGCF_PROTOTYPE_STUDIO_REPO_ROOT", "").strip()
+    oos_url = os.environ.get("WGCF_PROTOTYPE_CLOSURE_OOS_URL", "").strip()
+    credential_file = os.environ.get("WGCF_PROTOTYPE_CLOSURE_OOS_CREDENTIAL_FILE", "").strip()
+    identity = os.environ.get("WGCF_PROTOTYPE_CLOSURE_SERVICE_IDENTITY_REF", "").strip()
+    if not all((studio_root, oos_url, credential_file, identity)):
+        raise PrototypeClosureUnavailable("Prototype Closure owner reader configuration is incomplete")
+    authority = PrototypeClosureAuthority(Path(studio_root))
+    oos = OosClosureOwnerReader(base_url=oos_url, credential_file=Path(credential_file))
+    studio = StudioClosureOwnerReader(authority)
+    resolver = OwnerBackedClosureEvidenceResolver({
+        "workspace-prototype-studio": studio,
+        "operator-orchestration-service": oos,
+        "workspace-delivery-art": oos,
+        "platform-engineering": oos,
+        "requested-owner": oos,
+    })
+    return PrototypeClosureReadinessService(
+        session_factory=create_session_factory(),
+        authority=authority,
+        evidence_resolver=resolver,
+        service_identity_ref=identity,
+        implementation_ref=read_implementation_ref(),
+    )

@@ -23,6 +23,7 @@ def lookup() -> ClosureEvidenceLookup:
         prototype_id="sample-tool", requested_ref=TARGET, subject_ref=TARGET,
         source_revision="a" * 40, source_packet_ref=PACKET,
         target_delivery_ref=TARGET, accepted_delivery_target_receipt_ref=RECEIPT,
+        operator_id="agent-gary", retirement_reason=None,
     )
 
 
@@ -94,4 +95,4 @@ class OosClosureOwnerReaderTests(TestCase):
             )
             from dataclasses import replace
             with self.assertRaises(PrototypeClosureUnavailable):
-                reader.read(replace(lookup(), field="prior_retirement_receipt_ref"))
+                reader.read(replace(lookup(), field="retention_plan_ref"))
