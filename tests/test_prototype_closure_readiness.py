@@ -266,7 +266,9 @@ class PrototypeClosureReadinessTests(TestCase):
         expected = proofs("apply-delivery")
         for field, changed in (
             ("accepted_delivery_target_receipt_ref", {"source_packet_ref": "record://delivery-packets/other"}),
+            ("accepted_delivery_target_receipt_ref", {"source_packet_ref": None}),
             ("accepted_delivery_target_receipt_ref", {"prototype_id": "other"}),
+            ("accepted_delivery_target_receipt_ref", {"prototype_id": None}),
             ("accepted_delivery_target_receipt_ref", {"subject_ref": "openproject://work_packages/999"}),
             ("accepted_baseline_receipt_ref", {"prototype_id": "other"}),
         ):
