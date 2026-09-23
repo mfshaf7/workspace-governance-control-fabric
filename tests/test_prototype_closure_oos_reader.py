@@ -31,9 +31,20 @@ def proof() -> dict:
     return {
         "ref": TARGET, "owner_ref": "workspace-delivery-art",
         "digest": "sha256:" + "c" * 64, "state": "accepted",
-        "subject_ref": None, "source_revision": None,
+        "subject_ref": TARGET, "source_revision": None,
         "source_packet_ref": PACKET, "prototype_id": "sample-tool",
     }
+
+
+def discovered_lookup() -> ClosureEvidenceLookup:
+    return ClosureEvidenceLookup(
+        field="runtime_disposition_proof_ref", owner_ref="platform-engineering",
+        prototype_id="sample-tool", requested_ref=None,
+        subject_ref="plan://runtime/sample-tool", source_revision="a" * 40,
+        source_packet_ref=None, target_delivery_ref=None,
+        accepted_delivery_target_receipt_ref=None, operator_id="agent-gary",
+        retirement_reason="Prototype work is no longer active.",
+    )
 
 
 class OosClosureOwnerReaderTests(TestCase):
@@ -47,6 +58,8 @@ class OosClosureOwnerReaderTests(TestCase):
                 self.assertEqual(request.headers["x-oos-caller-id"], "workspace-governance-control-fabric")
                 self.assertEqual(request.headers["x-oos-caller-secret"], "local-test-secret")
                 body = json.loads(request.content)
+                self.assertEqual(body["owner_ref"], "workspace-delivery-art")
+                self.assertEqual(body["subject_ref"], TARGET)
                 self.assertEqual(body["source_packet_ref"], PACKET)
                 self.assertEqual(body["accepted_delivery_target_receipt_ref"], RECEIPT)
                 return httpx.Response(200, json=proof())
@@ -58,6 +71,34 @@ class OosClosureOwnerReaderTests(TestCase):
             result = reader.read(lookup())
             self.assertEqual(result.ref, TARGET)
             self.assertEqual(result.source_packet_ref, PACKET)
+
+    def test_owner_discovered_proof_does_not_require_a_caller_supplied_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            credential = Path(directory) / "credential"
+            credential.write_text("local-test-secret\n")
+            value = {
+                "ref": "proof://platform/runtime/" + "d" * 64,
+                "owner_ref": "platform-engineering",
+                "digest": "sha256:" + "d" * 64,
+                "state": "accepted",
+                "subject_ref": "plan://runtime/sample-tool",
+                "source_revision": "a" * 40,
+                "source_packet_ref": None,
+                "prototype_id": "sample-tool",
+            }
+
+            def respond(request: httpx.Request) -> httpx.Response:
+                body = json.loads(request.content)
+                self.assertNotIn("ref", body)
+                self.assertEqual(body["subject_ref"], "plan://runtime/sample-tool")
+                self.assertEqual(body["operator_id"], "agent-gary")
+                return httpx.Response(200, json=value)
+
+            reader = OosClosureOwnerReader(
+                base_url="http://127.0.0.1:8111", credential_file=credential,
+                client=httpx.Client(transport=httpx.MockTransport(respond)),
+            )
+            self.assertEqual(reader.read(discovered_lookup()).ref, value["ref"])
 
     def test_wrong_owner_or_unavailable_readback_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
