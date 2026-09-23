@@ -134,6 +134,10 @@ class FoundationTests(TestCase):
             dockerfile,
         )
         self.assertIn(
+            "WGCF_PROTOTYPE_INGRESS_CONTRACT_ROOT=/app/contracts/prototype-ingress",
+            dockerfile,
+        )
+        self.assertIn(
             "WGCF_PROTOTYPE_MATURITY_CONTRACT_ROOT=/app/contracts/prototype-maturity",
             dockerfile,
         )

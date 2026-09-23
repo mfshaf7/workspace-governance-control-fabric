@@ -704,6 +704,8 @@ class DevIntegrationProfileTests(TestCase):
             self.assertIn("readOnly: true", manifest)
             self.assertIn("name: WGCF_PROTOTYPE_STUDIO_REPO_ROOT", manifest)
             self.assertIn("value: /sources/workspace-prototype-studio", manifest)
+            self.assertIn("name: WGCF_PROTOTYPE_INGRESS_CONTRACT_ROOT", manifest)
+            self.assertIn("value: /app/contracts/prototype-ingress", manifest)
             self.assertIn("name: WGCF_PROTOTYPE_LANDING_READINESS_ENABLED", manifest)
             self.assertIn("name: WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT", manifest)
             self.assertIn("value: /app/contracts/prototype-landing", manifest)
