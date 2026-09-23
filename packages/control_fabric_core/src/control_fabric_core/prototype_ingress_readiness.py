@@ -250,7 +250,7 @@ class PrototypeIngressReadinessService:
         ):
             return ("source-projection-stale",)
         if (
-            current_prototype.get("lifecycle") != "graduating"
+            current_prototype.get("lifecycle") != "baseline-approved"
             or current_prototype.get("delivery_packet_ref") != packet["packet_ref"]
         ):
             return ("source-projection-stale",)
