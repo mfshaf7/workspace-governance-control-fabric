@@ -25,6 +25,10 @@ FIELDS = {
     "runtime_disposition_proof_ref",
     "prior_retirement_receipt_ref",
 }
+OWNER_DISCOVERED_FIELDS = {
+    "source_transfer_receipt_ref",
+    "runtime_disposition_proof_ref",
+}
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -43,7 +47,10 @@ class OosClosureOwnerReader:
         self.client = client or httpx.Client(timeout=5.0, follow_redirects=False)
 
     def read(self, lookup: ClosureEvidenceLookup) -> VerifiedReference | None:
-        if lookup.field not in FIELDS or not lookup.requested_ref:
+        if (
+            lookup.field not in FIELDS
+            or (not lookup.requested_ref and lookup.field not in OWNER_DISCOVERED_FIELDS)
+        ):
             raise PrototypeClosureUnavailable("Closure OOS reader does not own this evidence field")
         try:
             secret = self.credential_file.read_text(encoding="utf-8").strip()
@@ -53,16 +60,20 @@ class OosClosureOwnerReader:
             raise PrototypeClosureUnavailable("Closure OOS reader credential is empty")
         payload = {
             "field": lookup.field,
-            "ref": lookup.requested_ref,
+            "owner_ref": lookup.owner_ref,
             "prototype_id": lookup.prototype_id,
             "source_revision": lookup.source_revision,
         }
+        if lookup.requested_ref is not None:
+            payload["ref"] = lookup.requested_ref
         for field in (
-            "source_packet_ref", "target_delivery_ref", "accepted_delivery_target_receipt_ref",
+            "subject_ref", "source_packet_ref", "target_delivery_ref",
+            "accepted_delivery_target_receipt_ref", "retirement_reason",
         ):
             value = getattr(lookup, field)
             if value is not None:
                 payload[field] = value
+        payload["operator_id"] = lookup.operator_id
         try:
             response = self.client.post(
                 self.url, json=payload, headers={
@@ -84,12 +95,15 @@ class OosClosureOwnerReader:
             }
             if not isinstance(value, dict) or set(value) != required:
                 raise ValueError("invalid evidence shape")
-            if (value["ref"] != lookup.requested_ref
+            if ((lookup.requested_ref is not None and value["ref"] != lookup.requested_ref)
                     or value["owner_ref"] != lookup.owner_ref
                     or value["state"] != "accepted"
                     or not isinstance(value["digest"], str)
                     or not DIGEST.fullmatch(value["digest"])
-                    or value["prototype_id"] != lookup.prototype_id):
+                    or value["prototype_id"] != lookup.prototype_id
+                    or (lookup.subject_ref is not None and value["subject_ref"] != lookup.subject_ref)
+                    or (lookup.source_packet_ref is not None
+                        and value["source_packet_ref"] != lookup.source_packet_ref)):
                 raise ValueError("evidence binding changed")
             return VerifiedReference(**value)
         except (TypeError, ValueError) as exc:
