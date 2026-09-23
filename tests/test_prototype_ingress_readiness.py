@@ -152,7 +152,7 @@ class PrototypeSourceFixture:
     def _store_packet(self, packet: dict) -> None:
         current = copy.deepcopy(self.registry)
         current_prototype = current["prototypes"][0]
-        current_prototype["lifecycle"] = "graduating"
+        current_prototype["lifecycle"] = "baseline-approved"
         current_prototype["delivery_packet_ref"] = packet["packet_ref"]
         current_prototype["linked_records"].append(
             {
