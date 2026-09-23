@@ -9,13 +9,22 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any
+from typing import Any, Mapping
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 import yaml
 
-BUNDLE_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "prototype-closure"
+def prototype_closure_bundle_root(
+    env: Mapping[str, str] = os.environ,
+) -> Path:
+    configured = env.get("WGCF_PROTOTYPE_CLOSURE_CONTRACT_ROOT", "").strip()
+    if configured:
+        return Path(configured).resolve()
+    return Path(__file__).resolve().parents[4] / "contracts" / "prototype-closure"
+
+
+BUNDLE_ROOT = prototype_closure_bundle_root()
 SAFE_ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 MAX_SOURCE_BYTES = 4 * 1024 * 1024

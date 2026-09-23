@@ -96,17 +96,17 @@ That surface is constrained by the workspace-owned contract in
   capability pins the merged normal-availability review, composed conformance,
   and dedicated identity evidence; runtime availability still requires the
   separate OOS and Platform activation gates.
-  Prototype Closure readiness has a separate disabled-by-default boundary at
+  Prototype Closure readiness has a separate default-denied boundary at
   `POST /v1/readiness/prototype-closure` and
   `GET /v1/readiness/prototype-closure/{readiness_token}`. It evaluates
   committed Studio source and action-specific owner evidence without mutating
   source or target. Apply-Delivery requires OOS-issued Baseline and ingress
   receipts bound to the Studio packet and exact ART target; the ART supplies
-  target readback, not the ingress receipt. Normal runtime availability remains
-  denied until OOS composition and the Closure identity are commissioned.
-  WGCF has committed-Studio and OOS owner-reader routing, but OOS readback
-  fields beyond Baseline and Delivery ingress still fail closed until their
-  owner implementation lands. Source-level tests do not activate this route.
+  target readback, not the ingress receipt. The route is active only in the
+  explicitly configured `dev-integration` composition, where the commissioned
+  Closure identity and owner readers are present; source-level tests alone do
+  not activate it. OOS readback fields beyond Baseline and Delivery ingress
+  continue to fail closed until their owner implementation lands.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy

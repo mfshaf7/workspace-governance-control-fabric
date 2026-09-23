@@ -19,7 +19,7 @@ from control_fabric_core.artifact_registry import ArtifactRegistryAuthorizer
 from control_fabric_core.db.models import LedgerEvent, PrototypeClosureReadinessRecord, metadata
 from control_fabric_core.prototype_closure_authority import (
     ClosureSource, PrototypeClosureAuthority, PrototypeClosureRequestError,
-    PrototypeClosureUnavailable, studio_digest,
+    PrototypeClosureUnavailable, prototype_closure_bundle_root, studio_digest,
 )
 from control_fabric_core.prototype_closure_evidence import (
     ClosureEvidenceLookup, OwnerBackedClosureEvidenceResolver,
@@ -177,6 +177,14 @@ class RecordingOwnerReader:
 
 
 class PrototypeClosureReadinessTests(TestCase):
+    def test_contract_bundle_root_uses_the_packaged_runtime_location(self) -> None:
+        self.assertEqual(
+            prototype_closure_bundle_root({
+                "WGCF_PROTOTYPE_CLOSURE_CONTRACT_ROOT": "/app/contracts/prototype-closure",
+            }),
+            Path("/app/contracts/prototype-closure"),
+        )
+
     def test_owner_readers_are_action_scoped_and_bind_lookup_context(self) -> None:
         for action in ("apply-delivery", "graduate-source", "retire-incubation", "reopen-incubation"):
             with self.subTest(action=action):
