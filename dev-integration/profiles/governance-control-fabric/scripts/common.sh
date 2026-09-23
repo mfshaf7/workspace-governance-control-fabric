@@ -584,6 +584,8 @@ spec:
                   key: secret-key
             - name: WGCF_EVIDENCE_STORAGE_IDENTITY_REF
               value: kubernetes://${NAMESPACE}/serviceaccount/${COMPONENT_NAME}
+            - name: WGCF_PROTOTYPE_INGRESS_CONTRACT_ROOT
+              value: /app/contracts/prototype-ingress
             - name: WGCF_PROTOTYPE_LANDING_READINESS_ENABLED
               value: "true"
             - name: WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT
