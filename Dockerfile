@@ -8,6 +8,7 @@ ENV WGCF_DELIVERY_ART_CONTRACT_ROOT=/app/contracts/delivery-art
 ENV WGCF_PROTOTYPE_INGRESS_CONTRACT_ROOT=/app/contracts/prototype-ingress
 ENV WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT=/app/contracts/prototype-landing
 ENV WGCF_PROTOTYPE_MATURITY_CONTRACT_ROOT=/app/contracts/prototype-maturity
+ENV WGCF_PROTOTYPE_CLOSURE_CONTRACT_ROOT=/app/contracts/prototype-closure
 ENV WGCF_WORKSPACE_INTAKE_CONTRACT_ROOT=/app/contracts/workspace-intake
 ENV WGCF_WORKSPACE_ACTIVE_INVENTORY_CONTRACT_ROOT=/app/contracts/workspace-active-inventory
 
