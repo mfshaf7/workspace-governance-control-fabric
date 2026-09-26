@@ -23,8 +23,16 @@ DEFAULT_COMPLETION_HEADINGS = (
     "Test Result Evidence",
     "Validation Evidence",
 )
-FEATURE_NARRATIVE_HEADINGS = (
+ENABLER_FEATURE_NARRATIVE_HEADINGS = (
     "What This Enables",
+    "Benefit Hypothesis",
+    "Scope Boundaries",
+    "Evidence Expectation",
+    "Execution Context",
+    "Operator work notes",
+)
+BUSINESS_FEATURE_NARRATIVE_HEADINGS = (
+    "What This Achieves",
     "Benefit Hypothesis",
     "Scope Boundaries",
     "Evidence Expectation",
@@ -492,6 +500,15 @@ def _normalize_item(value: dict[str, Any]) -> dict[str, Any] | None:
         "architecture_anchor_ref": _optional_string(value.get("architecture_anchor_ref")),
         "assignee_login": _optional_string(value.get("assignee_login") or value.get("assigneeLogin")),
         "blocked": bool(value.get("blocked")),
+        "completion_narrative_contract_issues": tuple(
+            str(issue)
+            for issue in value.get("completion_narrative_contract_issues") or ()
+        ),
+        "completion_narrative_contract_satisfied": (
+            value.get("completion_narrative_contract_satisfied")
+            if isinstance(value.get("completion_narrative_contract_satisfied"), bool)
+            else None
+        ),
         "delivery_team": _optional_string(value.get("delivery_team") or value.get("deliveryTeam")),
         "dependency_blocked": bool(value.get("dependency_blocked") or value.get("dependencyBlocked")),
         "description_headings": tuple(value.get("descriptionHeadings") or value.get("description_headings") or ()),
@@ -877,10 +894,25 @@ def _recommendations(
 def _missing_feature_headings(item: dict[str, Any]) -> tuple[str, ...]:
     if item.get("type") != "Feature":
         return ()
+    if item.get("completion_narrative_contract_satisfied") is True:
+        return ()
+
     headings = set(str(heading).strip() for heading in item.get("description_headings") or ())
+    classification = (_optional_string(item.get("execution_classification")) or "").lower()
+    if not classification:
+        subject = (_optional_string(item.get("subject")) or "").lower()
+        if subject.startswith("enabler:") or "What This Enables" in headings:
+            classification = "enabler"
+        elif "What This Achieves" in headings:
+            classification = "business"
+    required_headings = (
+        ENABLER_FEATURE_NARRATIVE_HEADINGS
+        if classification == "enabler"
+        else BUSINESS_FEATURE_NARRATIVE_HEADINGS
+    )
     if not headings and not item.get("description_present"):
-        return FEATURE_NARRATIVE_HEADINGS
-    return tuple(heading for heading in FEATURE_NARRATIVE_HEADINGS if heading not in headings)
+        return required_headings
+    return tuple(heading for heading in required_headings if heading not in headings)
 
 
 def _parent_feature_for_target(
