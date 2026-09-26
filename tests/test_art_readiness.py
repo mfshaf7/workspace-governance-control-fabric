@@ -105,9 +105,13 @@ def child_completion_context(
     *,
     parent_with_headings: bool = True,
     open_sibling: bool = False,
+    parent_classification: str = "Enabler",
 ) -> dict:
+    parent_purpose_heading = (
+        "What This Enables" if parent_classification == "Enabler" else "What This Achieves"
+    )
     parent_headings = [
-        "What This Enables",
+        parent_purpose_heading,
         "Benefit Hypothesis",
         "Scope Boundaries",
         "Evidence Expectation",
@@ -116,7 +120,7 @@ def child_completion_context(
     ]
     if not parent_with_headings:
         parent_headings = [
-            "What This Enables",
+            parent_purpose_heading,
             "Benefit Hypothesis",
             "Scope Boundaries",
             "Execution Context",
@@ -196,6 +200,7 @@ def child_completion_context(
                     "record_ref": "openproject://work_packages/641",
                     "description_present": True,
                     "description_headings": parent_headings,
+                    "execution_classification": parent_classification,
                 },
             ],
         }
@@ -436,6 +441,25 @@ class ArtReadinessTests(TestCase):
     def test_last_child_completion_allows_closeout_ready_parent_feature(self) -> None:
         readiness = evaluate_art_readiness(
             child_completion_context(parent_with_headings=True),
+            operation="complete",
+            target_item_id=642,
+            now="2026-05-01T00:00:00Z",
+        )
+
+        self.assertTrue(readiness.mutation_allowed)
+        self.assertNotIn(
+            "parent-feature-narrative-not-closeout-ready",
+            {finding.code for finding in readiness.findings},
+        )
+
+    def test_last_enabler_child_allows_business_parent_narrative(self) -> None:
+        context = child_completion_context(parent_classification="Business")
+        parent = context["continuation_context"]["parent_chain"][-1]
+        parent["completion_narrative_contract_satisfied"] = True
+        parent["completion_narrative_contract_issues"] = []
+
+        readiness = evaluate_art_readiness(
+            context,
             operation="complete",
             target_item_id=642,
             now="2026-05-01T00:00:00Z",
