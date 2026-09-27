@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.lifecycle-transition-readiness.v1",
+  "runtime_activation": true,
+  "runtime_profile": "dev-integration",
+  "authority_sources": {
+    "workspace_governance": {
+      "repo": "workspace-governance",
+      "commit": "aec87fd55b1669aad36012300a62f098464ac0ff"
+    },
+    "operator_orchestration_service": {
+      "repo": "operator-orchestration-service",
+      "commit": "72bebb8b91d77f2112c2ef53cfac64b14718270a"
+    }
+  },
+  "files": {
+    "project-lifecycle.yaml": {
+      "owner": "workspace-governance",
+      "path": "contracts/project-lifecycle.yaml",
+      "sha256": "5fc29ac3d22ef725b3904a31fec856c83afbd5e841b698192c377aba5bd944cc"
+    },
+    "lifecycle-transition-projection.schema.json": {
+      "owner": "operator-orchestration-service",
+      "path": "contracts/lifecycle-transition/lifecycle-transition-projection.schema.json",
+      "sha256": "eb6607bd650a798f7b0a1683ec61c7e7d3be983f6486460d374b85dc07c76934"
+    },
+    "prototype-to-delivery.current.valid.json": {
+      "owner": "operator-orchestration-service",
+      "path": "contracts/lifecycle-transition/prototype-to-delivery.current.valid.json",
+      "sha256": "f17f054ff554638828fcdde8fe26f1d7b5480383e2b408b679b015acaaecc7bb"
+    },
+    "evaluation.schema.json": {
+      "owner": "workspace-governance-control-fabric",
+      "path": "contracts/lifecycle-transition/evaluation.schema.json",
+      "sha256": "2a6a1cada11977ea7c792b6079a9ab08168050d69eac829e23effd3e6784b3ae"
+    },
+    "readiness.schema.json": {
+      "owner": "workspace-governance-control-fabric",
+      "path": "contracts/lifecycle-transition/readiness.schema.json",
+      "sha256": "31bb72c8a772b0fb0c9178223c3a32f878f0c4fc26cdccca333f574db3d0f034"
+    }
+  }
+}

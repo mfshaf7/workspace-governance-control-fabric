@@ -13,6 +13,7 @@ from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
     MAX_AGENT_ACTION_EVALUATION_REQUEST_BYTES,
     MAX_DELIVERY_ART_READINESS_REQUEST_BYTES,
+    MAX_LIFECYCLE_TRANSITION_EVALUATION_BYTES,
     MAX_PROTOTYPE_INGRESS_READINESS_REQUEST_BYTES,
     MAX_REPOSITORY_CUSTODY_READINESS_REQUEST_BYTES,
     MAX_REPOSITORY_LIFECYCLE_READINESS_REQUEST_BYTES,
@@ -42,6 +43,12 @@ from control_fabric_core import (
     DeliveryArtReadinessNotFound,
     DeliveryArtReadinessService,
     DeliveryArtReadinessUnavailable,
+    LifecycleTransitionConflict,
+    LifecycleTransitionNotFound,
+    LifecycleTransitionReadinessError,
+    LifecycleTransitionReadinessService,
+    LifecycleTransitionRequestError,
+    LifecycleTransitionUnavailable,
     PrototypeIngressReadinessContractError,
     PrototypeIngressReadinessError,
     PrototypeIngressReadinessNotFound,
@@ -68,6 +75,7 @@ from control_fabric_core import (
     build_art_runtime_graph,
     build_artifact_registry_runtime,
     build_delivery_art_readiness_runtime,
+    build_lifecycle_transition_readiness_runtime,
     build_prototype_ingress_readiness_runtime,
     build_repository_custody_readiness_runtime,
     build_repository_lifecycle_readiness_runtime,
@@ -163,6 +171,7 @@ def create_app(
     artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
     agent_action_ledger_path: str | Path | None = None,
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
+    lifecycle_transition_readiness: LifecycleTransitionReadinessService | None = None,
     prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
     prototype_landing_readiness: PrototypeLandingReadinessService | None = None,
     prototype_maturity_readiness: PrototypeMaturityReadinessService | None = None,
@@ -190,6 +199,7 @@ def create_app(
     resolved_artifact_registry = artifact_registry
     resolved_registry_authorizer = artifact_registry_authorizer
     resolved_delivery_art_readiness = delivery_art_readiness
+    resolved_lifecycle_transition_readiness = lifecycle_transition_readiness
     resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_prototype_landing_readiness = prototype_landing_readiness
     resolved_prototype_maturity_readiness = prototype_maturity_readiness
@@ -224,6 +234,12 @@ def create_app(
         if resolved_delivery_art_readiness is None:
             resolved_delivery_art_readiness = build_delivery_art_readiness_runtime(registry)
         return resolved_delivery_art_readiness, authorizer
+
+    def lifecycle_transition_runtime() -> LifecycleTransitionReadinessService:
+        nonlocal resolved_lifecycle_transition_readiness
+        if resolved_lifecycle_transition_readiness is None:
+            resolved_lifecycle_transition_readiness = build_lifecycle_transition_readiness_runtime()
+        return resolved_lifecycle_transition_readiness
 
     def caller_authorizer() -> ArtifactRegistryAuthorizer:
         if resolved_registry_authorizer is not None:
@@ -986,6 +1002,36 @@ def create_app(
         except PrototypeIngressReadinessError as exc:
             raise _prototype_ingress_readiness_http_exception(exc) from exc
 
+    @app.post("/v1/readiness/lifecycle-transitions")
+    async def issue_lifecycle_transition_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request,
+                limit=MAX_LIFECYCLE_TRANSITION_EVALUATION_BYTES,
+                label="lifecycle transition readiness evaluation",
+            )
+            return lifecycle_transition_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except LifecycleTransitionReadinessError as exc:
+            raise _lifecycle_transition_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/lifecycle-transitions/{readiness_token}")
+    async def read_lifecycle_transition_readiness(
+        readiness_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return lifecycle_transition_runtime().read(readiness_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except LifecycleTransitionReadinessError as exc:
+            raise _lifecycle_transition_http_exception(exc) from exc
+
     @app.get("/v1/readiness/prototype-ingress/{receipt_token}")
     async def read_prototype_ingress_readiness(
         receipt_token: str,
@@ -1174,6 +1220,18 @@ def _prototype_ingress_readiness_http_exception(exc: Exception) -> HTTPException
     if isinstance(exc, PrototypeIngressReadinessUnavailable):
         return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
     return HTTPException(status_code=503, detail="Prototype ingress readiness is unavailable")
+
+
+def _lifecycle_transition_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, LifecycleTransitionNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, LifecycleTransitionConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, LifecycleTransitionRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, LifecycleTransitionUnavailable):
+        return HTTPException(status_code=503, detail="lifecycle transition readiness is unavailable")
+    return HTTPException(status_code=503, detail="lifecycle transition readiness is unavailable")
 
 
 def _prototype_landing_http_exception(exc: Exception) -> HTTPException:

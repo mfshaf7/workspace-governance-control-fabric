@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mfshaf7.dev/schemas/lifecycle-transition-readiness-evaluation.schema.json",
+  "title": "Lifecycle Transition Readiness Evaluation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "evaluation_id",
+    "profile_id",
+    "projection",
+    "evaluation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "lifecycle-transition-readiness-evaluation" },
+    "evaluation_id": { "$ref": "#/$defs/nonEmptyString" },
+    "profile_id": { "const": "dev-integration" },
+    "projection": { "$ref": "lifecycle-transition-projection.schema.json" },
+    "evaluation_digest": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

@@ -29,6 +29,10 @@ The control fabric is split by runtime responsibility:
 - `contracts/prototype-ingress`: digest-pinned snapshot of the exact Prototype
   Delivery packet schema plus WGCF-local request and immutable readiness
   receipt schemas. The manifest pins the source repository and commit.
+- `contracts/lifecycle-transition`: digest-pinned Workspace Governance lifecycle
+  authority and OOS projection schema, plus WGCF-local evaluation and immutable
+  readiness schemas. The bundle is input to a non-mutating evaluator, not a
+  workflow or transition authority.
 - `contracts/repository-readiness`: WGCF request and receipt schemas plus the
   exact OOS consumer-reference schema pinned to its merged source commit.
   Runtime evaluation reads Workspace Governance authority without copying it.
