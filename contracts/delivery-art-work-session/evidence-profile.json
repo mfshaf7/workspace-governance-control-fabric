@@ -6,22 +6,12 @@
     {
       "id": "owner-repository-tests",
       "kind": "tests",
-      "name": "WGCF owner repository test suite",
+      "name": "WGCF owner repository validation and test suite",
       "executable": "python3",
-      "args": ["-m", "unittest", "discover", "-s", "tests"],
+      "args": ["scripts/run_delivery_art_evidence.py", "--repo-root", "."],
       "fidelity": "real-git",
       "conformance_binding": "matching-fidelity",
       "timeout_seconds": 1200
-    },
-    {
-      "id": "project-structure-validation",
-      "kind": "validations",
-      "name": "WGCF project structure validation",
-      "executable": "python3",
-      "args": ["scripts/validate_project.py", "--repo-root", "."],
-      "fidelity": "filesystem",
-      "conformance_binding": "none",
-      "timeout_seconds": 300
     },
     {
       "id": "source-diff-validation",
