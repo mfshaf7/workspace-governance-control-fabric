@@ -247,6 +247,12 @@ operator workflows:
 
 ## Validation
 
+Delivery ART source work uses the base-owned evidence profile at
+`contracts/delivery-art-work-session/evidence-profile.json`. OOS executes its
+bounded test, project-validation, and source-diff commands against the exact
+clean pushed base and head before it prepares merge-ready review evidence.
+Candidate branches cannot replace or weaken that profile.
+
 The initial validation surface checks that the repository keeps its minimum
 governance documentation, review controls, and Python scaffold in place.
 
