@@ -77,6 +77,8 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/graph/query`, `POST /v1/validation-plans`,
   `POST /v1/validation-runs`, `GET /v1/receipts`,
   `GET /v1/receipts/{receipt_id}`, `GET /v1/metrics/receipts`,
+  `GET /v1/governance-history`,
+  `GET /v1/governance-history/{history_id}`,
   `POST /v1/readiness/evaluate`,
   `POST /v1/agent-actions/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and

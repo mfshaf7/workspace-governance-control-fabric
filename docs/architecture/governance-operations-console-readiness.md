@@ -23,6 +23,8 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - receipt metadata listing
 - receipt inspection by id
 - receipt metrics and correlation ids
+- authenticated, normalized governance-history list and detail projections over
+  readiness, escalation, ledger, and receipt metadata
 - lifecycle retention planning and confirmed cleanup
 - local readiness decision evaluation
 - broker-owned ART graph projection
@@ -30,7 +32,9 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - ART evidence packet projection from WGCF receipts
 
 These surfaces are enough for local operator workflow and source validation.
-They are not enough for a deployed console yet.
+The governance-history producer contract is now implemented, but a deployed
+Console still requires Console composition, Security acceptance, and Platform
+activation.
 
 ## Console Readiness Criteria
 
@@ -97,11 +101,14 @@ This readiness contract does not:
 
 ## First Console-Compatible API Expansion
 
-The first future expansion should add read-only route coverage for:
+The first read-only expansion now provides normalized route coverage for:
 
 - ledger event listing
 - persistence-backed ART readiness history
 - escalation record listing
-- decision explanation
+
+Dedicated decision explanation remains future work. Governance-history detail
+exposes compact record metadata and evidence routes without reopening the
+stored decision payload.
 
 Only after those read paths are stable should the console add operator actions.

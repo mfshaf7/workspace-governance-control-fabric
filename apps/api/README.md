@@ -27,6 +27,9 @@ Current slice:
   without reopening raw artifacts
 - implement `GET /v1/metrics/receipts` for compact receipt metrics and
   correlation visibility
+- implement authenticated `GET /v1/governance-history` and
+  `GET /v1/governance-history/{history_id}` for normalized, bounded readiness,
+  escalation, ledger, and receipt navigation without exposing stored payloads
 - implement `POST /v1/readiness/evaluate` for local readiness decisions with a
   fabric-local ledger event
 - implement `POST /v1/agent-actions/evaluate` for a bounded `allow`, `deny`, or
@@ -84,6 +87,13 @@ does not mutate upstream authority stores.
 
 The ART routes are read/projection routes. They do not mutate OpenProject and
 do not replace `operator-orchestration-service` as the ART write authority.
+
+Governance-history routes use a dedicated read-only Console caller identity.
+They normalize existing immutable WGCF records in memory, expose stable opaque
+ids, keyset pagination, source availability, freshness, owner next actions,
+and allowlisted evidence routes. Stored receipt, readiness, and decision
+payloads remain private; unavailable tables remain explicitly partial rather
+than being replaced with synthetic records.
 
 The agent-action route is an authenticated policy-evaluation boundary. Its
 request body contains `request` and `current` objects, is limited to 64 KiB,

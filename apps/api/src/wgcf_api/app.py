@@ -43,6 +43,13 @@ from control_fabric_core import (
     DeliveryArtReadinessNotFound,
     DeliveryArtReadinessService,
     DeliveryArtReadinessUnavailable,
+    GovernanceHistoryAuthorizer,
+    GovernanceHistoryError,
+    GovernanceHistoryNotFound,
+    GovernanceHistoryRequestError,
+    GovernanceHistoryService,
+    GovernanceHistoryUnauthorized,
+    GovernanceHistoryUnavailable,
     LifecycleTransitionConflict,
     LifecycleTransitionNotFound,
     LifecycleTransitionReadinessError,
@@ -82,6 +89,7 @@ from control_fabric_core import (
     build_repository_readiness_runtime,
     build_operator_validation_plan,
     build_graph_from_manifest_file,
+    build_governance_history_runtime,
     build_source_snapshot,
     build_retention_plan,
     evaluate_operation_budget,
@@ -171,6 +179,8 @@ def create_app(
     artifact_registry_authorizer: ArtifactRegistryAuthorizer | None = None,
     agent_action_ledger_path: str | Path | None = None,
     delivery_art_readiness: DeliveryArtReadinessService | None = None,
+    governance_history: GovernanceHistoryService | None = None,
+    governance_history_authorizer: GovernanceHistoryAuthorizer | None = None,
     lifecycle_transition_readiness: LifecycleTransitionReadinessService | None = None,
     prototype_ingress_readiness: PrototypeIngressReadinessService | None = None,
     prototype_landing_readiness: PrototypeLandingReadinessService | None = None,
@@ -199,6 +209,8 @@ def create_app(
     resolved_artifact_registry = artifact_registry
     resolved_registry_authorizer = artifact_registry_authorizer
     resolved_delivery_art_readiness = delivery_art_readiness
+    resolved_governance_history = governance_history
+    resolved_governance_history_authorizer = governance_history_authorizer
     resolved_lifecycle_transition_readiness = lifecycle_transition_readiness
     resolved_prototype_ingress_readiness = prototype_ingress_readiness
     resolved_prototype_landing_readiness = prototype_landing_readiness
@@ -240,6 +252,19 @@ def create_app(
         if resolved_lifecycle_transition_readiness is None:
             resolved_lifecycle_transition_readiness = build_lifecycle_transition_readiness_runtime()
         return resolved_lifecycle_transition_readiness
+
+    def governance_history_runtime() -> tuple[
+        GovernanceHistoryService,
+        GovernanceHistoryAuthorizer,
+    ]:
+        nonlocal resolved_governance_history, resolved_governance_history_authorizer
+        if resolved_governance_history is None:
+            resolved_governance_history = build_governance_history_runtime()
+        if resolved_governance_history_authorizer is None:
+            resolved_governance_history_authorizer = (
+                GovernanceHistoryAuthorizer.from_environment()
+            )
+        return resolved_governance_history, resolved_governance_history_authorizer
 
     def caller_authorizer() -> ArtifactRegistryAuthorizer:
         if resolved_registry_authorizer is not None:
@@ -779,6 +804,42 @@ def create_app(
             "receipts": summaries,
         }
 
+    @app.get("/v1/governance-history")
+    async def governance_history_list(
+        request: Request,
+        category: str | None = Query(None, description="Optional readiness, escalation, ledger, or receipt category."),
+        cursor: str | None = Query(None, description="Opaque keyset cursor returned by the previous page."),
+        limit: int = Query(25, description="Maximum records to return, from 1 through 100."),
+        outcome: str | None = Query(None, description="Optional exact outcome filter."),
+        subject: str | None = Query(None, description="Optional case-insensitive subject filter."),
+    ) -> dict[str, Any]:
+        try:
+            service, authorizer = governance_history_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret)
+            return service.list(
+                category=category,
+                cursor=cursor,
+                limit=limit,
+                outcome=outcome,
+                subject=subject,
+            )
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+
+    @app.get("/v1/governance-history/{history_id}")
+    async def governance_history_detail(
+        history_id: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            service, authorizer = governance_history_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret)
+            return service.detail(history_id)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+
     @app.get("/v1/receipts/{receipt_id}")
     async def receipt_detail(
         receipt_id: str,
@@ -1197,6 +1258,18 @@ def _artifact_registry_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, ArtifactRegistryContractError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=503, detail="artifact registry is unavailable")
+
+
+def _governance_history_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, GovernanceHistoryUnauthorized):
+        return HTTPException(status_code=401, detail=str(exc))
+    if isinstance(exc, GovernanceHistoryNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, GovernanceHistoryRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, GovernanceHistoryUnavailable):
+        return HTTPException(status_code=503, detail="governance history is unavailable")
+    return HTTPException(status_code=503, detail="governance history is unavailable")
 
 
 def _delivery_art_readiness_http_exception(exc: Exception) -> HTTPException:
