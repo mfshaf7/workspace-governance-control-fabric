@@ -18,6 +18,13 @@ SOURCE_PATHS = (
     "apps/worker/src",
 )
 
+CONTROL_ENV_PREFIXES = (
+    "DEVINT_",
+    "GIT_",
+    "OOS_",
+    "WGCF_",
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -25,8 +32,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def isolated_environment(repo_root: Path) -> dict[str, str]:
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(CONTROL_ENV_PREFIXES)
+    }
+    environment["PYTHONPATH"] = os.pathsep.join(
+        str(repo_root / source_path) for source_path in SOURCE_PATHS
+    )
+    return environment
+
+
 def main() -> int:
     repo_root = parse_args().repo_root.resolve()
+    environment = isolated_environment(repo_root)
     with tempfile.TemporaryDirectory(prefix="wgcf-delivery-art-evidence-") as temp:
         environment_root = Path(temp) / "venv"
         venv.EnvBuilder(with_pip=True).create(environment_root)
@@ -44,13 +64,8 @@ def main() -> int:
             ],
             check=True,
             cwd=repo_root,
+            env=environment,
         )
-        environment = {
-            **os.environ,
-            "PYTHONPATH": os.pathsep.join(
-                str(repo_root / source_path) for source_path in SOURCE_PATHS
-            ),
-        }
         subprocess.run(
             [str(python), "scripts/validate_project.py", "--repo-root", "."],
             check=True,
