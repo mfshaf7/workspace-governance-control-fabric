@@ -23,6 +23,7 @@ REQUIRED_PATHS = (
     "Dockerfile",
     "alembic.ini",
     "scripts/validate_project.py",
+    "scripts/run_delivery_art_evidence.py",
     ".github/workflows/build-image.yaml",
     "apps/api/README.md",
     "apps/api/src/wgcf_api/app.py",
