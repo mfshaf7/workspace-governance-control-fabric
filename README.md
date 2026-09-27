@@ -252,7 +252,8 @@ Delivery ART source work uses the base-owned evidence profile at
 bounded dependency preparation, test, project-validation, and source-diff
 commands against the exact clean pushed base and head before it prepares
 merge-ready review evidence. Candidate branches cannot replace or weaken that
-profile.
+profile. The owner test command builds a temporary virtual environment and
+removes it after the run, so evidence never depends on ambient host packages.
 
 The initial validation surface checks that the repository keeps its minimum
 governance documentation, review controls, and Python scaffold in place.
