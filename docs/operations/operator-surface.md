@@ -317,6 +317,24 @@ state and exact authority before any source mutation. Migration
 Readback does not detect later target revocation; OOS must resolve target
 authority again at the mutation boundary.
 
+### Lifecycle Transition Readiness
+
+OOS submits one current, digest-bound transition projection to
+`POST /v1/readiness/lifecycle-transitions`. WGCF accepts only the three admitted
+routes: Proposal to Delivery, Proposal to Prototype, and Prototype to Delivery.
+It checks route/domain binding, projection freshness, ordered source history,
+state-specific evidence, and credential-safe references. The response records
+`ready`, `blocked`, `requires-action`, or `terminal` with bounded findings and
+owner-routed escalation metadata. Immutable readback is caller-scoped at
+`GET /v1/readiness/lifecycle-transitions/{readiness_token}`.
+
+WGCF does not create, advance, return, cancel, or apply a transition. OOS owns
+workflow and transition state; source and target domains own their records;
+Security owns acceptance; Platform owns runtime activation. The source remains
+disabled unless the approved `dev-integration` composition explicitly sets
+`WGCF_LIFECYCLE_TRANSITION_READINESS_ENABLED=true`. Migration
+`0014_lifecycle_readiness` stores evaluation evidence only.
+
 The default operator output must be compact. Full validation output belongs in
 artifacts referenced by receipts and ledger events.
 

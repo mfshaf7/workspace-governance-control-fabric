@@ -54,6 +54,9 @@ Current slice:
   Prototype ingress readiness receipt retrieval
 - implement `POST /v1/readiness/prototype-maturity` and caller-scoped readback
   for non-mutating Candidate and Baseline Promotion readiness evaluation
+- implement `POST /v1/readiness/lifecycle-transitions` and caller-scoped
+  readback for non-mutating readiness and owner-routed escalation evidence over
+  one exact OOS lifecycle-transition projection
 - implement `POST /v1/readiness/repositories` for authenticated repository
   admission-readiness evaluation against exact Workspace Governance authority
 - implement `GET /v1/readiness/repositories/{receipt_token}` for immutable
@@ -143,6 +146,14 @@ independent axes; evaluates exact state versions, impact disposition,
 confirmations, provider authority, and reversal evidence; and returns one
 bounded next action. It never mutates repository, custody, downstream consumer,
 or workspace state. OOS remains the only lifecycle workflow authority.
+
+Lifecycle-transition readiness is also non-mutating and activation-gated. OOS
+submits one current, digest-bound transition projection for an admitted route.
+WGCF verifies route binding, freshness, ordered history, terminal-state proof,
+and safe evidence references, then stores immutable caller-scoped readiness
+and escalation evidence. The route never applies a transition or changes the
+Proposal, Prototype, Delivery, or Portfolio records. Runtime activation remains
+off until the later Security and Platform gates approve the composition.
 
 Workspace active-inventory readiness consumes the authority-owned promotion
 request and emits the exact authority-owned readiness artifact. It reads only a
