@@ -167,6 +167,7 @@ REQUIRED_PATHS = (
     "schemas/controlled-proof-owner-receipt.schema.json",
     "schemas/evidence-projection.schema.json",
     "schemas/governance-manifest.schema.json",
+    "schemas/governance-history-projection.schema.json",
     "schemas/ledger-event.schema.json",
     "schemas/policy-decision.schema.json",
     "schemas/runtime-governance-record.schema.json",

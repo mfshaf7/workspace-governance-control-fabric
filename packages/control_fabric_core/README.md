@@ -34,6 +34,9 @@ Current slice:
 - observability helpers that add correlation ids and compact metrics to
   validation receipts, receipt summaries, readiness decisions, and ART
   readiness receipts
+- bounded governance-history projections that normalize existing readiness,
+  escalation, ledger, and receipt records into authenticated list and detail
+  reads without returning stored payloads or raw artifacts
 - bootstrap policy admission helpers that evaluate repo/component admission,
   validation blocking, waiver posture, and receipt-linked policy ledger events
 - agent-action policy helpers that validate a digest-pinned Workspace

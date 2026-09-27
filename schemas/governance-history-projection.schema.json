@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/governance-history-projection.schema.json",
+  "title": "WGCF Governance History Projection",
+  "oneOf": [
+    { "$ref": "#/$defs/listProjection" },
+    { "$ref": "#/$defs/detailProjection" }
+  ],
+  "$defs": {
+    "authorityBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_repo", "role", "approval_source"],
+      "properties": {
+        "owner_repo": { "const": "workspace-governance-control-fabric" },
+        "role": { "const": "runtime-evidence-projection" },
+        "approval_source": { "const": false }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "state"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "category": { "enum": ["readiness", "escalation", "ledger", "receipt"] },
+        "state": { "enum": ["available", "unavailable"] },
+        "scanned": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "truncated": { "type": "boolean" },
+        "reason_code": { "type": ["string", "null"], "maxLength": 128 }
+      }
+    },
+    "evidenceRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "route_type"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1, "maxLength": 2048 },
+        "route_type": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "nextAction": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "authority": { "type": "string", "maxLength": 512 },
+        "code": { "type": "string", "maxLength": 512 },
+        "route": { "type": "string", "maxLength": 512 },
+        "owner_repo": { "type": "string", "maxLength": 512 },
+        "action": { "type": "string", "maxLength": 512 },
+        "reason": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "metadataValue": {
+      "type": ["string", "integer", "boolean", "null"]
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "history_id",
+        "source",
+        "category",
+        "occurred_at",
+        "actor",
+        "action",
+        "subject",
+        "outcome",
+        "freshness",
+        "summary",
+        "authority_boundary",
+        "evidence_routes",
+        "next_action",
+        "metadata"
+      ],
+      "properties": {
+        "history_id": { "type": "string", "pattern": "^wgh_[A-Za-z0-9_-]+$", "maxLength": 2048 },
+        "source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "category": { "enum": ["readiness", "escalation", "ledger", "receipt"] },
+        "occurred_at": { "type": "string", "format": "date-time" },
+        "actor": { "type": ["string", "null"], "maxLength": 512 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "subject": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "outcome": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "freshness": { "enum": ["current", "stale", "unknown", "not-applicable"] },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "authority_boundary": { "$ref": "#/$defs/authorityBoundary" },
+        "evidence_routes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/evidenceRoute" }
+        },
+        "next_action": { "$ref": "#/$defs/nextAction" },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/metadataValue" },
+          "maxProperties": 32
+        }
+      }
+    },
+    "listProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "projection_state",
+        "authority_boundary",
+        "filters",
+        "page",
+        "sources",
+        "records"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "projection_state": { "enum": ["complete", "partial"] },
+        "authority_boundary": { "$ref": "#/$defs/authorityBoundary" },
+        "filters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["category", "outcome", "subject"],
+          "properties": {
+            "category": { "type": ["string", "null"], "maxLength": 128 },
+            "outcome": { "type": ["string", "null"], "maxLength": 128 },
+            "subject": { "type": ["string", "null"], "maxLength": 128 }
+          }
+        },
+        "page": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["limit", "returned", "has_more", "next_cursor"],
+          "properties": {
+            "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+            "returned": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "has_more": { "type": "boolean" },
+            "next_cursor": { "type": ["string", "null"], "maxLength": 2048 }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/source" }
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/record" }
+        }
+      }
+    },
+    "detailProjection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "projection_state",
+        "authority_boundary",
+        "source",
+        "record"
+      ],
+      "properties": {
+        "schema_version": { "const": 1 },
+        "projection_state": { "const": "complete" },
+        "authority_boundary": { "$ref": "#/$defs/authorityBoundary" },
+        "source": { "$ref": "#/$defs/source" },
+        "record": { "$ref": "#/$defs/record" }
+      }
+    }
+  }
+}

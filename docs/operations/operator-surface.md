@@ -603,6 +603,8 @@ Required route meanings:
 - `GET /v1/receipts`
 - `GET /v1/receipts/{receipt_id}`
 - `GET /v1/metrics/receipts`
+- `GET /v1/governance-history`
+- `GET /v1/governance-history/{history_id}`
 - `POST /v1/readiness/evaluate`
 - `POST /v1/agent-actions/evaluate`
 - `POST /v1/art/graph`
@@ -617,7 +619,6 @@ Required route meanings:
 Future route meanings:
 
 - `POST /v1/source-snapshots`
-- `GET /v1/ledger/events`
 - `GET /v1/decisions/{decision_id}/explain`
 
 No required route mutates upstream authority stores.
@@ -635,6 +636,14 @@ The console may read compact status, graph, validation, receipt, readiness,
 ledger, and escalation state after those routes are implemented and approved
 for deployment. It must not become an authority source, bypass broker-owned ART
 mutation, or expose raw artifacts without an approved artifact custody path.
+
+`GET /v1/governance-history` is the normalized list boundary for readiness,
+escalation, ledger, and receipt metadata. It uses opaque keyset cursors, a
+bounded page size, source-level availability and truncation state, and a
+dedicated read-only Console caller credential. Detail readback uses the stable
+opaque `history_id`. Neither route returns stored payloads, raw artifacts,
+local paths, secrets, or approval authority. Evidence navigation is limited to
+allowlisted owner routes, and expired readiness is labeled `stale`.
 
 No dashboard implementation is part of the current operator surface.
 

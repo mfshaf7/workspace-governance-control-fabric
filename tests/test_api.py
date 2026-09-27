@@ -25,6 +25,7 @@ from control_fabric_core import (
     MAX_REPOSITORY_READINESS_REQUEST_BYTES,
     MAX_REGISTRY_REQUEST_BYTES,
     ArtifactRegistryAuthorizer,
+    GovernanceHistoryAuthorizer,
     PACKAGE_VERSION,
 )
 from control_fabric_core.canonical_json import canonical_digest
@@ -163,6 +164,19 @@ class StubRepositoryLifecycleReadiness(StubDeliveryArtReadiness):
     pass
 
 
+class StubGovernanceHistory:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, Any]] = []
+
+    def list(self, **filters: Any) -> dict[str, Any]:
+        self.calls.append(("list", filters))
+        return {"projection_state": "complete", "records": []}
+
+    def detail(self, history_id: str) -> dict[str, Any]:
+        self.calls.append(("detail", history_id))
+        return {"projection_state": "complete", "record": {"history_id": history_id}}
+
+
 class ApiTests(TestCase):
     def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
         registry = StubArtifactRegistry()
@@ -177,6 +191,21 @@ class ApiTests(TestCase):
                 artifact_registry_authorizer=authorizer,
             ),
             registry,
+        )
+
+    def governance_history_app(self) -> tuple[Any, StubGovernanceHistory]:
+        history = StubGovernanceHistory()
+        authorizer = GovernanceHistoryAuthorizer(
+            caller_id="governance-operations-console",
+            caller_secret="h" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                governance_history=history,
+                governance_history_authorizer=authorizer,
+            ),
+            history,
         )
 
     def readiness_app(self) -> tuple[Any, StubDeliveryArtReadiness]:
@@ -291,6 +320,62 @@ class ApiTests(TestCase):
             "Z",
         )
         return {"request": request, "current": current}
+
+    def test_governance_history_list_and_detail_are_authenticated(self) -> None:
+        app, history = self.governance_history_app()
+        headers = {
+            "x-wgcf-caller-id": "governance-operations-console",
+            "x-wgcf-caller-secret": "h" * 32,
+        }
+
+        list_status, listed = asyncio.run(
+            asgi_request_json(
+                "GET",
+                "/v1/governance-history?category=ledger&limit=7&subject=prototype",
+                app=app,
+                headers=headers,
+            )
+        )
+        detail_status, detail = asyncio.run(
+            asgi_request_json(
+                "GET",
+                "/v1/governance-history/wgh_record",
+                app=app,
+                headers=headers,
+            )
+        )
+
+        self.assertEqual(list_status, 200)
+        self.assertEqual(listed["projection_state"], "complete")
+        self.assertEqual(detail_status, 200)
+        self.assertEqual(detail["record"]["history_id"], "wgh_record")
+        self.assertEqual(
+            history.calls,
+            [
+                (
+                    "list",
+                    {
+                        "category": "ledger",
+                        "cursor": None,
+                        "limit": 7,
+                        "outcome": None,
+                        "subject": "prototype",
+                    },
+                ),
+                ("detail", "wgh_record"),
+            ],
+        )
+
+    def test_governance_history_rejects_anonymous_access(self) -> None:
+        app, history = self.governance_history_app()
+
+        status, body = asyncio.run(
+            asgi_request_json("GET", "/v1/governance-history", app=app)
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(body["detail"], "governance-history caller authentication failed")
+        self.assertEqual(history.calls, [])
 
     def test_agent_action_evaluation_is_authenticated_and_compact(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:
