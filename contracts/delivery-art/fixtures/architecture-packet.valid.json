@@ -26,7 +26,7 @@
       }
     ]
   },
-  "scope_fingerprint": "sha256:a1f7895a0fe28bb896ad71784e7fec62b141b963f78b07e1f0796e1cd956d040",
+  "scope_fingerprint": "sha256:fe17b2b129d9751233795d68c45d32355fca01c1f1e9afddc7454f9f4d74df29",
   "architecture": {
     "descendant_owner_map": [
       {
@@ -86,8 +86,29 @@
     "runtime_boundaries": [
       {
         "owner_repo": "operator-orchestration-service",
-        "allowed": ["read scoped ART state", "persist content-addressed artifacts"],
-        "prohibited": ["claim security acceptance", "mutate platform runtime"]
+        "allowed_capability_ids": [
+          "delivery-art.read-scoped-art-state",
+          "delivery-art.author-canonical-artifacts",
+          "delivery-art.submit-canonical-artifacts-to-wgcf",
+          "delivery-art.project-safe-references-to-openproject"
+        ],
+        "prohibited_capability_ids": [
+          "delivery-art.persist-canonical-artifacts",
+          "delivery-art.project-canonical-content-to-openproject",
+          "security.claim-acceptance",
+          "platform.mutate-runtime"
+        ]
+      },
+      {
+        "owner_repo": "workspace-governance-control-fabric",
+        "allowed_capability_ids": [
+          "delivery-art.persist-canonical-artifacts",
+          "delivery-art.issue-custody-references-and-receipts"
+        ],
+        "prohibited_capability_ids": [
+          "delivery-art.author-workflow-decisions",
+          "openproject.mutate-work-state"
+        ]
       }
     ],
     "rollback_cleanup_terminal_conditions": {
@@ -97,10 +118,10 @@
     },
     "contradictions_open_decisions": [
       {
-        "id": "decision:evidence-custody",
+        "id": "decision:rollback-terminal-state",
         "status": "resolved",
-        "summary": "Final artifacts require durable shared custody.",
-        "resolution": "OOS attaches content-addressed artifacts to the initiative Epic."
+        "summary": "Rollback must preserve an auditable terminal state.",
+        "resolution": "Cleanup receipts remain required after rollback or cancellation."
       }
     ]
   },
@@ -278,15 +299,15 @@
   "integrity": {
     "canonicalization": "RFC8785",
     "algorithm": "sha256",
-    "content_digest": "sha256:518313047e3a558519770f178e766a910028de00dddb3c0e7f7a533b620aa68d"
+    "content_digest": "sha256:183c424105839de5defa3a67fa234ef5aa64ed8b620a31b5d357f3ff2888993a"
   },
   "custody": {
     "state": "durable",
     "backend": "wgcf-artifact-registry",
-    "uri": "wgcf://artifacts/delivery-art/sha256/518313047e3a558519770f178e766a910028de00dddb3c0e7f7a533b620aa68d",
+    "uri": "wgcf://artifacts/delivery-art/sha256/183c424105839de5defa3a67fa234ef5aa64ed8b620a31b5d357f3ff2888993a",
     "receipt_ref": {
-      "uri": "wgcf://receipts/artifact-custody/aaaaaaaaaaaaaaaaaaaaaaaa-541f0a55009a9dcca18f185e0964809b69cff61c855d24945cb543d8934b5de1.json",
-      "digest": "sha256:541f0a55009a9dcca18f185e0964809b69cff61c855d24945cb543d8934b5de1"
+      "uri": "wgcf://receipts/artifact-custody/aaaaaaaaaaaaaaaaaaaaaaaa-40374a17f07ef2c655a23c89bf103a65bb4c38a5ed03d8650b281d1e843279fc.json",
+      "digest": "sha256:40374a17f07ef2c655a23c89bf103a65bb4c38a5ed03d8650b281d1e843279fc"
     },
     "persisted_at": "2026-08-08T10:06:00+08:00",
     "supersedes": null

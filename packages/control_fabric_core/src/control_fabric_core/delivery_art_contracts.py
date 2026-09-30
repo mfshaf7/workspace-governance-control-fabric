@@ -78,6 +78,63 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
     errors: list[str] = []
     architecture = artifact.get("architecture")
     architecture = architecture if isinstance(architecture, dict) else {}
+    runtime_boundaries = _objects(architecture.get("runtime_boundaries"))
+    runtime_owner_ids = [boundary.get("owner_repo") for boundary in runtime_boundaries]
+    if len(runtime_owner_ids) != len(set(runtime_owner_ids)):
+        errors.append("architecture runtime boundaries must contain one entry per owner repo")
+
+    durable_custody_owner = "workspace-governance-control-fabric"
+    orchestration_owner = "operator-orchestration-service"
+    persist_capability = "delivery-art.persist-canonical-artifacts"
+    project_content_capability = "delivery-art.project-canonical-content-to-openproject"
+    required_orchestration_capabilities = {
+        "delivery-art.author-canonical-artifacts",
+        "delivery-art.submit-canonical-artifacts-to-wgcf",
+        "delivery-art.project-safe-references-to-openproject",
+    }
+    allowed_by_owner = {
+        boundary["owner_repo"]: set(_strings(boundary.get("allowed_capability_ids")))
+        for boundary in runtime_boundaries
+        if isinstance(boundary.get("owner_repo"), str)
+    }
+    prohibited_by_owner = {
+        boundary["owner_repo"]: set(_strings(boundary.get("prohibited_capability_ids")))
+        for boundary in runtime_boundaries
+        if isinstance(boundary.get("owner_repo"), str)
+    }
+    if persist_capability not in allowed_by_owner.get(durable_custody_owner, set()):
+        errors.append(
+            "architecture runtime boundaries must assign durable artifact persistence "
+            "to workspace-governance-control-fabric",
+        )
+    if not required_orchestration_capabilities.issubset(
+        allowed_by_owner.get(orchestration_owner, set()),
+    ):
+        errors.append(
+            "architecture runtime boundaries must assign artifact authorship, WGCF "
+            "submission, and safe OpenProject reference projection to "
+            "operator-orchestration-service",
+        )
+    if not {
+        persist_capability,
+        project_content_capability,
+    }.issubset(prohibited_by_owner.get(orchestration_owner, set())):
+        errors.append(
+            "architecture runtime boundaries must prohibit OOS artifact persistence "
+            "and canonical OpenProject content projection",
+        )
+    for owner_repo, capability_ids in allowed_by_owner.items():
+        if owner_repo != durable_custody_owner and persist_capability in capability_ids:
+            errors.append(
+                "architecture runtime boundaries may assign durable artifact persistence "
+                "only to workspace-governance-control-fabric",
+            )
+        if project_content_capability in capability_ids:
+            errors.append(
+                "architecture runtime boundaries must not allow canonical artifact "
+                "content projection to OpenProject",
+            )
+
     covered = set(_strings(artifact.get("covered_work_item_ids")))
     owner_map = _objects(architecture.get("descendant_owner_map"))
     owner_ids = [entry.get("work_item_id") for entry in owner_map]
