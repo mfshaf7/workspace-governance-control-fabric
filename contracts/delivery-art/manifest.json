@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "8e90eb319cbf541ab6d34836fde4e9655bb24ac8",
+    "commit": "18c2d68b860b39a1dc1c3424c946888663ec2575",
     "repo": "workspace-governance"
   },
   "schemas": {
     "delivery_art_architecture_packet": {
       "path": "delivery-art-architecture-packet.schema.json",
-      "sha256": "8ef6181f5cd9b07a9207d0171a777066795d93ddc2e70afac41e3fa8bf9269e6"
+      "sha256": "793a744199bfaa912fc49496177b89aecbef81a79a11643adf58df5e89852496"
     },
     "delivery_art_custody_receipt": {
       "path": "delivery-art-custody-receipt.schema.json",
@@ -29,39 +29,39 @@
   "fixtures": {
     "architecture-custody-receipt.valid.json": {
       "path": "fixtures/architecture-custody-receipt.valid.json",
-      "sha256": "e74cebadfcb39950898cc4ce71dc5ee857525f228d52dccc684cd7b097e9f996"
+      "sha256": "26d217824035a2b960a469b06a1d1d86b338b6326a240f9417800db964595a8d"
     },
     "architecture-packet.valid.json": {
       "path": "fixtures/architecture-packet.valid.json",
-      "sha256": "246a0fd1dfd8943415ea2e0ca6c49c62098eef26779d83bc392aaa1742e28efa"
+      "sha256": "0f6ac7c1186478bfbf328e38fe4fd523ef25e25f05a84851715d2f2f6f29aafa"
     },
     "finalized-custody-receipt.valid.json": {
       "path": "fixtures/finalized-custody-receipt.valid.json",
-      "sha256": "4c2855a78c05e99fe28f11f9286ae65c9e8211a609ac431749da1d8902ca30c6"
+      "sha256": "604ae6c8c48a98663a038e7ac20bbf016c053e588b4b715684b95808549787e7"
     },
     "merge-ready-custody-receipt.valid.json": {
       "path": "fixtures/merge-ready-custody-receipt.valid.json",
-      "sha256": "7aff880a05f2a817103e14c1d3c1fcf03d7f835a9176053688e89a96c57909d8"
+      "sha256": "db4f67cfb6a51c746632da8ac57312de6c3e2542c3c9f872627e4bdfdc9688cf"
     },
     "readiness-receipt.valid.json": {
       "path": "fixtures/readiness-receipt.valid.json",
-      "sha256": "65cd9e862c44fd3e95212633da69efc794831ea04d6fe20576314299f3867f17"
+      "sha256": "386794a9c018ed0764d538b78a1cbcf57157bc786f2797cac4b3d76e8f4c730a"
     },
     "review-packet-finalized.valid.json": {
       "path": "fixtures/review-packet-finalized.valid.json",
-      "sha256": "00f1e190a66b1d12e1117eba9d7dfcb599f66dfcb7504dd01f5bbd7fd48a1c9e"
+      "sha256": "99931ebe1f1cad026dd7bb17825f7c7ef6e894d667637f31a5860a0c4c002877"
     },
     "review-packet-merge-ready.valid.json": {
       "path": "fixtures/review-packet-merge-ready.valid.json",
-      "sha256": "8c5c2b1607a206a6ef2fad932325eaf299cb1adb8b19e28d1b52cc51ea6b385f"
+      "sha256": "bfc7688508c27365927bc487b5ca66187b198c53cd481faf95b65d3c93164db5"
     },
     "work-start-custody-receipt.valid.json": {
       "path": "fixtures/work-start-custody-receipt.valid.json",
-      "sha256": "93effe15e2e11dcdc0f9d1131f39c6f571b6d736b8b3845803f3f60c7ee85c9d"
+      "sha256": "2293096753bfd2676645a11c06741c3479b7bb5029947fbb99a65dc1a09f15db"
     },
     "work-start-record.valid.json": {
       "path": "fixtures/work-start-record.valid.json",
-      "sha256": "cb26f8ea22355ea3f380cb46a412877d3eab2cda64be42d9436cd9c1671ef092"
+      "sha256": "2bf023c995424a150fe5858a3e0cbae56909b3d2b912a83ba62b237e6d14b1c6"
     }
   }
 }

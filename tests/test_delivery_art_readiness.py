@@ -351,6 +351,71 @@ class DeliveryArtReadinessTests(TestCase):
             ),
         )
 
+    def test_architecture_enforces_canonical_artifact_custody_boundaries(self) -> None:
+        cases = []
+
+        non_owner_persistence = fixture("architecture-packet.valid.json")
+        non_owner_persistence["architecture"]["runtime_boundaries"][0][
+            "allowed_capability_ids"
+        ].append("delivery-art.persist-canonical-artifacts")
+        cases.append(
+            (
+                non_owner_persistence,
+                "may assign durable artifact persistence only to "
+                "workspace-governance-control-fabric",
+            ),
+        )
+
+        missing_wgcf_custody = fixture("architecture-packet.valid.json")
+        missing_wgcf_custody["architecture"]["runtime_boundaries"] = [
+            boundary
+            for boundary in missing_wgcf_custody["architecture"]["runtime_boundaries"]
+            if boundary["owner_repo"] != "workspace-governance-control-fabric"
+        ]
+        cases.append(
+            (
+                missing_wgcf_custody,
+                "must assign durable artifact persistence to "
+                "workspace-governance-control-fabric",
+            ),
+        )
+
+        canonical_content_projection = fixture("architecture-packet.valid.json")
+        canonical_content_projection["architecture"]["runtime_boundaries"][0][
+            "allowed_capability_ids"
+        ].append("delivery-art.project-canonical-content-to-openproject")
+        cases.append(
+            (
+                canonical_content_projection,
+                "must not allow canonical artifact content projection to OpenProject",
+            ),
+        )
+
+        missing_safe_reference_projection = fixture("architecture-packet.valid.json")
+        orchestration_boundary = missing_safe_reference_projection["architecture"][
+            "runtime_boundaries"
+        ][0]
+        orchestration_boundary["allowed_capability_ids"].remove(
+            "delivery-art.project-safe-references-to-openproject",
+        )
+        cases.append(
+            (
+                missing_safe_reference_projection,
+                "must assign artifact authorship, WGCF submission, and safe OpenProject "
+                "reference projection to operator-orchestration-service",
+            ),
+        )
+
+        for packet, expected in cases:
+            with self.subTest(expected=expected):
+                refresh_architecture_scope(packet)
+                self.assertTrue(
+                    any(
+                        expected in error
+                        for error in self.contract_bundle.validation_errors(packet)
+                    ),
+                )
+
     def test_v1_v2_and_v3_architecture_packets_share_validation_and_custody(self) -> None:
         self.assertEqual(self.contract_bundle.validation_errors(self.architecture), ())
         for candidate in (architecture_v2(), architecture_v3()):
