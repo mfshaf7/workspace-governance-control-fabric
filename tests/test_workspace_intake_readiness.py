@@ -286,13 +286,34 @@ class WorkspaceIntakeReadinessTests(TestCase):
         response = self.client.get(f"/v1/readiness/workspace-intake/{token}", headers=self.headers)
         self.assertEqual(response.status_code, 503)
 
-    def test_default_activation_denied_even_with_environment_switch(self) -> None:
+    def test_runtime_requires_complete_profile_activation(self) -> None:
+        contracts = IntakeContracts.load()
+        self.assertTrue(contracts.manifest["runtime_activation"])
+        self.assertEqual(
+            contracts.manifest["activation_contract"]["contract_work_ref"],
+            "openproject://work_packages/1206",
+        )
         with patch.dict("os.environ", {
             "WGCF_RUNTIME_PROFILE": "dev-integration",
             "WGCF_WORKSPACE_INTAKE_READINESS_ENABLED": "true",
-        }):
+        }, clear=True):
             with self.assertRaises(IntakeUnavailable):
                 build_workspace_intake_readiness_runtime()
+        with patch.dict("os.environ", {
+            "WGCF_RUNTIME_PROFILE": "dev-integration",
+            "WGCF_WORKSPACE_INTAKE_READINESS_ENABLED": "true",
+            "WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT": str(self.repo),
+            "WGCF_EVIDENCE_STORAGE_IDENTITY_REF": "service://workspace-intake",
+        }, clear=True), patch(
+            "control_fabric_core.workspace_intake_readiness.create_session_factory",
+            return_value=self.sessions,
+        ), patch(
+            "control_fabric_core.workspace_intake_readiness.read_implementation_ref",
+            return_value="1" * 40,
+        ):
+            runtime = build_workspace_intake_readiness_runtime()
+        self.assertEqual(runtime.identity, "service://workspace-intake")
+        self.assertEqual(runtime.implementation, "1" * 40)
 
     def test_bundle_and_committed_authority_integrity(self) -> None:
         root = self.root / "bundle"
@@ -304,6 +325,16 @@ class WorkspaceIntakeReadinessTests(TestCase):
             self.assertEqual(IntakeContracts.load().manifest, IntakeContracts.load(root).manifest)
         path = root / "workspace-intake-request.schema.json"
         path.write_text("{}", encoding="utf-8")
+        with self.assertRaises(IntakeUnavailable):
+            IntakeContracts.load(root)
+        for path in source.iterdir():
+            (root / path.name).write_bytes(path.read_bytes())
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["activation_contract"]["contract_work_ref"] = (
+            "openproject://work_packages/1207"
+        )
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         with self.assertRaises(IntakeUnavailable):
             IntakeContracts.load(root)
         self.write("intake-register", {"schema_version": 1})
