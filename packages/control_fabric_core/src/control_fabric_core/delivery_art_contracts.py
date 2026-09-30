@@ -58,6 +58,27 @@ def _graph_is_acyclic(nodes: set[str], edges: list[tuple[str, str]]) -> bool:
     return visited == len(nodes)
 
 
+def _graph_has_path(
+    edges: list[tuple[str, str]],
+    start: str,
+    target: str,
+) -> bool:
+    adjacency: dict[str, list[str]] = {}
+    for source, dependent in edges:
+        adjacency.setdefault(source, []).append(dependent)
+    pending = list(adjacency.get(start, []))
+    visited: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current == target:
+            return True
+        if current in visited:
+            continue
+        visited.add(current)
+        pending.extend(adjacency.get(current, []))
+    return False
+
+
 def _architecture_scope_fingerprint(artifact: dict[str, Any]) -> str:
     decision = artifact.get("decision") if isinstance(artifact.get("decision"), dict) else {}
     return canonical_digest(
@@ -309,6 +330,12 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         landing_units = _objects(architecture.get("landing_units"))
         landing_unit_ids = [unit.get("id") for unit in landing_units]
         landing_unit_id_set = set(landing_unit_ids)
+        landing_unit_by_id = {
+            unit["id"]: unit
+            for unit in landing_units
+            if isinstance(unit.get("id"), str)
+        }
+        landing_unit_by_work_item: dict[str, str] = {}
         if len(landing_unit_ids) != len(landing_unit_id_set):
             errors.append("architecture.landing_units ids must be unique")
         assigned: list[str] = []
@@ -319,6 +346,8 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 source_backed_ids.add(unit_id)
             for work_item_id in _strings(unit.get("covered_work_item_ids")):
                 assigned.append(work_item_id)
+                if isinstance(unit_id, str):
+                    landing_unit_by_work_item[work_item_id] = unit_id
                 if work_item_id not in covered:
                     errors.append(
                         f"architecture Landing Unit {unit_id} references unknown work item {work_item_id}",
@@ -352,6 +381,76 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
             source_edges.append((prerequisite, dependent))
         if not _graph_is_acyclic(source_nodes, source_edges):
             errors.append("architecture.source_landing_graph must be acyclic")
+
+        if schema_version == 3:
+            handoffs = _objects(architecture.get("evidence_receipt_handoffs"))
+            handoff_ids = [handoff.get("handoff_id") for handoff in handoffs]
+            if len(handoff_ids) != len(set(handoff_ids)):
+                errors.append(
+                    "architecture.evidence_receipt_handoffs ids must be unique",
+                )
+            for handoff in handoffs:
+                handoff_id = handoff.get("handoff_id")
+                producer_unit_id = handoff.get("producer_landing_unit_id")
+                consumer_unit_id = handoff.get("consumer_landing_unit_id")
+                producer_unit = landing_unit_by_id.get(producer_unit_id)
+                consumer_unit = landing_unit_by_id.get(consumer_unit_id)
+                if handoff.get("producer") == handoff.get("consumer"):
+                    errors.append(
+                        f"architecture handoff {handoff_id} must cross owner repositories",
+                    )
+                if producer_unit is None:
+                    errors.append(
+                        f"architecture handoff {handoff_id} references unknown producer Landing Unit",
+                    )
+                elif producer_unit.get("owner_repo") != handoff.get("producer"):
+                    errors.append(
+                        f"architecture handoff {handoff_id} producer does not own its Landing Unit",
+                    )
+                if consumer_unit is None:
+                    errors.append(
+                        f"architecture handoff {handoff_id} references unknown consumer Landing Unit",
+                    )
+                elif consumer_unit.get("owner_repo") != handoff.get("consumer"):
+                    errors.append(
+                        f"architecture handoff {handoff_id} consumer does not own its Landing Unit",
+                    )
+                producer_work_item_id = handoff.get("producer_work_item_id")
+                consumer_work_item_id = handoff.get("consumer_work_item_id")
+                if producer_work_item_id not in covered:
+                    errors.append(
+                        f"architecture handoff {handoff_id} references unknown producer work item",
+                    )
+                elif (
+                    landing_unit_by_work_item.get(producer_work_item_id)
+                    != producer_unit_id
+                ):
+                    errors.append(
+                        f"architecture handoff {handoff_id} producer work item does not belong to its Landing Unit",
+                    )
+                if consumer_work_item_id not in covered:
+                    errors.append(
+                        f"architecture handoff {handoff_id} references unknown consumer work item",
+                    )
+                elif (
+                    landing_unit_by_work_item.get(consumer_work_item_id)
+                    != consumer_unit_id
+                ):
+                    errors.append(
+                        f"architecture handoff {handoff_id} consumer work item does not belong to its Landing Unit",
+                    )
+                if (
+                    producer_unit_id in source_nodes
+                    and consumer_unit_id in source_nodes
+                    and not _graph_has_path(
+                        source_edges,
+                        producer_unit_id,
+                        consumer_unit_id,
+                    )
+                ):
+                    errors.append(
+                        f"architecture handoff {handoff_id} is not ordered from producer to consumer Landing Unit",
+                    )
 
         gates = _objects(architecture.get("required_human_gates"))
         gate_ids = [gate.get("gate_id") for gate in gates]
