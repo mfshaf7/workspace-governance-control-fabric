@@ -39,6 +39,10 @@ from .db.models import (
     DeliveryArtifactRegistryEntry,
     LedgerEvent,
 )
+from .delivery_art_contracts import (
+    DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION,
+    delivery_art_architecture_contract_posture,
+)
 
 
 MAX_ARTIFACT_CONTENT_BYTES = 1_048_576
@@ -276,7 +280,11 @@ def prepare_artifact_registration(raw_request: bytes) -> PreparedArtifact:
         raise ArtifactRegistryContractError(str(exc)) from exc
 
 
-def _prepare_artifact_registration(raw_request: bytes) -> PreparedArtifact:
+def _prepare_artifact_registration(
+    raw_request: bytes,
+    *,
+    require_current_architecture: bool = True,
+) -> PreparedArtifact:
     """Implement registration parsing behind the bounded contract boundary."""
 
     if len(raw_request) > MAX_REGISTRY_REQUEST_BYTES:
@@ -308,6 +316,16 @@ def _prepare_artifact_registration(raw_request: bytes) -> PreparedArtifact:
     identity_contract = _ARTIFACT_ID_CONTRACTS.get(artifact_type)
     if identity_contract is None:
         raise ArtifactRegistryContractError("artifact_type is not approved for Delivery ART custody")
+    if (
+        require_current_architecture
+        and artifact_type == "delivery_art_architecture_packet"
+        and delivery_art_architecture_contract_posture(artifact_content) != "current"
+    ):
+        raise ArtifactRegistryContractError(
+            "new architecture registration requires schema v"
+            f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical packets "
+            "remain readable through their existing immutable references",
+        )
     identity_field, identity_pattern = identity_contract
     artifact_id = artifact_content.get(identity_field)
     if not isinstance(artifact_id, str) or not identity_pattern.fullmatch(artifact_id):
@@ -1031,7 +1049,19 @@ def _prepare_stored_content(content: dict[str, Any], content_digest: str) -> Pre
     envelope = canonical_json_bytes(
         {"artifact_content": content, "content_digest": content_digest},
     )
-    return prepare_artifact_registration(envelope)
+    try:
+        return _prepare_artifact_registration(
+            envelope,
+            require_current_architecture=False,
+        )
+    except ArtifactRegistryContractError:
+        raise
+    except RecursionError as exc:
+        raise ArtifactRegistryContractError(
+            "artifact JSON nesting exceeds the supported depth",
+        ) from exc
+    except ValueError as exc:
+        raise ArtifactRegistryContractError(str(exc)) from exc
 
 
 def _registry_uri(content_digest: str) -> str:

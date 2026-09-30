@@ -226,6 +226,13 @@ appends a new generation that names the exact prior receipt. A `ready` receipt
 permits the calling workflow to continue, but WGCF does not perform the
 downstream ART mutation or artifact finalization.
 
+Architecture schema v4 is required for new registry admission and new
+`architecture-ready` decisions. Existing v1-v3 packets remain immutable,
+readable dependencies for already-bound work; WGCF never translates their
+prose boundaries into v4 capability declarations. Exact supersession is
+enforced by registry custody, while OOS alone inventories active sessions
+before changing the current architecture pointer.
+
 Prototype ingress readiness consumes one exact, committed Prototype Delivery
 packet through a separately pinned contract bundle. It fails closed on packet,
 baseline, Git ancestry, tree, current registry projection, or repository

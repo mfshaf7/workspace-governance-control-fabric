@@ -935,19 +935,17 @@ Approved classes are limited to:
 - `delivery_art_work_start_record`
 - `art_review_packet`
 
-Architecture packets may use schema v1, v2, or v3. The v1 and v2 shapes remain
-readable for compatibility. For artifact-bound readiness, WGCF validates exact
-Landing Unit coverage and owner binding, the source-backed Landing Unit graph,
-and required human-gate references against the durable artifact. V2 uses the
-work dependency graph. V3 instead validates the exact per-item start/close
-execution plan, requires an executable acyclic schedule, binds each declared
-gate to exactly one emitting authority work item, preserves gate evidence
-prerequisites, and requires every Security-owned work item to emit an explicit
-gate. The readiness receipt binds the complete durable artifact digest, so its
-gate and Security-authority semantics cannot be changed without a different
-receipt subject. Invalid, incomplete, cyclic, or ambiguous topology cannot
-receive a ready decision. V3 normal-path production remains unavailable until
-the separate activation work lands.
+Architecture packets may use schema v1 through v4. Versions 1 through 3 are
+read-only historical evidence. Their existing immutable references remain
+resolvable for work already bound to them, but registration of a new historical
+packet and a fresh `architecture-ready` decision are rejected. Version 4 is the
+only current authoring shape. It uses the exact per-item start/close execution
+plan, requires an executable acyclic schedule, binds each declared gate to one
+authority work item, preserves gate evidence prerequisites, and requires
+machine-readable runtime capability boundaries. WGCF does not infer v4
+capabilities from historical prose. A v4 replacement must use
+`custody.supersedes` to bind the exact prior durable generation. OOS separately
+guards current-pointer cutover by inventorying active sessions.
 
 The API surface is:
 

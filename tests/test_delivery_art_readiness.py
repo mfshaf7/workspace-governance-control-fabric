@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 from unittest import TestCase
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -16,7 +17,10 @@ from sqlalchemy.orm import sessionmaker
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "packages/control_fabric_core/src"))
 
-from control_fabric_core.artifact_registry import DeliveryArtifactRegistry
+from control_fabric_core.artifact_registry import (
+    ArtifactRegistryContractError,
+    DeliveryArtifactRegistry,
+)
 from control_fabric_core.artifact_storage import StoredArtifactObject, delivery_art_object_key
 from control_fabric_core.canonical_json import (
     canonical_digest,
@@ -199,6 +203,64 @@ def architecture_v3() -> dict:
     return refresh_architecture_scope(packet)
 
 
+def architecture_v4() -> dict:
+    packet = architecture_v3()
+    packet["schema_version"] = 4
+    packet["artifact_id"] = "architecture-packet:delivery-698-v4"
+    return refresh_architecture_scope(packet)
+
+
+def historical_prose_architecture() -> dict:
+    packet = architecture_v3()
+    packet["architecture"]["runtime_boundaries"] = [
+        {
+            "owner_repo": "operator-orchestration-service",
+            "allowed": ["Author and submit Delivery ART artifacts."],
+            "prohibited": ["Persist canonical artifacts."],
+        },
+        {
+            "owner_repo": "workspace-governance-control-fabric",
+            "allowed": ["Persist canonical artifacts."],
+            "prohibited": ["Author workflow decisions."],
+        },
+    ]
+    return refresh_architecture_scope(packet)
+
+
+def work_start_for_architecture(architecture: dict) -> dict:
+    work_start = fixture("work-start-record.valid.json")
+    work_start["architecture"].update(
+        {
+            "packet_ref": architecture["custody"]["uri"],
+            "packet_digest": architecture["integrity"]["content_digest"],
+        },
+    )
+    work_start["scope_fingerprint"] = canonical_digest(
+        {
+            "schema_version": work_start["schema_version"],
+            "artifact_type": work_start["artifact_type"],
+            "delivery_id": work_start["delivery_id"],
+            "covered_work_item_ids": work_start["covered_work_item_ids"],
+            "landing_unit": work_start["landing_unit"],
+            "architecture": work_start["architecture"],
+            "source_snapshot": work_start["source_snapshot"],
+            "invalidation_inputs": work_start["invalidation_inputs"],
+        },
+    )
+    return work_start
+
+
+def review_packet_for_work_start(work_start: dict) -> dict:
+    packet = fixture("review-packet-merge-ready.valid.json")
+    packet["work_start"].update(
+        {
+            "artifact_ref": work_start["custody"]["uri"],
+            "artifact_digest": work_start["integrity"]["content_digest"],
+        },
+    )
+    return packet
+
+
 def registration_request(artifact: dict) -> bytes:
     content = delivery_art_content_projection(artifact)
     return canonical_json_bytes(
@@ -313,9 +375,9 @@ class DeliveryArtReadinessTests(TestCase):
             contract_bundle=self.contract_bundle,
             clock=lambda: datetime(2026, 8, 8, 3, 30, tzinfo=timezone.utc),
         )
-        self.architecture = self._register(fixture("architecture-packet.valid.json"))
-        self.work_start = self._register(fixture("work-start-record.valid.json"))
-        self.merge_ready = self._register(fixture("review-packet-merge-ready.valid.json"))
+        self.architecture = self._register(architecture_v4())
+        self.work_start = self._register(work_start_for_architecture(self.architecture))
+        self.merge_ready = self._register(review_packet_for_work_start(self.work_start))
 
     def tearDown(self) -> None:
         self.engine.dispose()
@@ -430,29 +492,71 @@ class DeliveryArtReadinessTests(TestCase):
                     ),
                 )
 
-    def test_v1_v2_and_v3_architecture_packets_share_validation_and_custody(self) -> None:
-        self.assertEqual(self.contract_bundle.validation_errors(self.architecture), ())
-        for candidate in (architecture_v2(), architecture_v3()):
+    def test_historical_architecture_packets_validate_but_cannot_enter_new_custody(self) -> None:
+        for candidate in (
+            fixture("architecture-packet.valid.json"),
+            architecture_v2(),
+            architecture_v3(),
+            historical_prose_architecture(),
+        ):
             with self.subTest(schema_version=candidate["schema_version"]):
                 self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
-                durable = self._register(candidate)
-                result = self.service.issue(
-                    readiness_request(durable, "architecture-ready"),
-                    actor="operator-orchestration-service",
-                )
+                with self.assertRaisesRegex(
+                    ArtifactRegistryContractError,
+                    "new architecture registration requires schema v4",
+                ):
+                    self._register(candidate)
 
-                self.assertEqual(
-                    durable["schema_version"],
-                    candidate["schema_version"],
-                )
-                self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
-                self.assertEqual(
-                    result.artifact["subject"]["digest"],
-                    durable["integrity"]["content_digest"],
-                )
+    def test_v4_architecture_receives_new_custody_and_readiness(self) -> None:
+        result = self.service.issue(
+            readiness_request(self.architecture, "architecture-ready"),
+            actor="operator-orchestration-service",
+        )
 
-    def test_v3_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
-        durable = self._register(architecture_v3())
+        self.assertEqual(self.architecture["schema_version"], 4)
+        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+        self.assertEqual(
+            result.artifact["subject"]["digest"],
+            self.architecture["integrity"]["content_digest"],
+        )
+
+    def test_existing_work_bound_to_historical_prose_architecture_can_continue(self) -> None:
+        historical = historical_prose_architecture()
+        with patch(
+            "control_fabric_core.artifact_registry.delivery_art_architecture_contract_posture",
+            return_value="current",
+        ):
+            durable_historical = self._register(historical)
+        historical_work_start = work_start_for_architecture(durable_historical)
+        historical_work_start["artifact_id"] = "work-start:delivery-698-historical"
+        work_start = self._register(historical_work_start)
+
+        result = self.service.issue(
+            readiness_request(work_start, "implementation-ready"),
+            actor="operator-orchestration-service",
+        )
+
+        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+
+    def test_historical_architecture_cannot_receive_fresh_architecture_readiness(self) -> None:
+        historical = historical_prose_architecture()
+        with patch(
+            "control_fabric_core.artifact_registry.delivery_art_architecture_contract_posture",
+            return_value="current",
+        ):
+            durable_historical = self._register(historical)
+
+        with self.assertRaisesRegex(
+            DeliveryArtReadinessContractError,
+            "architecture readiness requires schema v4",
+        ):
+            self.service.issue(
+                readiness_request(durable_historical, "architecture-ready"),
+                actor="operator-orchestration-service",
+            )
+
+    def test_v4_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
+        durable = self._register(architecture_v4())
         result = self.service.issue(
             readiness_request(durable, "architecture-ready"),
             actor="operator-orchestration-service",
@@ -551,8 +655,9 @@ class DeliveryArtReadinessTests(TestCase):
                     ),
                 )
 
-    def test_v2_invalid_topology_cannot_receive_readiness(self) -> None:
-        packet = architecture_v2()
+    def test_v4_invalid_topology_cannot_receive_readiness(self) -> None:
+        packet = architecture_v4()
+        packet["artifact_id"] = "architecture-packet:delivery-698-v4-cyclic"
         packet["architecture"]["source_landing_graph"]["edges"].append(
             {
                 "prerequisite_landing_unit_id": "delivery-698-implementation",
@@ -571,7 +676,7 @@ class DeliveryArtReadinessTests(TestCase):
                 actor="operator-orchestration-service",
             )
 
-    def test_v3_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
+    def test_v3_and_v4_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
         cases = []
 
         duplicate_plan = architecture_v3()
@@ -665,7 +770,11 @@ class DeliveryArtReadinessTests(TestCase):
                 errors = self.contract_bundle.validation_errors(packet)
                 self.assertTrue(any(expected in error for error in errors), errors)
 
-        invalid = impossible_schedule
+        invalid = architecture_v4()
+        invalid["artifact_id"] = "architecture-packet:delivery-698-v4-impossible"
+        invalid["architecture"]["work_item_execution_plan"][0][
+            "close_after_work_item_ids"
+        ] = ["work-item-802"]
         refresh_architecture_scope(invalid)
         durable = self._register(invalid)
         with self.assertRaisesRegex(
@@ -807,7 +916,7 @@ class DeliveryArtReadinessTests(TestCase):
             implementation_ref=IMPLEMENTATION_REF,
             clock=lambda: datetime(2026, 8, 8, 2, 5, tzinfo=timezone.utc),
         )
-        blocked = fixture("architecture-packet.valid.json")
+        blocked = architecture_v4()
         blocked["decision"]["status"] = "blocked-pending-architecture-decision"
         blocked["architecture"]["contradictions_open_decisions"][0]["status"] = "open"
         blocked["architecture"]["contradictions_open_decisions"][0]["resolution"] = None

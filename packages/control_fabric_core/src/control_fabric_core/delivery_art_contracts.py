@@ -24,10 +24,32 @@ DEFAULT_CONTRACT_ROOT = (
     Path(__file__).resolve().parents[4] / "contracts" / "delivery-art"
 )
 DELIVERY_ART_CONTRACT_ROOT_ENV = "WGCF_DELIVERY_ART_CONTRACT_ROOT"
+DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION = 4
+DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 
 
 class DeliveryArtContractError(ValueError):
     """The pinned authority bundle or an artifact violates its contract."""
+
+
+def delivery_art_architecture_contract_posture(artifact: Any) -> str | None:
+    """Classify an architecture packet without rewriting historical content."""
+
+    if not isinstance(artifact, dict) or artifact.get("artifact_type") != (
+        "delivery_art_architecture_packet"
+    ):
+        return None
+    if (
+        artifact.get("schema_version")
+        == DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION
+    ):
+        return "current"
+    if (
+        artifact.get("schema_version")
+        in DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS
+    ):
+        return "historical-read-only"
+    return "unsupported"
 
 
 def _objects(value: Any) -> list[dict[str, Any]]:
@@ -113,48 +135,54 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         "delivery-art.submit-canonical-artifacts-to-wgcf",
         "delivery-art.project-safe-references-to-openproject",
     }
-    allowed_by_owner = {
-        boundary["owner_repo"]: set(_strings(boundary.get("allowed_capability_ids")))
+    uses_capability_boundaries = bool(runtime_boundaries) and all(
+        "allowed_capability_ids" in boundary
+        and "prohibited_capability_ids" in boundary
         for boundary in runtime_boundaries
-        if isinstance(boundary.get("owner_repo"), str)
-    }
-    prohibited_by_owner = {
-        boundary["owner_repo"]: set(_strings(boundary.get("prohibited_capability_ids")))
-        for boundary in runtime_boundaries
-        if isinstance(boundary.get("owner_repo"), str)
-    }
-    if persist_capability not in allowed_by_owner.get(durable_custody_owner, set()):
-        errors.append(
-            "architecture runtime boundaries must assign durable artifact persistence "
-            "to workspace-governance-control-fabric",
-        )
-    if not required_orchestration_capabilities.issubset(
-        allowed_by_owner.get(orchestration_owner, set()),
-    ):
-        errors.append(
-            "architecture runtime boundaries must assign artifact authorship, WGCF "
-            "submission, and safe OpenProject reference projection to "
-            "operator-orchestration-service",
-        )
-    if not {
-        persist_capability,
-        project_content_capability,
-    }.issubset(prohibited_by_owner.get(orchestration_owner, set())):
-        errors.append(
-            "architecture runtime boundaries must prohibit OOS artifact persistence "
-            "and canonical OpenProject content projection",
-        )
-    for owner_repo, capability_ids in allowed_by_owner.items():
-        if owner_repo != durable_custody_owner and persist_capability in capability_ids:
+    )
+    if uses_capability_boundaries:
+        allowed_by_owner = {
+            boundary["owner_repo"]: set(_strings(boundary.get("allowed_capability_ids")))
+            for boundary in runtime_boundaries
+            if isinstance(boundary.get("owner_repo"), str)
+        }
+        prohibited_by_owner = {
+            boundary["owner_repo"]: set(_strings(boundary.get("prohibited_capability_ids")))
+            for boundary in runtime_boundaries
+            if isinstance(boundary.get("owner_repo"), str)
+        }
+        if persist_capability not in allowed_by_owner.get(durable_custody_owner, set()):
             errors.append(
-                "architecture runtime boundaries may assign durable artifact persistence "
-                "only to workspace-governance-control-fabric",
+                "architecture runtime boundaries must assign durable artifact persistence "
+                "to workspace-governance-control-fabric",
             )
-        if project_content_capability in capability_ids:
+        if not required_orchestration_capabilities.issubset(
+            allowed_by_owner.get(orchestration_owner, set()),
+        ):
             errors.append(
-                "architecture runtime boundaries must not allow canonical artifact "
-                "content projection to OpenProject",
+                "architecture runtime boundaries must assign artifact authorship, WGCF "
+                "submission, and safe OpenProject reference projection to "
+                "operator-orchestration-service",
             )
+        if not {
+            persist_capability,
+            project_content_capability,
+        }.issubset(prohibited_by_owner.get(orchestration_owner, set())):
+            errors.append(
+                "architecture runtime boundaries must prohibit OOS artifact persistence "
+                "and canonical OpenProject content projection",
+            )
+        for owner_repo, capability_ids in allowed_by_owner.items():
+            if owner_repo != durable_custody_owner and persist_capability in capability_ids:
+                errors.append(
+                    "architecture runtime boundaries may assign durable artifact persistence "
+                    "only to workspace-governance-control-fabric",
+                )
+            if project_content_capability in capability_ids:
+                errors.append(
+                    "architecture runtime boundaries must not allow canonical artifact "
+                    "content projection to OpenProject",
+                )
 
     covered = set(_strings(artifact.get("covered_work_item_ids")))
     owner_map = _objects(architecture.get("descendant_owner_map"))
@@ -235,7 +263,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture merge order violates {before} before {after}",
                     )
 
-    if schema_version in {2, 3}:
+    if schema_version in {2, 3, 4}:
         execution_plan_by_work_item: dict[str, dict[str, Any]] = {}
         emitted_gate_authorities: dict[str, list[str]] = {}
         if schema_version == 2:
@@ -382,7 +410,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         if not _graph_is_acyclic(source_nodes, source_edges):
             errors.append("architecture.source_landing_graph must be acyclic")
 
-        if schema_version == 3:
+        if schema_version in {3, 4}:
             handoffs = _objects(architecture.get("evidence_receipt_handoffs"))
             handoff_ids = [handoff.get("handoff_id") for handoff in handoffs]
             if len(handoff_ids) != len(set(handoff_ids)):
@@ -477,7 +505,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     f"architecture human gate {gate_id} blocks source merge for non-source Landing Units",
                 )
-            if schema_version == 3:
+            if schema_version in {3, 4}:
                 evidence_prerequisites = set(
                     _strings(gate.get("evidence_prerequisite_work_item_ids")),
                 )
@@ -506,7 +534,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         + ", ".join(sorted(missing_authority_prerequisites)),
                     )
 
-        if schema_version == 3:
+        if schema_version in {3, 4}:
             declared_gate_ids = set(gate_ids)
             emitted_gate_ids = set(emitted_gate_authorities)
             unknown_emitted_gates = emitted_gate_ids - declared_gate_ids

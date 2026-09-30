@@ -31,8 +31,10 @@ from .canonical_json import canonical_digest, delivery_art_content_projection, s
 from .database import create_session_factory
 from .db.models import DeliveryArtReadinessReceipt, LedgerEvent
 from .delivery_art_contracts import (
+    DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION,
     DeliveryArtContractBundle,
     DeliveryArtContractError,
+    delivery_art_architecture_contract_posture,
     operating_readiness_subject,
 )
 
@@ -348,6 +350,15 @@ class DeliveryArtReadinessService:
             self._require_valid_artifact(candidate)
             subject = operating_readiness_subject(candidate)
             self._walk_source_dependencies(candidate, resolve)
+        if (
+            prepared.readiness_request["readiness_level"] == "architecture-ready"
+            and delivery_art_architecture_contract_posture(subject) != "current"
+        ):
+            raise DeliveryArtReadinessContractError(
+                "architecture readiness requires schema v"
+                f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical packets "
+                "remain readable only for work already bound to their exact immutable reference",
+            )
         return _ResolvedReadinessContext(
             subject=subject,
             source_artifacts=artifacts,
