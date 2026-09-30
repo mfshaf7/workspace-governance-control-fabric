@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -91,7 +92,7 @@ def artifact_content(
     supersedes: dict[str, str] | None = None,
 ) -> dict:
     content = {
-        "schema_version": 1,
+        "schema_version": 4,
         "artifact_type": "delivery_art_architecture_packet",
         "artifact_id": artifact_id,
         "delivery_id": "delivery-698",
@@ -189,7 +190,13 @@ class ArtifactRegistryTests(TestCase):
         self.assertEqual(actions.count("artifact.registry.reused"), 1)
 
     def test_runtime_upgrade_preserves_historical_receipt_provenance(self) -> None:
-        created = self.registry.register(registration_request(artifact_content()), actor="oos")
+        historical = artifact_content()
+        historical["schema_version"] = 3
+        with patch(
+            "control_fabric_core.artifact_registry.delivery_art_architecture_contract_posture",
+            return_value="current",
+        ):
+            created = self.registry.register(registration_request(historical), actor="oos")
         upgraded_registry = DeliveryArtifactRegistry(
             session_factory=self.sessions,
             storage=self.storage,
@@ -207,6 +214,41 @@ class ArtifactRegistryTests(TestCase):
         self.assertEqual(
             read.custody_receipt["issuer"]["implementation_ref"],
             IMPLEMENTATION_REF,
+        )
+
+    def test_new_historical_architecture_registration_is_rejected(self) -> None:
+        for schema_version in (1, 2, 3):
+            historical = artifact_content()
+            historical["schema_version"] = schema_version
+            with self.subTest(schema_version=schema_version), self.assertRaisesRegex(
+                ArtifactRegistryContractError,
+                "new architecture registration requires schema v4",
+            ):
+                self.registry.register(registration_request(historical), actor="oos")
+
+    def test_v4_can_exactly_supersede_an_existing_historical_architecture(self) -> None:
+        historical = artifact_content()
+        historical["schema_version"] = 3
+        with patch(
+            "control_fabric_core.artifact_registry.delivery_art_architecture_contract_posture",
+            return_value="current",
+        ):
+            prior = self.registry.register(registration_request(historical), actor="oos")
+        replacement = artifact_content(
+            summary="Current schema replacement.",
+            supersedes={
+                "uri": prior.artifact["custody"]["uri"],
+                "digest": prior.artifact["integrity"]["content_digest"],
+            },
+        )
+
+        current = self.registry.register(registration_request(replacement), actor="oos")
+
+        self.assertEqual(current.generation, 2)
+        self.assertEqual(current.artifact["schema_version"], 4)
+        self.assertEqual(
+            current.artifact["custody"]["supersedes"],
+            replacement["custody"]["supersedes"],
         )
 
     def test_runtime_upgrade_rejects_a_different_service_identity(self) -> None:
