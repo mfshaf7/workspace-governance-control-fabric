@@ -60,6 +60,18 @@ class DeliveryArtEvidenceProfileTests(unittest.TestCase):
             ["scripts/run_delivery_art_evidence.py", "--repo-root", "."],
             test_command["args"],
         )
+        self.assertEqual("filesystem", test_command["fidelity"])
+        self.assertEqual("matching-fidelity", test_command["conformance_binding"])
+
+        validation_command = next(
+            command for command in profile["commands"]
+            if command["id"] == "source-diff-validation"
+        )
+        self.assertEqual("real-git", validation_command["fidelity"])
+        self.assertEqual(
+            "matching-fidelity",
+            validation_command["conformance_binding"],
+        )
 
     def test_owner_test_runner_has_a_bounded_cli(self) -> None:
         completed = subprocess.run(

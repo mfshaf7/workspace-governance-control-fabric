@@ -9,7 +9,7 @@
       "name": "WGCF owner repository validation and test suite",
       "executable": "python3",
       "args": ["scripts/run_delivery_art_evidence.py", "--repo-root", "."],
-      "fidelity": "real-git",
+      "fidelity": "filesystem",
       "conformance_binding": "matching-fidelity",
       "timeout_seconds": 1200
     },
@@ -20,7 +20,7 @@
       "executable": "git",
       "args": ["diff", "--check", "{{base_commit}}...{{head_commit}}"],
       "fidelity": "real-git",
-      "conformance_binding": "none",
+      "conformance_binding": "matching-fidelity",
       "timeout_seconds": 60
     }
   ]
