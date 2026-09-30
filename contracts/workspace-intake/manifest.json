@@ -2,14 +2,27 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-intake-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "6fd843eb43405f6bdcc439d23b18e556eca05b26",
-  "runtime_activation": false,
+  "authority_commit": "e3864940dd6961426de93fa5cdb2215a86a5aca1",
+  "activation_contract": {
+    "repo": "workspace-governance",
+    "commit": "e3864940dd6961426de93fa5cdb2215a86a5aca1",
+    "path": "contracts/workspace-intake-inventory-operation.yaml",
+    "schema_path": "contracts/schemas/workspace-intake-inventory-operation.schema.json",
+    "contract_work_ref": "openproject://work_packages/1206",
+    "architecture_packet_ref": "architecture-packet:delivery-1203-v1",
+    "content_sha256": "5ad9f582d39730f506658e1ca37fd75f57c11a0703c8978176c2e7e0936dac85",
+    "schema_sha256": "32538b651ce50ad549f6268b5e62302b324e17b3a1dcc98fffb6aca49b4d3ceb"
+  },
+  "runtime_activation": true,
   "transport_schemas": {
     "evaluation.schema.json": "1e14c2681857ad49a85eae386faaef3a1abe0c9b9290148cacfeffb1c3705fce",
     "readiness.schema.json": "c5e8bad73f00e02d42838ec9a83d0aa969f3b3bdaa341b33d55ad0d0b9539b93"
   },
   "files": {
-    "contracts/workspace-intake.yaml": "9cc03be2bb119d7b5eead51ecd78b2c5cb1fcec41583a8e1f77af76ef3dc16e9",
+    "contracts/workspace-intake.yaml": "791b1994d852426ffabdf0c06375ccfba503d9c7efe0a3ba4b6d0bd35b15317c",
+    "contracts/schemas/workspace-intake.schema.json": "87f2ef7f9c12c2044a629399e541904f79802ef19ec4a0c0a20af6c87dff4ddd",
+    "contracts/workspace-intake-inventory-operation.yaml": "5ad9f582d39730f506658e1ca37fd75f57c11a0703c8978176c2e7e0936dac85",
+    "contracts/schemas/workspace-intake-inventory-operation.schema.json": "32538b651ce50ad549f6268b5e62302b324e17b3a1dcc98fffb6aca49b4d3ceb",
     "contracts/intake-policy.yaml": "9d58b8b2fb0afc47fd689b7a2421bc4bb7ba3cabdd874134caece27034f37b55",
     "contracts/schemas/workspace-intake-request.schema.json": "c727eccb3fe492c4cbfd4840d97a5cf00842d8c4ce004e4668f6e1335fb0ef46",
     "contracts/schemas/workspace-intake-decision.schema.json": "a770c3499fb019952dc026b436ee245bc7d826601fbec3286ca5f8d12a310fec",

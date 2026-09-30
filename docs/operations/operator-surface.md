@@ -173,14 +173,16 @@ reviewed bundle update. Repository admission additionally observes required
 owner files and repository presence under that checkout's workspace parent;
 those observations are explicit, not a provider or repository-custody claim.
 
-The manifest activation flag is false. The runtime requires its reviewed
-activation, `WGCF_WORKSPACE_INTAKE_READINESS_ENABLED=true`,
+The source capability is active and pinned to the merged Workspace Intake and
+Active Inventory operation contract from ART #1206. Runtime construction still
+requires `WGCF_WORKSPACE_INTAKE_READINESS_ENABLED=true`,
 `WGCF_RUNTIME_PROFILE=dev-integration`, configured service identity, an exact
 implementation revision, and the existing WGCF database. Migration
 `0008_workspace_intake` adds only immutable evaluation evidence storage.
-Security #1066 and activation #1082 remain separate gates; this source work
-does not enable them. For rollback, disable the endpoint and revert the
-implementation; retain existing receipts and ledger history.
+Security #1216 and Platform activation #1217 remain mandatory before the
+deployment owner may supply those runtime settings. This source activation does
+not make the endpoint normally available. For rollback, disable the endpoint
+and revert the implementation; retain existing receipts and ledger history.
 
 ### Active Inventory Promotion Readiness
 
@@ -206,13 +208,15 @@ evaluation identity returns 409. Missing or already-active targets and malformed
 422, unauthorized calls 401/403, oversized requests 413, absent readback 404,
 and untrusted authority or storage failure 503.
 
-Runtime activation remains disabled in the pinned manifest. Enabling the
-service later requires `WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED=true`, the
+The source capability is active under the same exact #1206 operation-contract
+binding as Workspace Intake. Constructing the service still requires
+`WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED=true`, the
 `dev-integration` runtime profile, configured service identity, an exact
 implementation revision, and a Workspace Governance authority checkout.
 Migration `0009_workspace_inventory` adds immutable evaluation storage only.
 WGCF does not fetch, mutate YAML, create a branch or pull request, merge, or
-claim Security approval. OOS #1073 owns those workflow steps.
+claim Security approval. OOS #1208 owns those workflow steps, while Security
+#1216 and Platform #1217 gate runtime composition.
 
 ### Active Inventory Lifecycle Readiness
 
@@ -233,10 +237,12 @@ readback is available at
 
 Evaluation never changes canonical inventory or history. Workspace Governance
 owns the reviewed source mutation and append-only event; OOS owns orchestration,
-review, merge observation, and reconciliation. Runtime activation remains off
-until the pinned manifest and
-`WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED=true` are approved for
-`dev-integration`. Migration `0010_inventory_lifecycle` stores immutable
+review, merge observation, and reconciliation. The source capability is active
+under the exact #1206 operation contract, but runtime construction still needs
+`WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED=true`, the
+`dev-integration` profile, configured identity, implementation revision, and
+authority checkout. Security #1216 and Platform #1217 must approve and compose
+those settings. Migration `0010_inventory_lifecycle` stores immutable
 evaluation evidence only.
 
 ### Prototype Landing Readiness

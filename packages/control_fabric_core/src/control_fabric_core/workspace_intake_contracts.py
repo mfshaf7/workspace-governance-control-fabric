@@ -15,6 +15,8 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 import yaml
 
+from .workspace_operation_activation import validate_workspace_operation_activation
+
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "workspace-intake"
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 COLLECTIONS = {"repo": "repos", "product": "products", "component": "components"}
@@ -123,6 +125,9 @@ class IntakeContracts:
                 raise ValueError("invalid intake bundle manifest")
             expected = {
                 "contracts/workspace-intake.yaml", "contracts/intake-policy.yaml",
+                "contracts/schemas/workspace-intake.schema.json",
+                "contracts/workspace-intake-inventory-operation.yaml",
+                "contracts/schemas/workspace-intake-inventory-operation.schema.json",
                 "contracts/schemas/workspace-intake-request.schema.json",
                 "contracts/schemas/workspace-intake-decision.schema.json",
                 "contracts/schemas/intake-register.schema.json",
@@ -151,6 +156,7 @@ class IntakeContracts:
                 schema = parse_json(raw)
                 Draft202012Validator.check_schema(schema)
                 validators[name] = Draft202012Validator(schema, format_checker=FormatChecker())
+            validate_workspace_operation_activation(manifest, files, validators)
             return cls(manifest, files, validators, yaml_record(files["contracts/intake-policy.yaml"]))
         except (OSError, ValueError, KeyError, TypeError, SchemaError) as exc:
             raise IntakeUnavailable("intake contract bundle is unavailable or invalid") from exc
