@@ -158,6 +158,20 @@ def architecture_v3() -> dict:
     packet["schema_version"] = 3
     packet["artifact_id"] = "architecture-packet:delivery-698-v3"
     architecture = packet["architecture"]
+    architecture["evidence_receipt_handoffs"] = [
+        {
+            "handoff_id": "handoff:architecture-admission",
+            "producer": "security-architecture",
+            "consumer": "operator-orchestration-service",
+            "producer_landing_unit_id": "delivery-698-contract",
+            "consumer_landing_unit_id": "delivery-698-implementation",
+            "producer_work_item_id": "work-item-801",
+            "consumer_work_item_id": "work-item-802",
+            "integration_point": "delivery architecture admission",
+            "artifact": "delivery architecture contract",
+            "acceptance": "schema-valid, scope-bound, and dependency-ordered",
+        },
+    ]
     architecture.pop("work_dependency_graph")
     architecture["work_item_execution_plan"] = [
         {
@@ -605,6 +619,45 @@ class DeliveryArtReadinessTests(TestCase):
                 "evidence prerequisites are absent from authority work item",
             ),
         )
+
+        duplicate_handoff = architecture_v3()
+        duplicate_handoff["architecture"]["evidence_receipt_handoffs"].append(
+            copy.deepcopy(
+                duplicate_handoff["architecture"]["evidence_receipt_handoffs"][0],
+            ),
+        )
+        cases.append((duplicate_handoff, "handoffs ids must be unique"))
+
+        wrong_handoff_owner = architecture_v3()
+        wrong_handoff_owner["architecture"]["evidence_receipt_handoffs"][0][
+            "producer"
+        ] = "operator-orchestration-service"
+        cases.append((wrong_handoff_owner, "producer does not own its Landing Unit"))
+
+        wrong_handoff_work_item = architecture_v3()
+        wrong_handoff_work_item["architecture"]["evidence_receipt_handoffs"][0][
+            "producer_work_item_id"
+        ] = "work-item-802"
+        cases.append(
+            (
+                wrong_handoff_work_item,
+                "producer work item does not belong to its Landing Unit",
+            ),
+        )
+
+        unordered_handoff = architecture_v3()
+        handoff = unordered_handoff["architecture"]["evidence_receipt_handoffs"][0]
+        handoff.update(
+            {
+                "producer": "operator-orchestration-service",
+                "consumer": "security-architecture",
+                "producer_landing_unit_id": "delivery-698-implementation",
+                "consumer_landing_unit_id": "delivery-698-contract",
+                "producer_work_item_id": "work-item-802",
+                "consumer_work_item_id": "work-item-801",
+            },
+        )
+        cases.append((unordered_handoff, "is not ordered from producer to consumer"))
 
         for packet, expected in cases:
             with self.subTest(expected=expected):
