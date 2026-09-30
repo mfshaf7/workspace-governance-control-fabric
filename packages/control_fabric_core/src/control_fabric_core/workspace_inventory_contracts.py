@@ -22,6 +22,7 @@ from .workspace_intake_contracts import (
     parse_json as _parse_json,
     yaml_record as _yaml_record,
 )
+from .workspace_operation_activation import validate_workspace_operation_activation
 
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "workspace-active-inventory"
@@ -102,7 +103,10 @@ class InventoryContracts:
                 raise ValueError("invalid active inventory bundle manifest")
             expected = {
                 "contracts/workspace-active-inventory.yaml",
+                "contracts/schemas/workspace-active-inventory.schema.json",
                 "contracts/workspace-inventory-lifecycle.yaml",
+                "contracts/workspace-intake-inventory-operation.yaml",
+                "contracts/schemas/workspace-intake-inventory-operation.schema.json",
                 "contracts/schemas/workspace-inventory-promotion-request.schema.json",
                 "contracts/schemas/workspace-inventory-promotion-readiness.schema.json",
                 "contracts/schemas/workspace-inventory-lifecycle-request.schema.json",
@@ -146,6 +150,7 @@ class InventoryContracts:
                     schema,
                     format_checker=FormatChecker(),
                 )
+            validate_workspace_operation_activation(manifest, files, validators)
             return cls(manifest=manifest, files=files, validators=validators)
         except (
             OSError,

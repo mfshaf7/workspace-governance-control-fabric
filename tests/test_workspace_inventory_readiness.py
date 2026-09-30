@@ -511,13 +511,39 @@ class WorkspaceInventoryReadinessTests(TestCase):
         metadata.drop_all(self.engine)
         self.assertEqual(self.post(self.envelope("product")).status_code, 503)
 
-    def test_default_runtime_activation_is_denied(self) -> None:
+    def test_runtime_requires_complete_profile_activation(self) -> None:
+        contracts = InventoryContracts.load()
+        self.assertTrue(contracts.manifest["runtime_activation"])
+        self.assertEqual(
+            contracts.manifest["activation_contract"]["contract_work_ref"],
+            "openproject://work_packages/1206",
+        )
         with patch.dict(
             "os.environ",
             {
                 "WGCF_RUNTIME_PROFILE": "dev-integration",
                 "WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED": "true",
             },
+            clear=True,
         ):
             with self.assertRaises(InventoryUnavailable):
                 build_workspace_inventory_readiness_runtime()
+        with patch.dict(
+            "os.environ",
+            {
+                "WGCF_RUNTIME_PROFILE": "dev-integration",
+                "WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED": "true",
+                "WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT": str(self.repo),
+                "WGCF_EVIDENCE_STORAGE_IDENTITY_REF": "service://workspace-inventory",
+            },
+            clear=True,
+        ), patch(
+            "control_fabric_core.workspace_inventory_readiness.create_session_factory",
+            return_value=self.sessions,
+        ), patch(
+            "control_fabric_core.workspace_inventory_readiness.read_implementation_ref",
+            return_value="1" * 40,
+        ):
+            runtime = build_workspace_inventory_readiness_runtime()
+        self.assertEqual(runtime.identity, "service://workspace-inventory")
+        self.assertEqual(runtime.implementation, "1" * 40)

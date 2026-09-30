@@ -120,8 +120,9 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/repository-lifecycle/{decision_token}`.
   Workspace Intake evaluation is available for isolated integration at
   `POST /v1/readiness/workspace-intake` and
-  `GET /v1/readiness/workspace-intake/{receipt_token}`; normal runtime
-  activation remains denied pending the intake activation gates.
+  `GET /v1/readiness/workspace-intake/{receipt_token}`. Its source capability is
+  pinned to the merged #1206 operation contract; normal runtime availability
+  still requires Security #1216 and Platform composition #1217.
   Active-inventory promotion evaluation uses
   `POST /v1/readiness/workspace-inventory` and
   `GET /v1/readiness/workspace-inventory/{readiness_token}`. It checks one
@@ -131,7 +132,10 @@ That surface is constrained by the workspace-owned contract in
   `POST /v1/readiness/workspace-inventory-lifecycle` and
   `GET /v1/readiness/workspace-inventory-lifecycle/{readiness_token}` routes.
   They evaluate update, suspend, restore, and retire requests against committed
-  inventory plus append-only history without changing either source file.
+  inventory plus append-only history without changing either source file. Both
+  inventory evaluators share the same exact #1206 activation binding and remain
+  unavailable until the deployment owner supplies the separately approved
+  `dev-integration` runtime gates.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
