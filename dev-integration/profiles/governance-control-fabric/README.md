@@ -62,6 +62,10 @@ The local object store is deliberately bounded:
 - the API receives separate generated caller secrets for OOS registration and
   WGCF reconciliation through a dedicated Kubernetes Secret; secret values are
   absent from the rendered runtime manifest
+- when the registered `refinement-catalog` composition supplies an OOS caller
+  credential, that composition-owned value replaces the profile-local OOS
+  credential in the namespace Secret without being written to profile state;
+  standalone launch keeps using the profile-local credential
 - shared profile smoke remains read-only and proves the storage foundation; a
   registry write is operating evidence only when an authorized caller performs
   it and the returned custody receipt verifies successfully
@@ -109,6 +113,18 @@ The worker process repeats those checks before connecting. It consumes only
 the aggregate workflow. Cross-namespace reachability to the platform-owned
 Temporal frontend is a separate activation prerequisite. This profile does not
 create a stage deployment.
+
+Workspace Intake, Inventory promotion, and Inventory lifecycle readiness stay
+disabled during standalone profile launch. The registered
+`refinement-catalog` composition must project all three activation flags plus
+the exact OOS caller identity and credential as one set. `up` and `status`
+then make authenticated caller-scoped reads against all three routes and fail
+closed unless each route reaches active-runtime readback. Missing, partial,
+foreign-composition, stale-credential, or disabled projections cannot report
+the profile ready. Activation also requires the runner to select an explicit,
+clean Workspace Governance checkout at the exact landed `origin/main` revision;
+that selected checkout, rather than the mutable workspace default, is mounted
+read-only as runtime authority.
 
 ## Operator Actions
 

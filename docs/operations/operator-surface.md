@@ -173,16 +173,19 @@ reviewed bundle update. Repository admission additionally observes required
 owner files and repository presence under that checkout's workspace parent;
 those observations are explicit, not a provider or repository-custody claim.
 
-The source capability is active and pinned to the merged Workspace Intake and
-Active Inventory operation contract from ART #1206. Runtime construction still
-requires `WGCF_WORKSPACE_INTAKE_READINESS_ENABLED=true`,
-`WGCF_RUNTIME_PROFILE=dev-integration`, configured service identity, an exact
-implementation revision, and the existing WGCF database. Migration
-`0008_workspace_intake` adds only immutable evaluation evidence storage.
-Security #1216 and Platform activation #1217 remain mandatory before the
-deployment owner may supply those runtime settings. This source activation does
-not make the endpoint normally available. For rollback, disable the endpoint
-and revert the implementation; retain existing receipts and ledger history.
+The source capability is pinned to the merged Workspace Intake and Active
+Inventory operation contract from ART #1206. Normal runtime availability is
+fail-closed and requires the registered `refinement-catalog` composition to
+activate all three Workspace operation readiness flags together. The profile
+also requires its exact composition-projected OOS caller credential and an
+explicitly selected, clean Workspace Governance checkout whose `HEAD` equals
+`refs/remotes/origin/main`. Profile `up` and `status` prove the authenticated
+Intake, Inventory promotion, and Inventory lifecycle routes directly; generic
+API health does not establish this boundary. Migration `0008_workspace_intake`
+adds only immutable evaluation evidence storage. The current Security and
+Platform repair gates must approve and compose these settings before use. For
+rollback, disable the complete three-route boundary and revert the
+implementation; retain existing receipts and ledger history.
 
 ### Active Inventory Promotion Readiness
 
@@ -208,15 +211,15 @@ evaluation identity returns 409. Missing or already-active targets and malformed
 422, unauthorized calls 401/403, oversized requests 413, absent readback 404,
 and untrusted authority or storage failure 503.
 
-The source capability is active under the same exact #1206 operation-contract
-binding as Workspace Intake. Constructing the service still requires
-`WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED=true`, the
-`dev-integration` runtime profile, configured service identity, an exact
-implementation revision, and a Workspace Governance authority checkout.
-Migration `0009_workspace_inventory` adds immutable evaluation storage only.
-WGCF does not fetch, mutate YAML, create a branch or pull request, merge, or
-claim Security approval. OOS #1208 owns those workflow steps, while Security
-#1216 and Platform #1217 gate runtime composition.
+The source capability uses the same exact #1206 operation-contract binding and
+complete registered-composition gate as Workspace Intake. Inventory promotion
+cannot be enabled independently: all three readiness flags, the exact projected
+OOS caller credential, the landed clean authority checkout, and authenticated
+route proof are mandatory. Migration `0009_workspace_inventory` adds immutable
+evaluation storage only. WGCF does not fetch, mutate YAML, create a branch or
+pull request, merge, or claim Security approval. OOS #1208 owns those workflow
+steps, while the current Security and Platform repair items gate runtime
+composition.
 
 ### Active Inventory Lifecycle Readiness
 
@@ -237,12 +240,13 @@ readback is available at
 
 Evaluation never changes canonical inventory or history. Workspace Governance
 owns the reviewed source mutation and append-only event; OOS owns orchestration,
-review, merge observation, and reconciliation. The source capability is active
-under the exact #1206 operation contract, but runtime construction still needs
-`WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED=true`, the
-`dev-integration` profile, configured identity, implementation revision, and
-authority checkout. Security #1216 and Platform #1217 must approve and compose
-those settings. Migration `0010_inventory_lifecycle` stores immutable
+review, merge observation, and reconciliation. The source capability uses the
+exact #1206 operation contract and the same complete registered-composition
+gate as the other Workspace operation routes. Lifecycle readiness cannot be
+enabled independently, and `status` fails unless all three authenticated routes
+are available through the exact projected identity and landed authority
+checkout. The current Security and Platform repair items must approve and
+compose those settings. Migration `0010_inventory_lifecycle` stores immutable
 evaluation evidence only.
 
 ### Prototype Landing Readiness

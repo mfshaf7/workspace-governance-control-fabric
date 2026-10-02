@@ -758,6 +758,12 @@ class DevIntegrationProfileTests(TestCase):
                 api_env["WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT"]["value"],
                 "/sources/workspace-governance",
             )
+            self.assertEqual(api_env["WGCF_WORKSPACE_INTAKE_READINESS_ENABLED"]["value"], "false")
+            self.assertEqual(api_env["WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED"]["value"], "false")
+            self.assertEqual(
+                api_env["WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED"]["value"],
+                "false",
+            )
             api_volumes = api["spec"]["template"]["spec"]["volumes"]
             self.assertEqual(
                 api_volumes,
@@ -854,6 +860,133 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertNotEqual(changed_identity.returncode, 0)
             self.assertIn("application identity is immutable", changed_identity.stderr)
+
+    def test_workspace_operation_composition_is_complete_and_uses_projected_credential(self) -> None:
+        profile = yaml.safe_load((PROFILE_ROOT / "profile.yaml").read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory(prefix="wgcf-workspace-operations-") as temp_dir:
+            state_root = Path(temp_dir)
+            session_file = state_root / "current-session.yaml"
+            session_file.write_text("schema_version: 1\n", encoding="utf-8")
+            projected_secret = "composition-owned-wgcf-secret-0123456789abcdef"
+            authority_root = state_root / "workspace-governance"
+            authority_root.mkdir()
+            subprocess.run(["git", "init", "-q", str(authority_root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(authority_root), "config", "user.name", "Test"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(authority_root), "config", "user.email", "test@example.invalid"],
+                check=True,
+            )
+            (authority_root / "authority.txt").write_text("landed\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(authority_root), "add", "authority.txt"], check=True)
+            subprocess.run(["git", "-C", str(authority_root), "commit", "-qm", "landed"], check=True)
+            landed_commit = subprocess.run(
+                ["git", "-C", str(authority_root), "rev-parse", "HEAD"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+            subprocess.run(
+                ["git", "-C", str(authority_root), "update-ref", "refs/remotes/origin/main", landed_commit],
+                check=True,
+            )
+            base_env = {
+                **os.environ,
+                "DEVINT_COMPOSITION_ID": "refinement-catalog",
+                "DEVINT_NAMESPACE": "devint-governance-control-fabric-test",
+                "DEVINT_OPERATOR": "test-operator",
+                "DEVINT_OWNER_REPO_ROOT": str(REPO_ROOT),
+                "DEVINT_PROFILE_ID": "governance-control-fabric",
+                "DEVINT_PROFILE_FILE": str(PROFILE_ROOT / "profile.yaml"),
+                "DEVINT_PROFILE_JSON": json.dumps(profile),
+                "DEVINT_REPO_PATHS_JSON": json.dumps(
+                    {"workspace-governance": str(authority_root)}
+                ),
+                "DEVINT_PROMOTION_REPORT": str(state_root / "promotion-report.yaml"),
+                "DEVINT_SESSION_FILE": str(session_file),
+                "DEVINT_STATE_ROOT": str(state_root),
+                "DEVINT_WORKSPACE_ROOT": str(REPO_ROOT.parent),
+                "WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID": "operator-orchestration-service",
+                "WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET": projected_secret,
+                "WGCF_WORKSPACE_INTAKE_READINESS_ENABLED": "true",
+                "WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED": "true",
+                "WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED": "true",
+            }
+            accepted = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    (
+                        f"source {SCRIPTS_ROOT / 'common.sh'}; "
+                        "validate_workspace_operations_composition; "
+                        "active_registry_oos_caller_secret"
+                    ),
+                ],
+                cwd=REPO_ROOT,
+                env=base_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(accepted.stdout, projected_secret)
+            generated_credentials = (
+                state_root / "artifact-registry-callers.env"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn(projected_secret, generated_credentials)
+
+            partial_env = {
+                **base_env,
+                "WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED": "false",
+            }
+            partial = subprocess.run(
+                ["bash", "-c", f"source {SCRIPTS_ROOT / 'common.sh'}; validate_workspace_operations_composition"],
+                cwd=REPO_ROOT,
+                env=partial_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(partial.returncode, 2)
+            self.assertIn("one complete boundary", partial.stderr)
+
+            foreign_env = {**base_env, "DEVINT_COMPOSITION_ID": "foreign-composition"}
+            foreign = subprocess.run(
+                ["bash", "-c", f"source {SCRIPTS_ROOT / 'common.sh'}; validate_workspace_operations_composition"],
+                cwd=REPO_ROOT,
+                env=foreign_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(foreign.returncode, 2)
+            self.assertIn("registered refinement-catalog composition", foreign.stderr)
+
+            missing_selection_env = {**base_env, "DEVINT_REPO_PATHS_JSON": "{}"}
+            missing_selection = subprocess.run(
+                ["bash", "-c", f"source {SCRIPTS_ROOT / 'common.sh'}; validate_workspace_operations_composition"],
+                cwd=REPO_ROOT,
+                env=missing_selection_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(missing_selection.returncode, 2)
+            self.assertIn("explicitly selected", missing_selection.stderr)
+
+            (authority_root / "unreviewed.txt").write_text("dirty\n", encoding="utf-8")
+            dirty = subprocess.run(
+                ["bash", "-c", f"source {SCRIPTS_ROOT / 'common.sh'}; validate_workspace_operations_composition"],
+                cwd=REPO_ROOT,
+                env=base_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(dirty.returncode, 2)
+            self.assertIn("authority checkout is not clean", dirty.stderr)
 
     def test_storage_lifecycle_keeps_destructive_authority_explicit(self) -> None:
         storage_source = (SCRIPTS_ROOT / "lib/storage.sh").read_text(encoding="utf-8")

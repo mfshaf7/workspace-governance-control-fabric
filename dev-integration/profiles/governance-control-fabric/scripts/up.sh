@@ -9,6 +9,11 @@ need_cmd k3s
 need_cmd python3
 need_cmd sha256sum
 deploy_api
+workspace_operations_state="$(workspace_operations_runtime_state)"
+if workspace_operations_requested && [[ "${workspace_operations_state}" != "ready" ]]; then
+  echo "refused: Workspace Intake and Inventory runtime is ${workspace_operations_state}" >&2
+  exit 3
+fi
 write_access_file
 cleanup_storage_credential_retirement
 trap - EXIT
@@ -30,3 +35,4 @@ echo "runtime manifest: ${RUNTIME_MANIFEST}"
 echo "worker status artifact: ${TEMPORAL_WORKER_STATUS_FILE}"
 echo "database migration artifact: ${DATABASE_MIGRATION_FILE}"
 echo "access artifact: ${ACCESS_FILE}"
+echo "workspace operations runtime: ${workspace_operations_state}"
