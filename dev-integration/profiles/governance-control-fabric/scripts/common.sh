@@ -60,6 +60,10 @@ readonly STORAGE_ENDPOINT="http://${STORAGE_SERVICE}:9000"
 readonly REGISTRY_CALLER_SECRET="${COMPONENT_NAME}-artifact-registry-callers"
 readonly REGISTRY_OOS_CALLER_ID="operator-orchestration-service"
 readonly REGISTRY_RECONCILER_CALLER_ID="workspace-governance-control-fabric"
+readonly WORKSPACE_OPERATIONS_COMPOSITION_ID="refinement-catalog"
+readonly WORKSPACE_INTAKE_READINESS_ENABLED="${WGCF_WORKSPACE_INTAKE_READINESS_ENABLED:-false}"
+readonly WORKSPACE_INVENTORY_READINESS_ENABLED="${WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED:-false}"
+readonly WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED="${WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED:-false}"
 readonly STORAGE_SEED_KEY="profile-proof/evidence-custody-v1.json"
 readonly STORAGE_SEED_PAYLOAD='{"artifact_class":"architecture_packet","profile":"governance-control-fabric","proof":"dev-integration-storage-v1"}'
 readonly DEFAULT_IMAGE_REPO="ghcr.io/mfshaf7/workspace-governance-control-fabric"
@@ -113,6 +117,55 @@ readonly STORAGE_CREDENTIAL_RETIREMENT_FILE="${STATE_ROOT}/storage-credential-re
 
 source "${PROFILE_ROOT}/scripts/lib/storage.sh"
 
+selected_repo_path() {
+  local repo_name="$1"
+  local repo_paths_json="${DEVINT_REPO_PATHS_JSON:-}"
+  if [[ -z "${repo_paths_json}" ]]; then
+    repo_paths_json='{}'
+  fi
+  python3 - "${repo_paths_json}" "${WORKSPACE_ROOT}" "${repo_name}" <<'PY'
+import json
+import pathlib
+import sys
+
+repo_paths = json.loads(sys.argv[1])
+workspace_root = pathlib.Path(sys.argv[2]).resolve()
+repo_name = sys.argv[3]
+repo_root = pathlib.Path(repo_paths.get(repo_name, workspace_root / repo_name)).resolve()
+print(repo_root)
+PY
+}
+
+require_selected_workspace_governance_authority() {
+  local repo_paths_json="${DEVINT_REPO_PATHS_JSON:-}"
+  local authority_root=""
+  if [[ -z "${repo_paths_json}" ]]; then
+    repo_paths_json='{}'
+  fi
+  if ! python3 - "${repo_paths_json}" <<'PY'
+import json
+import sys
+
+repo_paths = json.loads(sys.argv[1])
+if not repo_paths.get("workspace-governance"):
+    raise SystemExit(1)
+PY
+  then
+    echo "refused: Workspace operations require an explicitly selected Workspace Governance authority checkout" >&2
+    return 2
+  fi
+  authority_root="$(selected_repo_path workspace-governance)"
+  if [[ -n "$(git -C "${authority_root}" status --porcelain --untracked-files=normal)" ]]; then
+    echo "refused: the selected Workspace Governance authority checkout is not clean" >&2
+    return 2
+  fi
+  if [[ "$(git -C "${authority_root}" rev-parse HEAD)" != \
+    "$(git -C "${authority_root}" rev-parse refs/remotes/origin/main)" ]]; then
+    echo "refused: the selected Workspace Governance authority checkout is not the exact landed origin/main revision" >&2
+    return 2
+  fi
+}
+
 ensure_registry_caller_credentials() {
   ensure_state_dirs
   if [[ -f "${REGISTRY_CALLER_CREDENTIALS_ENV}" ]]; then
@@ -136,16 +189,78 @@ load_registry_caller_credentials() {
   fi
 }
 
+active_registry_oos_caller_secret() {
+  load_registry_caller_credentials
+  if [[ -n "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET:-}" ]]; then
+    printf '%s' "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET}"
+  else
+    printf '%s' "${REGISTRY_OOS_CALLER_SECRET}"
+  fi
+}
+
+workspace_operations_requested() {
+  [[ "${WORKSPACE_INTAKE_READINESS_ENABLED}" == "true" ||
+    "${WORKSPACE_INVENTORY_READINESS_ENABLED}" == "true" ||
+    "${WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED}" == "true" ]]
+}
+
+validate_workspace_operations_composition() {
+  local value=""
+  for value in \
+    "${WORKSPACE_INTAKE_READINESS_ENABLED}" \
+    "${WORKSPACE_INVENTORY_READINESS_ENABLED}" \
+    "${WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED}"; do
+    if [[ "${value}" != "true" && "${value}" != "false" ]]; then
+      echo "Workspace operation readiness flags must be true or false" >&2
+      return 2
+    fi
+  done
+
+  if [[ -n "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET:-}" ]]; then
+    if [[ "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID:-}" != "${REGISTRY_OOS_CALLER_ID}" ]]; then
+      echo "refused: the projected OOS caller identity does not match the registered composition" >&2
+      return 2
+    fi
+    if [[ "${#WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET}" -lt 32 ||
+      "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET}" == *$'\n'* ||
+      "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET}" == *$'\r'* ]]; then
+      echo "refused: the projected OOS caller credential is invalid" >&2
+      return 2
+    fi
+  fi
+
+  if ! workspace_operations_requested; then
+    return
+  fi
+  if [[ "${DEVINT_COMPOSITION_ID:-}" != "${WORKSPACE_OPERATIONS_COMPOSITION_ID}" ]]; then
+    echo "refused: Workspace Intake and Inventory readiness require the registered ${WORKSPACE_OPERATIONS_COMPOSITION_ID} composition" >&2
+    return 2
+  fi
+  if [[ "${WORKSPACE_INTAKE_READINESS_ENABLED}" != "true" ||
+    "${WORKSPACE_INVENTORY_READINESS_ENABLED}" != "true" ||
+    "${WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED}" != "true" ]]; then
+    echo "refused: Workspace Intake and Inventory readiness must activate as one complete boundary" >&2
+    return 2
+  fi
+  if [[ -z "${WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET:-}" ]]; then
+    echo "refused: Workspace Intake and Inventory readiness require the composition-owned OOS caller credential" >&2
+    return 2
+  fi
+  require_selected_workspace_governance_authority
+}
+
 registry_caller_credentials_digest() {
   load_registry_caller_credentials
   printf '%s\0%s' \
-    "${REGISTRY_OOS_CALLER_SECRET}" \
+    "$(active_registry_oos_caller_secret)" \
     "${REGISTRY_RECONCILER_CALLER_SECRET}" \
     | sha256sum | awk '{print $1}'
 }
 
 apply_registry_caller_secret() {
   load_registry_caller_credentials
+  local active_oos_caller_secret=""
+  active_oos_caller_secret="$(active_registry_oos_caller_secret)"
   cat <<EOF | kubectl_cmd apply -f - >/dev/null
 apiVersion: v1
 kind: Secret
@@ -158,9 +273,48 @@ metadata:
     devint.profile: ${PROFILE_ID}
 type: Opaque
 stringData:
-  oos-caller-secret: "${REGISTRY_OOS_CALLER_SECRET}"
+  oos-caller-secret: "${active_oos_caller_secret}"
   reconciler-caller-secret: "${REGISTRY_RECONCILER_CALLER_SECRET}"
 EOF
+}
+
+workspace_operations_runtime_state() {
+  if ! workspace_operations_requested; then
+    printf 'disabled'
+    return
+  fi
+  if ! kubectl_cmd -n "${NAMESPACE}" get deployment "${API_DEPLOYMENT}" >/dev/null 2>&1; then
+    printf 'missing'
+    return
+  fi
+  if kubectl_cmd -n "${NAMESPACE}" exec deployment/"${API_DEPLOYMENT}" -c api -i -- python3 - <<'PY' >/dev/null 2>&1
+import os
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+secret = os.environ.get("WGCF_ARTIFACT_REGISTRY_OOS_CALLER_SECRET", "")
+caller = os.environ.get("WGCF_ARTIFACT_REGISTRY_OOS_CALLER_ID", "")
+if caller != "operator-orchestration-service" or len(secret) < 32:
+    raise SystemExit(2)
+headers = {"x-wgcf-caller-id": caller, "x-wgcf-caller-secret": secret}
+for route in (
+    "/v1/readiness/workspace-intake/" + "0" * 64,
+    "/v1/readiness/workspace-inventory/" + "0" * 64,
+    "/v1/readiness/workspace-inventory-lifecycle/" + "0" * 64,
+):
+    try:
+        urlopen(Request("http://127.0.0.1:8080" + route, headers=headers), timeout=5)
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise SystemExit(3)
+    else:
+        raise SystemExit(4)
+PY
+  then
+    printf 'ready'
+  else
+    printf 'mismatch'
+  fi
 }
 
 temporal_worker_replicas() {
@@ -268,6 +422,10 @@ PY
 }
 
 render_runtime_manifest() {
+  local prototype_studio_repo_root=""
+  local workspace_governance_repo_root=""
+  prototype_studio_repo_root="$(selected_repo_path workspace-prototype-studio)"
+  workspace_governance_repo_root="$(selected_repo_path workspace-governance)"
   ensure_state_dirs
   write_session_artifact
   cat >"${RUNTIME_MANIFEST}" <<EOF
@@ -610,6 +768,12 @@ spec:
               value: /sources/workspace-prototype-studio
             - name: WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT
               value: /sources/workspace-governance
+            - name: WGCF_WORKSPACE_INTAKE_READINESS_ENABLED
+              value: "${WORKSPACE_INTAKE_READINESS_ENABLED}"
+            - name: WGCF_WORKSPACE_INVENTORY_READINESS_ENABLED
+              value: "${WORKSPACE_INVENTORY_READINESS_ENABLED}"
+            - name: WGCF_WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED
+              value: "${WORKSPACE_INVENTORY_LIFECYCLE_READINESS_ENABLED}"
           volumeMounts:
             - name: prototype-studio-source
               mountPath: /sources/workspace-prototype-studio
@@ -648,11 +812,11 @@ spec:
       volumes:
         - name: prototype-studio-source
           hostPath:
-            path: ${WORKSPACE_ROOT}/workspace-prototype-studio
+            path: ${prototype_studio_repo_root}
             type: Directory
         - name: workspace-governance-source
           hostPath:
-            path: ${WORKSPACE_ROOT}/workspace-governance
+            path: ${workspace_governance_repo_root}
             type: Directory
 ---
 apiVersion: v1
@@ -679,6 +843,7 @@ EOF
 }
 
 deploy_api() {
+  validate_workspace_operations_composition
   validate_temporal_worker_activation
   require_storage_authority_contract
   require_storage_security_review
