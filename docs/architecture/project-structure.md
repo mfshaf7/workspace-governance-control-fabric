@@ -331,12 +331,12 @@ source graph, graph endpoints are bound and acyclic, and human gates reference
 the declared authority work item and affected Landing Units. This prevents a
 repeated owner repository from making source order ambiguous.
 
-Schema v5 is pinned as a staged, read-only contract while v4 remains current.
+Schema v5 is the current custody and readiness contract.
 It adds an exact evidence-owner Landing Unit to every atomic conformance case,
 validates causal closure from that owner to all applicable outcomes, and lets
 readiness select the exact owner-and-phase obligation. The registry and fresh
-architecture-readiness path continue to reject v5 until activation gates are
-complete; v1-v4 behavior is immutable.
+architecture-readiness path accept v5 after the activation gates completed;
+v1-v4 remain immutable read-only compatibility.
 
 The ART evidence packet helper converts one or more WGCF receipts into
 completion-preflight-compatible payload fields and Review Packet evidence refs.

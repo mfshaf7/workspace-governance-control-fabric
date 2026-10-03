@@ -311,14 +311,14 @@ architecture packets, work-start records, and Review Packets. OOS production of
 those artifacts and safe OpenProject reference projection remain separate work;
 the registry does not mutate ART or accept arbitrary evidence.
 
-The pinned architecture contract accepts schema v1 through v4. Versions 1
-through 3 are immutable historical formats: WGCF can read and validate their
+The pinned architecture contract accepts schema v1 through v5. Versions 1
+through 4 are immutable historical formats: WGCF can read and validate their
 existing durable references for work already bound to them, but rejects new
-historical registrations and fresh architecture-readiness decisions. Version 4
-is the only current authoring and admission format. It retains the v3 exact
-per-item execution plan and gate bindings while requiring machine-readable
-capability boundaries. A v4 generation replacing a historical current packet
-must supersede its exact durable reference. OOS owns the active-session
+historical registrations and fresh architecture-readiness decisions. Version 5
+is the only current authoring and admission format. It retains the v4 exact
+per-item execution plan, gate bindings, and machine-readable capability
+boundaries while adding exact evidence ownership. A v5 generation replacing a
+historical current packet must supersede its exact durable reference. OOS owns the active-session
 inventory that guards current-pointer cutover; WGCF does not duplicate it.
 
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,

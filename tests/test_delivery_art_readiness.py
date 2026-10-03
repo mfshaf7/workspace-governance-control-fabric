@@ -393,7 +393,7 @@ class DeliveryArtReadinessTests(TestCase):
             contract_bundle=self.contract_bundle,
             clock=lambda: datetime(2026, 8, 8, 3, 30, tzinfo=timezone.utc),
         )
-        self.architecture = self._register(architecture_v4())
+        self.architecture = self._register(architecture_v5())
         self.work_start = self._register(work_start_for_architecture(self.architecture))
         self.merge_ready = self._register(review_packet_for_work_start(self.work_start))
 
@@ -516,26 +516,25 @@ class DeliveryArtReadinessTests(TestCase):
             architecture_v2(),
             architecture_v3(),
             historical_prose_architecture(),
-            architecture_v5(),
         ):
             with self.subTest(schema_version=candidate["schema_version"]):
                 self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
                 with self.assertRaisesRegex(
                     ArtifactRegistryContractError,
-                    "new architecture registration requires schema v4",
+                    "new architecture registration requires schema v5",
                 ):
                     self._register(candidate)
 
-    def test_v5_is_staged_and_enforces_causal_evidence_ownership(self) -> None:
-        staged = architecture_v5()
+    def test_v5_is_current_and_enforces_causal_evidence_ownership(self) -> None:
+        current = architecture_v5()
 
-        self.assertEqual(self.contract_bundle.validation_errors(staged), ())
+        self.assertEqual(self.contract_bundle.validation_errors(current), ())
         self.assertEqual(
-            delivery_art_architecture_contract_posture(staged),
-            "staged-read-only",
+            delivery_art_architecture_contract_posture(current),
+            "current",
         )
 
-        unknown_owner = copy.deepcopy(staged)
+        unknown_owner = copy.deepcopy(current)
         unknown_owner["conformance_plan"]["cases"][0][
             "evidence_owner_landing_unit_id"
         ] = "delivery-698-unknown"
@@ -547,7 +546,7 @@ class DeliveryArtReadinessTests(TestCase):
             ),
         )
 
-        unordered_owner = copy.deepcopy(staged)
+        unordered_owner = copy.deepcopy(current)
         unordered_owner["architecture"]["work_item_execution_plan"][1][
             "start_after_work_item_ids"
         ] = []
@@ -565,7 +564,7 @@ class DeliveryArtReadinessTests(TestCase):
             ),
         )
 
-        cyclic_parents = copy.deepcopy(staged)
+        cyclic_parents = copy.deepcopy(current)
         cyclic_parents["architecture"]["descendant_owner_map"][0][
             "parent_work_item_id"
         ] = "work-item-802"
@@ -630,13 +629,13 @@ class DeliveryArtReadinessTests(TestCase):
             },
         )
 
-    def test_v4_architecture_receives_new_custody_and_readiness(self) -> None:
+    def test_v5_architecture_receives_new_custody_and_readiness(self) -> None:
         result = self.service.issue(
             readiness_request(self.architecture, "architecture-ready"),
             actor="operator-orchestration-service",
         )
 
-        self.assertEqual(self.architecture["schema_version"], 4)
+        self.assertEqual(self.architecture["schema_version"], 5)
         self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
         self.assertEqual(
             result.artifact["subject"]["digest"],
@@ -671,15 +670,15 @@ class DeliveryArtReadinessTests(TestCase):
 
         with self.assertRaisesRegex(
             DeliveryArtReadinessContractError,
-            "architecture readiness requires schema v4",
+            "architecture readiness requires schema v5",
         ):
             self.service.issue(
                 readiness_request(durable_historical, "architecture-ready"),
                 actor="operator-orchestration-service",
             )
 
-    def test_v4_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
-        durable = self._register(architecture_v4())
+    def test_v5_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
+        durable = self._register(architecture_v5())
         result = self.service.issue(
             readiness_request(durable, "architecture-ready"),
             actor="operator-orchestration-service",
@@ -778,9 +777,9 @@ class DeliveryArtReadinessTests(TestCase):
                     ),
                 )
 
-    def test_v4_invalid_topology_cannot_receive_readiness(self) -> None:
-        packet = architecture_v4()
-        packet["artifact_id"] = "architecture-packet:delivery-698-v4-cyclic"
+    def test_v5_invalid_topology_cannot_receive_readiness(self) -> None:
+        packet = architecture_v5()
+        packet["artifact_id"] = "architecture-packet:delivery-698-v5-cyclic"
         packet["architecture"]["source_landing_graph"]["edges"].append(
             {
                 "prerequisite_landing_unit_id": "delivery-698-implementation",
@@ -799,7 +798,7 @@ class DeliveryArtReadinessTests(TestCase):
                 actor="operator-orchestration-service",
             )
 
-    def test_v3_and_v4_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
+    def test_v3_and_v5_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
         cases = []
 
         duplicate_plan = architecture_v3()
@@ -893,8 +892,8 @@ class DeliveryArtReadinessTests(TestCase):
                 errors = self.contract_bundle.validation_errors(packet)
                 self.assertTrue(any(expected in error for error in errors), errors)
 
-        invalid = architecture_v4()
-        invalid["artifact_id"] = "architecture-packet:delivery-698-v4-impossible"
+        invalid = architecture_v5()
+        invalid["artifact_id"] = "architecture-packet:delivery-698-v5-impossible"
         invalid["architecture"]["work_item_execution_plan"][0][
             "close_after_work_item_ids"
         ] = ["work-item-802"]
@@ -1039,7 +1038,7 @@ class DeliveryArtReadinessTests(TestCase):
             implementation_ref=IMPLEMENTATION_REF,
             clock=lambda: datetime(2026, 8, 8, 2, 5, tzinfo=timezone.utc),
         )
-        blocked = architecture_v4()
+        blocked = architecture_v5()
         blocked["decision"]["status"] = "blocked-pending-architecture-decision"
         blocked["architecture"]["contradictions_open_decisions"][0]["status"] = "open"
         blocked["architecture"]["contradictions_open_decisions"][0]["resolution"] = None

@@ -226,18 +226,18 @@ appends a new generation that names the exact prior receipt. A `ready` receipt
 permits the calling workflow to continue, but WGCF does not perform the
 downstream ART mutation or artifact finalization.
 
-Architecture schema v4 is required for new registry admission and new
-`architecture-ready` decisions. Existing v1-v3 packets remain immutable,
-readable dependencies for already-bound work; WGCF never translates their
-prose boundaries into v4 capability declarations. Exact supersession is
+Architecture schema v5 is required for new registry admission and new
+`architecture-ready` decisions. Existing v1-v4 packets remain immutable,
+readable dependencies for already-bound work; WGCF never translates historical
+prose boundaries into capability declarations. Exact supersession is
 enforced by registry custody, while OOS alone inventories active sessions
 before changing the current architecture pointer.
 
-Schema v5 is staged and read-only until the governed activation sequence is
-complete. WGCF validates its evidence-owner existence and causal closure, and
+Schema v5 is active after the governed activation sequence completed. WGCF
+validates its evidence-owner existence and causal closure, and
 its readiness selector binds conformance evidence to one exact Landing Unit
-and exact `merge-ready` or `operating-ready` phase. V5 cannot enter new custody
-or receive a fresh architecture-ready decision while v4 remains current.
+and exact `merge-ready` or `operating-ready` phase. V5 can enter new custody
+and receive a fresh architecture-ready decision.
 
 Prototype ingress readiness consumes one exact, committed Prototype Delivery
 packet through a separately pinned contract bundle. It fails closed on packet,
