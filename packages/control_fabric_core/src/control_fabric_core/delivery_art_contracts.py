@@ -24,9 +24,8 @@ DEFAULT_CONTRACT_ROOT = (
     Path(__file__).resolve().parents[4] / "contracts" / "delivery-art"
 )
 DELIVERY_ART_CONTRACT_ROOT_ENV = "WGCF_DELIVERY_ART_CONTRACT_ROOT"
-DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION = 4
-DELIVERY_ART_ARCHITECTURE_STAGED_SCHEMA_VERSION = 5
-DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION = 5
+DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS = frozenset({1, 2, 3, 4})
 
 
 class DeliveryArtContractError(ValueError):
@@ -50,8 +49,6 @@ def delivery_art_architecture_contract_posture(artifact: Any) -> str | None:
         in DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS
     ):
         return "historical-read-only"
-    if artifact.get("schema_version") == DELIVERY_ART_ARCHITECTURE_STAGED_SCHEMA_VERSION:
-        return "staged-read-only"
     return "unsupported"
 
 

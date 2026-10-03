@@ -107,7 +107,7 @@ def delivery_art_conformance_cases_for_readiness(
     """Select cases owned by one packet at one readiness phase.
 
     Versions 1-4 retain their immutable overlap-based merge-ready behavior.
-    Staged v5 packets bind each case to one exact evidence-owner Landing Unit
+    Current v5 packets bind each case to one exact evidence-owner Landing Unit
     and use exact readiness-phase selection.
     """
 
@@ -404,7 +404,7 @@ class DeliveryArtReadinessService:
         ):
             raise DeliveryArtReadinessContractError(
                 "architecture readiness requires schema v"
-                f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical and staged "
+                f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical "
                 "packets remain readable only for work already bound to their exact immutable "
                 "reference",
             )

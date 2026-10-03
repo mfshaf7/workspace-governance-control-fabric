@@ -323,7 +323,7 @@ def _prepare_artifact_registration(
     ):
         raise ArtifactRegistryContractError(
             "new architecture registration requires schema v"
-            f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical and staged "
+            f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical "
             "packets remain readable through their existing immutable references",
         )
     identity_field, identity_pattern = identity_contract
