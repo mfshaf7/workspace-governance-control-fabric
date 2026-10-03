@@ -32,11 +32,13 @@ from control_fabric_core.db.models import DeliveryArtReadinessReceipt, LedgerEve
 from control_fabric_core.delivery_art_contracts import (
     DeliveryArtContractBundle,
     DeliveryArtContractError,
+    delivery_art_architecture_contract_posture,
     operating_readiness_subject,
 )
 from control_fabric_core.delivery_art_readiness import (
     DeliveryArtReadinessContractError,
     DeliveryArtReadinessService,
+    delivery_art_conformance_cases_for_readiness,
 )
 
 
@@ -207,6 +209,22 @@ def architecture_v4() -> dict:
     packet = architecture_v3()
     packet["schema_version"] = 4
     packet["artifact_id"] = "architecture-packet:delivery-698-v4"
+    return refresh_architecture_scope(packet)
+
+
+def architecture_v5() -> dict:
+    packet = architecture_v4()
+    packet["schema_version"] = 5
+    packet["artifact_id"] = "architecture-packet:delivery-698-v5"
+    landing_unit_by_work_item = {
+        work_item_id: unit["id"]
+        for unit in packet["architecture"]["landing_units"]
+        for work_item_id in unit["covered_work_item_ids"]
+    }
+    for case in packet["conformance_plan"]["cases"]:
+        case["evidence_owner_landing_unit_id"] = landing_unit_by_work_item[
+            case["applies_to_work_item_ids"][0]
+        ]
     return refresh_architecture_scope(packet)
 
 
@@ -492,12 +510,13 @@ class DeliveryArtReadinessTests(TestCase):
                     ),
                 )
 
-    def test_historical_architecture_packets_validate_but_cannot_enter_new_custody(self) -> None:
+    def test_noncurrent_architecture_packets_validate_but_cannot_enter_new_custody(self) -> None:
         for candidate in (
             fixture("architecture-packet.valid.json"),
             architecture_v2(),
             architecture_v3(),
             historical_prose_architecture(),
+            architecture_v5(),
         ):
             with self.subTest(schema_version=candidate["schema_version"]):
                 self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
@@ -506,6 +525,110 @@ class DeliveryArtReadinessTests(TestCase):
                     "new architecture registration requires schema v4",
                 ):
                     self._register(candidate)
+
+    def test_v5_is_staged_and_enforces_causal_evidence_ownership(self) -> None:
+        staged = architecture_v5()
+
+        self.assertEqual(self.contract_bundle.validation_errors(staged), ())
+        self.assertEqual(
+            delivery_art_architecture_contract_posture(staged),
+            "staged-read-only",
+        )
+
+        unknown_owner = copy.deepcopy(staged)
+        unknown_owner["conformance_plan"]["cases"][0][
+            "evidence_owner_landing_unit_id"
+        ] = "delivery-698-unknown"
+        refresh_architecture_scope(unknown_owner)
+        self.assertTrue(
+            any(
+                "references unknown evidence-owner Landing Unit" in error
+                for error in self.contract_bundle.validation_errors(unknown_owner)
+            ),
+        )
+
+        unordered_owner = copy.deepcopy(staged)
+        unordered_owner["architecture"]["work_item_execution_plan"][1][
+            "start_after_work_item_ids"
+        ] = []
+        real_git_case = next(
+            case
+            for case in unordered_owner["conformance_plan"]["cases"]
+            if case["id"] == "case:real-git-positive"
+        )
+        real_git_case["evidence_owner_landing_unit_id"] = "delivery-698-contract"
+        refresh_architecture_scope(unordered_owner)
+        self.assertTrue(
+            any(
+                "is not causally ordered before applicable outcome" in error
+                for error in self.contract_bundle.validation_errors(unordered_owner)
+            ),
+        )
+
+        cyclic_parents = copy.deepcopy(staged)
+        cyclic_parents["architecture"]["descendant_owner_map"][0][
+            "parent_work_item_id"
+        ] = "work-item-802"
+        refresh_architecture_scope(cyclic_parents)
+        self.assertTrue(
+            any(
+                "parent links must be acyclic" in error
+                for error in self.contract_bundle.validation_errors(cyclic_parents)
+            ),
+        )
+
+    def test_v5_shared_parity_vectors_select_exact_owner_and_phase(self) -> None:
+        fixture_document = fixture(
+            "architecture-packet-v5-parity-vectors.valid.json",
+        )
+        for vector in fixture_document["vectors"]:
+            architecture = {
+                "schema_version": 5,
+                "architecture": {"landing_units": vector["landing_units"]},
+                "conformance_plan": {
+                    "required": True,
+                    "cases": vector["cases"],
+                },
+            }
+            landing_units = {
+                unit["id"]: unit for unit in vector["landing_units"]
+            }
+            for expectation in vector["selection_expectations"]:
+                with self.subTest(
+                    vector=vector["id"],
+                    landing_unit=expectation["landing_unit_id"],
+                    readiness=expectation["target_readiness"],
+                ):
+                    selected = delivery_art_conformance_cases_for_readiness(
+                        architecture,
+                        landing_units[expectation["landing_unit_id"]][
+                            "covered_work_item_ids"
+                        ],
+                        expectation["target_readiness"],
+                    )
+                    self.assertEqual(
+                        [case["id"] for case in selected],
+                        expectation["selected_case_ids"],
+                    )
+
+    def test_v1_through_v4_keep_overlap_based_merge_case_selection(self) -> None:
+        historical = architecture_v4()
+
+        selected = delivery_art_conformance_cases_for_readiness(
+            historical,
+            ["work-item-802"],
+            "operating-ready",
+        )
+
+        self.assertEqual(
+            {case["id"] for case in selected},
+            {
+                case["id"]
+                for case in historical["conformance_plan"]["cases"]
+                if case["target_readiness"] == "merge-ready"
+                and "work-item-802" in case["applies_to_work_item_ids"]
+            },
+        )
 
     def test_v4_architecture_receives_new_custody_and_readiness(self) -> None:
         result = self.service.issue(

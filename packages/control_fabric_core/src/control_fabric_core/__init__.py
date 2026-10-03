@@ -81,6 +81,7 @@ from .agent_action_policy import (
 from .delivery_art_contracts import (
     DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION,
     DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS,
+    DELIVERY_ART_ARCHITECTURE_STAGED_SCHEMA_VERSION,
     DeliveryArtContractBundle,
     DeliveryArtContractError,
     delivery_art_architecture_contract_posture,
@@ -96,6 +97,7 @@ from .delivery_art_readiness import (
     DeliveryArtReadinessService,
     DeliveryArtReadinessUnavailable,
     build_delivery_art_readiness_runtime,
+    delivery_art_conformance_cases_for_readiness,
     prepare_delivery_art_readiness_request,
 )
 from .prototype_ingress_contracts import (

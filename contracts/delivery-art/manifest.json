@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "120f520baa3eba9e1b36c1caef6300dcef8b6a77",
+    "commit": "acad88ce4489a96a48bee75cd19abfa44518efda",
     "repo": "workspace-governance"
   },
   "schemas": {
     "delivery_art_architecture_packet": {
       "path": "delivery-art-architecture-packet.schema.json",
-      "sha256": "4b0023f4df477708a475db0b37e951a6ad2170c5a77ccc3c810a1cc347653ae5"
+      "sha256": "d21690ea75bf047506a1c03a01081faaaa53132e51c93e614c7ae70318e06f01"
     },
     "delivery_art_custody_receipt": {
       "path": "delivery-art-custody-receipt.schema.json",
@@ -34,6 +34,10 @@
     "architecture-packet.valid.json": {
       "path": "fixtures/architecture-packet.valid.json",
       "sha256": "0f6ac7c1186478bfbf328e38fe4fd523ef25e25f05a84851715d2f2f6f29aafa"
+    },
+    "architecture-packet-v5-parity-vectors.valid.json": {
+      "path": "fixtures/architecture-packet-v5-parity-vectors.valid.json",
+      "sha256": "d2f3d000430e2468092e9c07eab34d2e3fe02ed05f02841181a401c405f99a89"
     },
     "finalized-custody-receipt.valid.json": {
       "path": "fixtures/finalized-custody-receipt.valid.json",

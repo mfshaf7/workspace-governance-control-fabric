@@ -25,6 +25,7 @@ DEFAULT_CONTRACT_ROOT = (
 )
 DELIVERY_ART_CONTRACT_ROOT_ENV = "WGCF_DELIVERY_ART_CONTRACT_ROOT"
 DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION = 4
+DELIVERY_ART_ARCHITECTURE_STAGED_SCHEMA_VERSION = 5
 DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 
 
@@ -49,6 +50,8 @@ def delivery_art_architecture_contract_posture(artifact: Any) -> str | None:
         in DELIVERY_ART_ARCHITECTURE_HISTORICAL_SCHEMA_VERSIONS
     ):
         return "historical-read-only"
+    if artifact.get("schema_version") == DELIVERY_ART_ARCHITECTURE_STAGED_SCHEMA_VERSION:
+        return "staged-read-only"
     return "unsupported"
 
 
@@ -263,9 +266,10 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture merge order violates {before} before {after}",
                     )
 
-    if schema_version in {2, 3, 4}:
+    if schema_version in {2, 3, 4, 5}:
         execution_plan_by_work_item: dict[str, dict[str, Any]] = {}
         emitted_gate_authorities: dict[str, list[str]] = {}
+        combined_schedule_edges: list[tuple[str, str]] = []
         if schema_version == 2:
             work_graph = architecture.get("work_dependency_graph")
             work_graph = work_graph if isinstance(work_graph, dict) else {}
@@ -303,7 +307,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 )
 
             start_edges: list[tuple[str, str]] = []
-            combined_schedule_edges: list[tuple[str, str]] = []
+            combined_schedule_edges = []
             for entry in execution_plan:
                 work_item_id = entry.get("work_item_id")
                 if not isinstance(work_item_id, str):
@@ -410,7 +414,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         if not _graph_is_acyclic(source_nodes, source_edges):
             errors.append("architecture.source_landing_graph must be acyclic")
 
-        if schema_version in {3, 4}:
+        if schema_version in {3, 4, 5}:
             handoffs = _objects(architecture.get("evidence_receipt_handoffs"))
             handoff_ids = [handoff.get("handoff_id") for handoff in handoffs]
             if len(handoff_ids) != len(set(handoff_ids)):
@@ -505,7 +509,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     f"architecture human gate {gate_id} blocks source merge for non-source Landing Units",
                 )
-            if schema_version in {3, 4}:
+            if schema_version in {3, 4, 5}:
                 evidence_prerequisites = set(
                     _strings(gate.get("evidence_prerequisite_work_item_ids")),
                 )
@@ -534,7 +538,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         + ", ".join(sorted(missing_authority_prerequisites)),
                     )
 
-        if schema_version in {3, 4}:
+        if schema_version in {3, 4, 5}:
             declared_gate_ids = set(gate_ids)
             emitted_gate_ids = set(emitted_gate_authorities)
             unknown_emitted_gates = emitted_gate_ids - declared_gate_ids
@@ -581,6 +585,55 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture Security-owned work item {work_item_id} "
                         "must emit at least one explicit human gate",
                     )
+
+        if schema_version == 5:
+            for conformance_case in _objects(
+                artifact.get("conformance_plan", {}).get("cases"),
+            ):
+                case_id = conformance_case.get("id")
+                evidence_owner_id = conformance_case.get(
+                    "evidence_owner_landing_unit_id",
+                )
+                evidence_owner = landing_unit_by_id.get(evidence_owner_id)
+                if evidence_owner is None:
+                    errors.append(
+                        f"conformance case {case_id} references unknown "
+                        f"evidence-owner Landing Unit {evidence_owner_id}",
+                    )
+                    continue
+                owner_work_items = set(
+                    _strings(evidence_owner.get("covered_work_item_ids")),
+                )
+                ordered_outcomes = set(owner_work_items)
+                for owner_work_item in owner_work_items:
+                    ordered_outcomes.update(
+                        candidate_work_item
+                        for candidate_work_item in covered
+                        if _graph_has_path(
+                            combined_schedule_edges,
+                            owner_work_item,
+                            candidate_work_item,
+                        )
+                    )
+                for ordered_work_item in list(ordered_outcomes):
+                    parent_work_item = parent_by_item.get(ordered_work_item)
+                    visited_parents: set[str] = set()
+                    while (
+                        isinstance(parent_work_item, str)
+                        and parent_work_item not in visited_parents
+                    ):
+                        visited_parents.add(parent_work_item)
+                        ordered_outcomes.add(parent_work_item)
+                        parent_work_item = parent_by_item.get(parent_work_item)
+                for applicable_work_item in _strings(
+                    conformance_case.get("applies_to_work_item_ids"),
+                ):
+                    if applicable_work_item not in ordered_outcomes:
+                        errors.append(
+                            f"conformance case {case_id} evidence-owner Landing Unit "
+                            f"{evidence_owner_id} is not causally ordered before "
+                            f"applicable outcome {applicable_work_item}",
+                        )
 
     source_snapshot = artifact.get("source_snapshot")
     source_snapshot = source_snapshot if isinstance(source_snapshot, dict) else {}
