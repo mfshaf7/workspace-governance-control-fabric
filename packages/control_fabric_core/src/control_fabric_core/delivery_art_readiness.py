@@ -99,6 +99,54 @@ class DeliveryArtReadinessUnavailable(DeliveryArtReadinessError):
     """The readiness ledger or evaluator is unavailable."""
 
 
+def delivery_art_conformance_cases_for_readiness(
+    architecture_packet: dict[str, Any],
+    covered_work_item_ids: list[str],
+    readiness_phase: str,
+) -> tuple[dict[str, Any], ...]:
+    """Select cases owned by one packet at one readiness phase.
+
+    Versions 1-4 retain their immutable overlap-based merge-ready behavior.
+    Staged v5 packets bind each case to one exact evidence-owner Landing Unit
+    and use exact readiness-phase selection.
+    """
+
+    conformance_plan = architecture_packet.get("conformance_plan", {})
+    if conformance_plan.get("required") is not True:
+        return ()
+    cases = conformance_plan.get("cases", [])
+    if architecture_packet.get("schema_version") == 5:
+        covered = set(covered_work_item_ids)
+        matching_landing_units = [
+            unit
+            for unit in architecture_packet.get("architecture", {}).get(
+                "landing_units",
+                [],
+            )
+            if set(unit.get("covered_work_item_ids", [])) == covered
+        ]
+        if len(matching_landing_units) != 1:
+            raise DeliveryArtReadinessContractError(
+                "architecture v5 conformance selection requires exactly one "
+                "Landing Unit matching the Review Packet work-item scope",
+            )
+        landing_unit_id = matching_landing_units[0].get("id")
+        return tuple(
+            case
+            for case in cases
+            if case.get("evidence_owner_landing_unit_id") == landing_unit_id
+            and case.get("target_readiness") == readiness_phase
+        )
+
+    covered = set(covered_work_item_ids)
+    return tuple(
+        case
+        for case in cases
+        if case.get("target_readiness") == "merge-ready"
+        and set(case.get("applies_to_work_item_ids", [])).intersection(covered)
+    )
+
+
 @dataclass(frozen=True)
 class PreparedReadinessRequest:
     profile_id: str
@@ -356,8 +404,9 @@ class DeliveryArtReadinessService:
         ):
             raise DeliveryArtReadinessContractError(
                 "architecture readiness requires schema v"
-                f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical packets "
-                "remain readable only for work already bound to their exact immutable reference",
+                f"{DELIVERY_ART_ARCHITECTURE_CURRENT_SCHEMA_VERSION}; historical and staged "
+                "packets remain readable only for work already bound to their exact immutable "
+                "reference",
             )
         return _ResolvedReadinessContext(
             subject=subject,
@@ -520,7 +569,7 @@ class DeliveryArtReadinessService:
         self._evaluate_work_start(work_start, context, add)
         architecture = self._resolved_architecture(work_start, context)
         if architecture is not None:
-            self._evaluate_conformance(subject, architecture, add)
+            self._evaluate_conformance(subject, architecture, "merge-ready", add)
 
     def _evaluate_operating_ready(
         self,
@@ -561,7 +610,7 @@ class DeliveryArtReadinessService:
             return
         architecture = self._resolved_architecture(work_start, context)
         if architecture is not None:
-            self._evaluate_conformance(candidate, architecture, add)
+            self._evaluate_conformance(candidate, architecture, "operating-ready", add)
 
     @staticmethod
     def _evaluate_review_evidence(
@@ -595,15 +644,23 @@ class DeliveryArtReadinessService:
     def _evaluate_conformance(
         packet: dict[str, Any],
         architecture: dict[str, Any],
+        readiness_phase: str,
         add: Callable[[str, str, str, str | None], None],
     ) -> None:
-        covered = set(packet.get("covered_work_item_ids", []))
-        cases = [
-            case
-            for case in architecture.get("conformance_plan", {}).get("cases", [])
-            if case.get("target_readiness") == "merge-ready"
-            and set(case.get("applies_to_work_item_ids", [])).intersection(covered)
-        ]
+        try:
+            cases = delivery_art_conformance_cases_for_readiness(
+                architecture,
+                packet.get("covered_work_item_ids", []),
+                readiness_phase,
+            )
+        except DeliveryArtReadinessContractError:
+            add(
+                "conformance-owner-unresolved",
+                "blocker",
+                "Architecture v5 conformance cannot resolve exactly one evidence-owner "
+                "Landing Unit for the Review Packet scope.",
+            )
+            return
         evidence = [
             entry
             for section in _EVIDENCE_SECTIONS

@@ -216,15 +216,15 @@ class ArtifactRegistryTests(TestCase):
             IMPLEMENTATION_REF,
         )
 
-    def test_new_historical_architecture_registration_is_rejected(self) -> None:
-        for schema_version in (1, 2, 3):
-            historical = artifact_content()
-            historical["schema_version"] = schema_version
+    def test_new_noncurrent_architecture_registration_is_rejected(self) -> None:
+        for schema_version in (1, 2, 3, 5):
+            noncurrent = artifact_content()
+            noncurrent["schema_version"] = schema_version
             with self.subTest(schema_version=schema_version), self.assertRaisesRegex(
                 ArtifactRegistryContractError,
                 "new architecture registration requires schema v4",
             ):
-                self.registry.register(registration_request(historical), actor="oos")
+                self.registry.register(registration_request(noncurrent), actor="oos")
 
     def test_v4_can_exactly_supersede_an_existing_historical_architecture(self) -> None:
         historical = artifact_content()

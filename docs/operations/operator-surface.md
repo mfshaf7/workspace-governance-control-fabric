@@ -945,17 +945,29 @@ Approved classes are limited to:
 - `delivery_art_work_start_record`
 - `art_review_packet`
 
-Architecture packets may use schema v1 through v4. Versions 1 through 3 are
-read-only historical evidence. Their existing immutable references remain
-resolvable for work already bound to them, but registration of a new historical
-packet and a fresh `architecture-ready` decision are rejected. Version 4 is the
-only current authoring shape. It uses the exact per-item start/close execution
-plan, requires an executable acyclic schedule, binds each declared gate to one
-authority work item, preserves gate evidence prerequisites, and requires
-machine-readable runtime capability boundaries. WGCF does not infer v4
-capabilities from historical prose. A v4 replacement must use
+Architecture packets may use schema v1 through v5. Versions 1 through 3 are
+read-only historical evidence, version 4 is current, and version 5 is staged
+read-only. Existing immutable references remain resolvable for already-bound
+work, but registration of a new noncurrent packet and a fresh
+`architecture-ready` decision are rejected. Version 4 remains the only current
+authoring shape. It uses the exact per-item start/close execution plan, requires
+an executable acyclic schedule, binds each declared gate to one authority work
+item, preserves gate evidence prerequisites, and requires machine-readable
+runtime capability boundaries. WGCF does not infer v4 capabilities from
+historical prose. A v4 replacement must use
 `custody.supersedes` to bind the exact prior durable generation. OOS separately
 guards current-pointer cutover by inventorying active sessions.
+
+WGCF's dormant v5 support validates that every atomic conformance case names
+one existing evidence-owner Landing Unit and that execution ordering followed
+by child-to-parent closure reaches every applicable outcome. Readiness selects
+v5 evidence only for the exact Landing Unit matching the Review Packet scope
+and the exact requested phase: `merge-ready` before merge or
+`operating-ready` after merge. V1-v4 selection behavior remains unchanged.
+This support does not activate v5 persistence, architecture readiness, work
+start, or runtime use. Activation still requires the matching OOS and WGCF
+consumer changes to land, Security delta review, explicit version activation,
+deployment, and an OOS active-session inventory.
 
 The API surface is:
 
