@@ -8,6 +8,11 @@ by the request and the repository's matching rule. It emits an immutable
 readiness receipt and an OOS-compatible reference. It does not create, admit,
 retire, rename, or mutate a repository, and it does not write Catalog state.
 
+The bundle pins the canonical Workspace Governance `repos.yaml` v2 schema and
+validates the complete authority document before evaluating a repository. A
+schema-version or record-envelope drift therefore fails closed until this
+consumer deliberately adopts the new authority contract.
+
 The supported outcomes are:
 
 - `ready`
@@ -15,4 +20,3 @@ The supported outcomes are:
 - `retired`
 - `stale`
 - `contract_mismatch`
-

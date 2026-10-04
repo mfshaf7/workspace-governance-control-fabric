@@ -8,7 +8,11 @@
   "authority_source": {
     "repo": "workspace-governance",
     "path": "contracts/repos.yaml",
-    "rule_directory": "contracts/repo-rules"
+    "rule_directory": "contracts/repo-rules",
+    "schema_path": "contracts/schemas/repos.schema.json",
+    "schema_bundle_path": "../workspace-active-inventory/repos.schema.json",
+    "schema_commit": "3b89d0f6f50823ada8b9694327692440d10f428e",
+    "schema_sha256": "fe8cf65f9d04dc4d246477cb3eb0c2bdc5b351e859e5376e3a610acd2df443c6"
   },
   "consumer_contract": {
     "repo": "operator-orchestration-service",

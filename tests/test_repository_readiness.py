@@ -39,6 +39,27 @@ class RepositoryAuthorityFixture:
         self.root = root
         self.repo_name = "sample-repository"
         self.repository = {
+            "record": {
+                "id": f"repo:{self.repo_name}",
+                "version": 1,
+                "lineage": {
+                    "source": "legacy-migration",
+                    "source_ref": "git://workspace-governance/sample",
+                    "source_digest": f"sha256:{'a' * 64}",
+                    "intake_entry_version": None,
+                },
+                "last_mutation": {
+                    "id": "workspace-inventory-migration:sample-repository:v1-v2",
+                    "action": "migrate",
+                    "idempotency_key": "workspace-inventory-migration:sample-repository:v1-v2",
+                    "request_ref": None,
+                    "request_digest": None,
+                    "readiness_ref": None,
+                    "readiness_digest": None,
+                    "applied_at": "2026-08-30T18:27:30+08:00",
+                },
+            },
+            "posture": "active",
             "lifecycle": "active",
             "repo_class": "product-owner",
             "requires_security_bindings": True,
@@ -50,6 +71,7 @@ class RepositoryAuthorityFixture:
                 "posture": "covered-by-owner-repo",
                 "wgcf_graph_role": "product-runtime-source",
                 "catalog_refs": ["component-contracts", "security-bindings"],
+                "notes": "Representative canonical v2 repository authority fixture.",
             },
         }
         self.rule = {
@@ -78,7 +100,7 @@ class RepositoryAuthorityFixture:
         path = self.root / "contracts/repos.yaml"
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "repos": repositories if repositories is not None else {self.repo_name: self.repository},
             "retired_repos": retired_repositories or {},
         }
@@ -164,7 +186,9 @@ class RepositoryReadinessTests(TestCase):
 
     def test_missing_retired_and_stale_authority_have_distinct_outcomes(self) -> None:
         expected = self.source.authority_digest
-        self.source.write_authority(repositories={})
+        another_repository = copy.deepcopy(self.source.repository)
+        another_repository["record"]["id"] = "repo:another-repository"
+        self.source.write_authority(repositories={"another-repository": another_repository})
         not_admitted = self.service.issue(
             self.request(expected_authority_digest=self.source.authority_digest),
             actor="operator-orchestration-service",
@@ -173,9 +197,11 @@ class RepositoryReadinessTests(TestCase):
         self.assertIsNone(not_admitted.reference)
 
         self.source.write_authority(
-            repositories={},
+            repositories={"another-repository": another_repository},
             retired_repositories={
                 self.source.repo_name: {
+                    "record": self.source.repository["record"],
+                    "posture": "retired",
                     "lifecycle": "retired",
                     "replaced_by": {"product": "replacement-repository"},
                 },
@@ -216,10 +242,21 @@ class RepositoryReadinessTests(TestCase):
     def test_duplicate_authority_keys_fail_closed_as_contract_mismatch(self) -> None:
         path = self.source.root / "contracts/repos.yaml"
         path.write_text(
-            "schema_version: 1\nretired_repos: {}\nrepos:\n  sample-repository:\n"
+            "schema_version: 2\nretired_repos: {}\nrepos:\n  sample-repository:\n"
             "    lifecycle: active\n    lifecycle: retired\n",
             encoding="utf-8",
         )
+
+        result = self.service.issue(self.request(), actor="operator-orchestration-service")
+
+        self.assertEqual("contract_mismatch", result.receipt["decision"]["outcome"])
+        self.assertEqual(["authority-contract-invalid"], result.receipt["decision"]["reason_codes"])
+
+    def test_v1_authority_fixture_fails_closed_after_v2_migration(self) -> None:
+        path = self.source.root / "contracts/repos.yaml"
+        authority = yaml.safe_load(path.read_text(encoding="utf-8"))
+        authority["schema_version"] = 1
+        path.write_text(yaml.safe_dump(authority, sort_keys=False), encoding="utf-8")
 
         result = self.service.issue(self.request(), actor="operator-orchestration-service")
 
@@ -263,11 +300,40 @@ class RepositoryReadinessTests(TestCase):
                 Path(__file__).resolve().parents[1] / "contracts/repository-readiness",
                 contract_root,
             )
+            bundled_authority_schema = Path(temp_dir) / "workspace-active-inventory/repos.schema.json"
+            bundled_authority_schema.parent.mkdir(parents=True)
+            shutil.copyfile(
+                Path(__file__).resolve().parents[1]
+                / "contracts/workspace-active-inventory/repos.schema.json",
+                bundled_authority_schema,
+            )
             schema = contract_root / "repository-readiness-reference.schema.json"
             schema.write_bytes(schema.read_bytes() + b"\n")
             with self.assertRaisesRegex(
                 RepositoryReadinessContractError,
                 "does not match manifest",
+            ):
+                RepositoryReadinessContractBundle.load(contract_root)
+
+    def test_contract_bundle_rejects_unpinned_authority_schema(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            contract_root = Path(temp_dir) / "repository-readiness"
+            shutil.copytree(
+                Path(__file__).resolve().parents[1] / "contracts/repository-readiness",
+                contract_root,
+            )
+            bundled_authority_schema = Path(temp_dir) / "workspace-active-inventory/repos.schema.json"
+            bundled_authority_schema.parent.mkdir(parents=True)
+            shutil.copyfile(
+                Path(__file__).resolve().parents[1]
+                / "contracts/workspace-active-inventory/repos.schema.json",
+                bundled_authority_schema,
+            )
+            bundled_authority_schema.write_bytes(bundled_authority_schema.read_bytes() + b"\n")
+
+            with self.assertRaisesRegex(
+                RepositoryReadinessContractError,
+                "authority schema does not match manifest",
             ):
                 RepositoryReadinessContractBundle.load(contract_root)
 
