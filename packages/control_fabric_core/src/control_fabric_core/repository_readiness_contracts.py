@@ -28,6 +28,7 @@ class RepositoryReadinessContractBundle:
     root: Path
     manifest: dict[str, Any]
     contract_digest: str
+    authority_validator: Draft202012Validator
     validators: dict[str, Draft202012Validator]
 
     @classmethod
@@ -51,8 +52,36 @@ class RepositoryReadinessContractBundle:
             "repo": "workspace-governance",
             "path": "contracts/repos.yaml",
             "rule_directory": "contracts/repo-rules",
+            "schema_path": "contracts/schemas/repos.schema.json",
+            "schema_bundle_path": "../workspace-active-inventory/repos.schema.json",
+            "schema_commit": "3b89d0f6f50823ada8b9694327692440d10f428e",
+            "schema_sha256": "fe8cf65f9d04dc4d246477cb3eb0c2bdc5b351e859e5376e3a610acd2df443c6",
         }:
             raise RepositoryReadinessContractError("repository authority source is invalid")
+
+        authority_schema_path = resolved_root / authority["schema_bundle_path"]
+        try:
+            authority_schema_bytes = authority_schema_path.read_bytes()
+        except OSError as exc:
+            raise RepositoryReadinessContractError(
+                "repository authority schema is unavailable",
+            ) from exc
+        if hashlib.sha256(authority_schema_bytes).hexdigest() != authority["schema_sha256"]:
+            raise RepositoryReadinessContractError(
+                "repository authority schema does not match manifest",
+            )
+        try:
+            authority_schema = json.loads(authority_schema_bytes)
+            Draft202012Validator.check_schema(authority_schema)
+        except (json.JSONDecodeError, SchemaError) as exc:
+            raise RepositoryReadinessContractError(
+                "repository authority schema is invalid",
+            ) from exc
+        format_checker = FormatChecker()
+        authority_validator = Draft202012Validator(
+            authority_schema,
+            format_checker=format_checker,
+        )
 
         consumer = manifest.get("consumer_contract")
         if (
@@ -75,7 +104,6 @@ class RepositoryReadinessContractBundle:
             raise RepositoryReadinessContractError("repository readiness schemas are incomplete")
 
         validators: dict[str, Draft202012Validator] = {}
-        format_checker = FormatChecker()
         for record_type, entry in schema_entries.items():
             if not isinstance(entry, dict):
                 raise RepositoryReadinessContractError("repository readiness schema entry is malformed")
@@ -112,6 +140,7 @@ class RepositoryReadinessContractBundle:
             root=resolved_root,
             manifest=manifest,
             contract_digest=canonical_digest(manifest),
+            authority_validator=authority_validator,
             validators=validators,
         )
 
@@ -128,6 +157,19 @@ class RepositoryReadinessContractBundle:
             return (f"unsupported repository readiness record type {record_type!r}",)
         errors = sorted(
             validator.iter_errors(record),
+            key=lambda error: tuple(str(part) for part in error.absolute_path),
+        )
+        return tuple(
+            f"{_json_path(error.absolute_path)}: {error.message}"
+            for error in errors
+        )
+
+    def authority_errors(self, record: Any) -> tuple[str, ...]:
+        canonical_errors = canonicalization_errors(record)
+        if canonical_errors:
+            return tuple(canonical_errors)
+        errors = sorted(
+            self.authority_validator.iter_errors(record),
             key=lambda error: tuple(str(part) for part in error.absolute_path),
         )
         return tuple(

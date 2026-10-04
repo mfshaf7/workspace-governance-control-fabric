@@ -233,19 +233,14 @@ class RepositoryReadinessService:
             )
 
         authority = _load_yaml_mapping(authority_bytes)
-        repos = authority.get("repos") if authority is not None else None
-        retired_repos = authority.get("retired_repos") if authority is not None else None
-        if (
-            authority is None
-            or authority.get("schema_version") != 1
-            or not isinstance(repos, dict)
-            or not isinstance(retired_repos, dict)
-        ):
+        if authority is None or self._contracts.authority_errors(authority):
             return RepositoryAuthorityEvaluation(
                 "contract_mismatch",
                 ("authority-contract-invalid",),
                 authority_digest,
             )
+        repos = authority["repos"]
+        retired_repos = authority["retired_repos"]
         repository = repos.get(prepared.repo_name)
         if not isinstance(repository, dict):
             retired_repository = retired_repos.get(prepared.repo_name)
