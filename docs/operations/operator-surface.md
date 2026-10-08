@@ -945,8 +945,9 @@ Approved classes are limited to:
 - `delivery_art_work_start_record`
 - `art_review_packet`
 
-Architecture packets may use schema v1 through v5. Versions 1 through 4 are
-read-only historical evidence, and version 5 is current. Existing immutable
+Architecture packets may use schema v1 through v6. Versions 1 through 4 are
+read-only historical evidence, version 5 is current, and version 6 is staged
+validation-only. Existing immutable
 references remain resolvable for already-bound work, but registration of a new
 noncurrent packet and a fresh
 `architecture-ready` decision are rejected. Version 5 is the only current
@@ -967,6 +968,14 @@ and the exact requested phase: `merge-ready` before merge or
 The matching OOS and WGCF consumer changes, Security delta review, explicit
 version activation, and OOS active-session inventory are recorded. Runtime use
 still requires joint dev-integration deployment and live parity verification.
+
+Staged v6 validates one exact activation chain for every
+`before_runtime_activation` gate. The chain binds exact source repo, revision,
+path, field, observed value, and posture; when an owner source change is
+required, it also proves a separate source-backed activation Landing Unit
+ordered after the human authority and before commissioning. V6 remains
+unsupported for new custody and fresh readiness until Security review, consumer
+parity, session inventory, and coordinated activation complete.
 
 The API surface is:
 

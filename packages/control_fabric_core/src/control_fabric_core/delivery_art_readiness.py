@@ -107,15 +107,15 @@ def delivery_art_conformance_cases_for_readiness(
     """Select cases owned by one packet at one readiness phase.
 
     Versions 1-4 retain their immutable overlap-based merge-ready behavior.
-    Current v5 packets bind each case to one exact evidence-owner Landing Unit
-    and use exact readiness-phase selection.
+    Current v5 and staged v6 packets bind each case to one exact evidence-owner
+    Landing Unit and use exact readiness-phase selection.
     """
 
     conformance_plan = architecture_packet.get("conformance_plan", {})
     if conformance_plan.get("required") is not True:
         return ()
     cases = conformance_plan.get("cases", [])
-    if architecture_packet.get("schema_version") == 5:
+    if architecture_packet.get("schema_version") in {5, 6}:
         covered = set(covered_work_item_ids)
         matching_landing_units = [
             unit
@@ -127,7 +127,7 @@ def delivery_art_conformance_cases_for_readiness(
         ]
         if len(matching_landing_units) != 1:
             raise DeliveryArtReadinessContractError(
-                "architecture v5 conformance selection requires exactly one "
+                "architecture v5+ conformance selection requires exactly one "
                 "Landing Unit matching the Review Packet work-item scope",
             )
         landing_unit_id = matching_landing_units[0].get("id")
