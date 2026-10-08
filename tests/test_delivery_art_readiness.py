@@ -735,6 +735,18 @@ class DeliveryArtReadinessTests(TestCase):
             self.contract_bundle.validation_errors(wrong_evidence_owner),
         )
 
+        wrong_evidence_revision = architecture_v6()
+        wrong_evidence_revision["architecture"]["runtime_activation_chains"][0][
+            "source_activation_evidence"
+        ]["revision"] = "f" * 40
+        refresh_architecture_scope(wrong_evidence_revision)
+        self.assertIn(
+            "architecture runtime activation chain activation:delivery-698 "
+            "source evidence revision must match source snapshot revision for "
+            "operator-orchestration-service",
+            self.contract_bundle.validation_errors(wrong_evidence_revision),
+        )
+
         unordered_commissioning = architecture_v6()
         unordered_commissioning["architecture"]["source_landing_graph"][
             "edges"

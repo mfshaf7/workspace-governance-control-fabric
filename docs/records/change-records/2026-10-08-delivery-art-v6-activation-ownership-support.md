@@ -40,7 +40,9 @@ coordinated activation complete.
   `workspace-governance/reviews/improvement-candidates/2026-10-08-delivery-plan-activation-ownership-regression.yaml`
 - authority change:
   [workspace-governance#240](https://github.com/mfshaf7/workspace-governance/pull/240),
-  merge `052261b14196d52318767e1bf371b1c156c0ac26`
+  merge `052261b14196d52318767e1bf371b1c156c0ac26`, plus corrective
+  [workspace-governance#241](https://github.com/mfshaf7/workspace-governance/pull/241),
+  merge `f81c52a45c81e24188a01d71ae54813270eebf0d`
 
 ## Root Cause
 
@@ -57,8 +59,9 @@ coordinated activation complete.
 
 - pin the exact Workspace Governance v6 staged schema and shared activation
   parity vector
-- validate exact source evidence, source ownership, separate activation and
-  commissioning Landing Units, and Security-to-source-to-commissioning order
+- validate exact source evidence, bind its revision to the owner's source
+  snapshot, enforce source ownership, separate activation and commissioning
+  Landing Units, and prove Security-to-source-to-commissioning order
 - apply v5 evidence-owner readiness selection to staged v6 artifacts
 - keep the current version at v5 so v6 cannot enter custody or receive fresh
   architecture readiness

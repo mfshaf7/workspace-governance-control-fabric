@@ -971,7 +971,8 @@ still requires joint dev-integration deployment and live parity verification.
 
 Staged v6 validates one exact activation chain for every
 `before_runtime_activation` gate. The chain binds exact source repo, revision,
-path, field, observed value, and posture; when an owner source change is
+path, field, observed value, and posture, and the evidence revision must equal
+that owner's pinned source-snapshot commit. When an owner source change is
 required, it also proves a separate source-backed activation Landing Unit
 ordered after the human authority and before commissioning. V6 remains
 unsupported for new custody and fresh readiness until Security review, consumer

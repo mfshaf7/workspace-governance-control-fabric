@@ -651,6 +651,24 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture runtime activation chain {chain_id} "
                         "source evidence repo must match its source owner",
                     )
+                source_snapshot = artifact.get("source_snapshot")
+                source_snapshot = (
+                    source_snapshot if isinstance(source_snapshot, dict) else {}
+                )
+                source_revision_by_repo = {
+                    entry.get("repo"): entry.get("commit")
+                    for entry in _objects(source_snapshot.get("repo_revisions"))
+                    if isinstance(entry.get("repo"), str)
+                    and isinstance(entry.get("commit"), str)
+                }
+                if source_evidence.get("revision") != source_revision_by_repo.get(
+                    source_owner_repo,
+                ):
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "source evidence revision must match source snapshot "
+                        f"revision for {source_owner_repo}",
+                    )
                 source_posture = chain.get("source_activation_posture")
                 if source_evidence.get("observed_posture") != source_posture:
                     errors.append(
