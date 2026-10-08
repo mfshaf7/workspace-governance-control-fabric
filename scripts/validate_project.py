@@ -184,6 +184,7 @@ REQUIRED_PATHS = (
     "schemas/validation-receipt.schema.json",
     "contracts/delivery-art/manifest.json",
     "contracts/delivery-art/delivery-art-architecture-packet.schema.json",
+    "contracts/delivery-art/delivery-art-architecture-v6-activation-parity-vectors.schema.json",
     "contracts/delivery-art/delivery-art-custody-receipt.schema.json",
     "contracts/delivery-art/delivery-art-readiness-receipt.schema.json",
     "contracts/delivery-art/delivery-art-review-packet.schema.json",

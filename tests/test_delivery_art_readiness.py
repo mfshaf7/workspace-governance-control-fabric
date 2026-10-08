@@ -228,6 +228,99 @@ def architecture_v5() -> dict:
     return refresh_architecture_scope(packet)
 
 
+def architecture_v6() -> dict:
+    packet = architecture_v5()
+    packet["schema_version"] = 6
+    packet["artifact_id"] = "architecture-packet:delivery-698-v6"
+    packet["covered_work_item_ids"].append("work-item-803")
+    architecture = packet["architecture"]
+    architecture["descendant_owner_map"].append(
+        {
+            "work_item_id": "work-item-803",
+            "work_item_type": "Enabler",
+            "owner_repo": "platform-engineering",
+            "parent_work_item_id": "work-item-801",
+        },
+    )
+    architecture["landing_units"].append(
+        {
+            "id": "delivery-698-platform",
+            "owner_repo": "platform-engineering",
+            "source_backed": True,
+            "covered_work_item_ids": ["work-item-803"],
+        },
+    )
+    architecture["source_landing_graph"]["nodes"].append(
+        "delivery-698-platform",
+    )
+    architecture["source_landing_graph"]["edges"].append(
+        {
+            "prerequisite_landing_unit_id": "delivery-698-implementation",
+            "dependent_landing_unit_id": "delivery-698-platform",
+        },
+    )
+    architecture["work_item_execution_plan"].append(
+        {
+            "work_item_id": "work-item-803",
+            "start_after_work_item_ids": ["work-item-802"],
+            "close_after_work_item_ids": [],
+            "emits_human_gate_ids": [],
+        },
+    )
+    architecture["required_human_gates"][0]["blocked_transition"] = (
+        "before_runtime_activation"
+    )
+    architecture["required_human_gates"][0][
+        "affected_landing_unit_ids"
+    ] = ["delivery-698-platform"]
+    oos_revision = next(
+        entry
+        for entry in packet["source_snapshot"]["repo_revisions"]
+        if entry["repo"] == "operator-orchestration-service"
+    )
+    packet["source_snapshot"]["repo_revisions"].append(
+        {
+            **copy.deepcopy(oos_revision),
+            "repo": "platform-engineering",
+            "commit": "c" * 40,
+        },
+    )
+    architecture["runtime_activation_chains"] = [
+        {
+            "chain_id": "activation:delivery-698",
+            "gate_id": "gate:security-source-merge",
+            "source_owner_repo": "operator-orchestration-service",
+            "source_activation_posture": "owner-source-change-required",
+            "source_activation_evidence": {
+                "repo": "operator-orchestration-service",
+                "revision": oos_revision["commit"],
+                "path": "contracts/example/manifest.json",
+                "field": "runtime_activation",
+                "observed_value": False,
+                "observed_posture": "owner-source-change-required",
+            },
+            "source_activation_landing_unit_id": (
+                "delivery-698-implementation"
+            ),
+            "commissioning_landing_unit_ids": ["delivery-698-platform"],
+        },
+    ]
+    source_dimension = next(
+        entry
+        for entry in packet["conformance_plan"][
+            "work_item_dimension_applicability"
+        ]
+        if entry["work_item_id"] == "work-item-802"
+    )
+    packet["conformance_plan"]["work_item_dimension_applicability"].append(
+        {**copy.deepcopy(source_dimension), "work_item_id": "work-item-803"},
+    )
+    for case in packet["conformance_plan"]["cases"]:
+        if "work-item-802" in case["applies_to_work_item_ids"]:
+            case["applies_to_work_item_ids"].append("work-item-803")
+    return refresh_architecture_scope(packet)
+
+
 def historical_prose_architecture() -> dict:
     packet = architecture_v3()
     packet["architecture"]["runtime_boundaries"] = [
@@ -609,6 +702,97 @@ class DeliveryArtReadinessTests(TestCase):
                         [case["id"] for case in selected],
                         expectation["selected_case_ids"],
                     )
+
+    def test_v6_stages_exact_source_activation_ownership_and_ordering(self) -> None:
+        candidate = architecture_v6()
+
+        self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
+        self.assertEqual(
+            delivery_art_architecture_contract_posture(candidate),
+            "unsupported",
+        )
+
+    def test_v6_rejects_missing_mismatched_and_unordered_source_activation(
+        self,
+    ) -> None:
+        missing_chain = architecture_v6()
+        missing_chain["architecture"]["runtime_activation_chains"] = []
+        refresh_architecture_scope(missing_chain)
+        self.assertIn(
+            "architecture runtime activation chains must exactly cover "
+            "before_runtime_activation gates",
+            self.contract_bundle.validation_errors(missing_chain),
+        )
+
+        wrong_evidence_owner = architecture_v6()
+        wrong_evidence_owner["architecture"]["runtime_activation_chains"][0][
+            "source_activation_evidence"
+        ]["repo"] = "workspace-governance"
+        refresh_architecture_scope(wrong_evidence_owner)
+        self.assertIn(
+            "architecture runtime activation chain activation:delivery-698 "
+            "source evidence repo must match its source owner",
+            self.contract_bundle.validation_errors(wrong_evidence_owner),
+        )
+
+        wrong_evidence_revision = architecture_v6()
+        wrong_evidence_revision["architecture"]["runtime_activation_chains"][0][
+            "source_activation_evidence"
+        ]["revision"] = "f" * 40
+        refresh_architecture_scope(wrong_evidence_revision)
+        self.assertIn(
+            "architecture runtime activation chain activation:delivery-698 "
+            "source evidence revision must match source snapshot revision for "
+            "operator-orchestration-service",
+            self.contract_bundle.validation_errors(wrong_evidence_revision),
+        )
+
+        unordered_commissioning = architecture_v6()
+        unordered_commissioning["architecture"]["source_landing_graph"][
+            "edges"
+        ].pop()
+        refresh_architecture_scope(unordered_commissioning)
+        self.assertIn(
+            "architecture runtime activation chain activation:delivery-698 "
+            "does not order source activation Landing Unit "
+            "delivery-698-implementation before commissioning Landing Unit "
+            "delivery-698-platform",
+            self.contract_bundle.validation_errors(unordered_commissioning),
+        )
+
+        premature_activation = architecture_v6()
+        next(
+            entry
+            for entry in premature_activation["architecture"][
+                "work_item_execution_plan"
+            ]
+            if entry["work_item_id"] == "work-item-802"
+        )["start_after_work_item_ids"] = []
+        refresh_architecture_scope(premature_activation)
+        self.assertIn(
+            "architecture runtime activation chain activation:delivery-698 "
+            "source activation work item work-item-802 must wait for gate "
+            "authority work item work-item-801",
+            self.contract_bundle.validation_errors(premature_activation),
+        )
+
+    def test_v6_shared_activation_parity_vector_is_pinned(self) -> None:
+        document = fixture(
+            "architecture-packet-v6-activation-parity-vectors.valid.json",
+        )
+        validator = self.contract_bundle.validators[
+            "delivery-art-architecture-v6-activation-parity-vectors.schema.json"
+        ]
+
+        self.assertEqual(list(validator.iter_errors(document)), [])
+        self.assertEqual(document["architecture_packet_schema_version"], 6)
+        self.assertGreaterEqual(len(document["vectors"]), 1)
+        self.assertEqual(
+            document["vectors"][0]["runtime_activation_chain"][
+                "source_activation_posture"
+            ],
+            "owner-source-change-required",
+        )
 
     def test_v1_through_v4_keep_overlap_based_merge_case_selection(self) -> None:
         historical = architecture_v4()

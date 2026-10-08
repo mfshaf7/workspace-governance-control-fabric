@@ -1,13 +1,17 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "acad88ce4489a96a48bee75cd19abfa44518efda",
+    "commit": "f81c52a45c81e24188a01d71ae54813270eebf0d",
     "repo": "workspace-governance"
   },
   "schemas": {
     "delivery_art_architecture_packet": {
       "path": "delivery-art-architecture-packet.schema.json",
-      "sha256": "d21690ea75bf047506a1c03a01081faaaa53132e51c93e614c7ae70318e06f01"
+      "sha256": "d4e4e2390e7fdb027d8bbe614bd60f86aacdb13f221f38ee8be08abb8481b103"
+    },
+    "delivery-art-architecture-v6-activation-parity-vectors.schema.json": {
+      "path": "delivery-art-architecture-v6-activation-parity-vectors.schema.json",
+      "sha256": "519ead166f8659a654e238b13b5b26d0d3c2e6290a0b0452605eaa1c19fdf1f2"
     },
     "delivery_art_custody_receipt": {
       "path": "delivery-art-custody-receipt.schema.json",
@@ -38,6 +42,10 @@
     "architecture-packet-v5-parity-vectors.valid.json": {
       "path": "fixtures/architecture-packet-v5-parity-vectors.valid.json",
       "sha256": "d2f3d000430e2468092e9c07eab34d2e3fe02ed05f02841181a401c405f99a89"
+    },
+    "architecture-packet-v6-activation-parity-vectors.valid.json": {
+      "path": "fixtures/architecture-packet-v6-activation-parity-vectors.valid.json",
+      "sha256": "f72720b671a07b398f92043df1490ceb794d242f85fdfe707a24df78ddeb220c"
     },
     "finalized-custody-receipt.valid.json": {
       "path": "fixtures/finalized-custody-receipt.valid.json",

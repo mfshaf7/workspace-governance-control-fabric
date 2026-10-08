@@ -263,7 +263,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"architecture merge order violates {before} before {after}",
                     )
 
-    if schema_version in {2, 3, 4, 5}:
+    if schema_version in {2, 3, 4, 5, 6}:
         execution_plan_by_work_item: dict[str, dict[str, Any]] = {}
         emitted_gate_authorities: dict[str, list[str]] = {}
         combined_schedule_edges: list[tuple[str, str]] = []
@@ -411,7 +411,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         if not _graph_is_acyclic(source_nodes, source_edges):
             errors.append("architecture.source_landing_graph must be acyclic")
 
-        if schema_version in {3, 4, 5}:
+        if schema_version in {3, 4, 5, 6}:
             handoffs = _objects(architecture.get("evidence_receipt_handoffs"))
             handoff_ids = [handoff.get("handoff_id") for handoff in handoffs]
             if len(handoff_ids) != len(set(handoff_ids)):
@@ -506,7 +506,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     f"architecture human gate {gate_id} blocks source merge for non-source Landing Units",
                 )
-            if schema_version in {3, 4, 5}:
+            if schema_version in {3, 4, 5, 6}:
                 evidence_prerequisites = set(
                     _strings(gate.get("evidence_prerequisite_work_item_ids")),
                 )
@@ -535,7 +535,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         + ", ".join(sorted(missing_authority_prerequisites)),
                     )
 
-        if schema_version in {3, 4, 5}:
+        if schema_version in {3, 4, 5, 6}:
             declared_gate_ids = set(gate_ids)
             emitted_gate_ids = set(emitted_gate_authorities)
             unknown_emitted_gates = emitted_gate_ids - declared_gate_ids
@@ -583,7 +583,219 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         "must emit at least one explicit human gate",
                     )
 
-        if schema_version == 5:
+        if schema_version == 6:
+            gate_by_id = {
+                gate["gate_id"]: gate
+                for gate in gates
+                if isinstance(gate.get("gate_id"), str)
+            }
+            runtime_gate_ids = {
+                gate["gate_id"]
+                for gate in gates
+                if gate.get("blocked_transition") == "before_runtime_activation"
+                and isinstance(gate.get("gate_id"), str)
+            }
+            activation_chains = _objects(
+                architecture.get("runtime_activation_chains"),
+            )
+            activation_chain_ids = [
+                chain.get("chain_id") for chain in activation_chains
+            ]
+            activation_gate_ids = [
+                chain.get("gate_id") for chain in activation_chains
+            ]
+            if len(activation_chain_ids) != len(set(activation_chain_ids)):
+                errors.append(
+                    "architecture runtime activation chain ids must be unique",
+                )
+            if len(activation_gate_ids) != len(set(activation_gate_ids)):
+                errors.append(
+                    "architecture runtime activation chains must contain one "
+                    "chain per runtime activation gate",
+                )
+            if set(activation_gate_ids) != runtime_gate_ids:
+                errors.append(
+                    "architecture runtime activation chains must exactly cover "
+                    "before_runtime_activation gates",
+                )
+            owner_repos = set(owner_by_work_item.values())
+            for chain in activation_chains:
+                chain_id = chain.get("chain_id")
+                gate = gate_by_id.get(chain.get("gate_id"))
+                if gate is None:
+                    continue
+                commissioning_units = set(
+                    _strings(chain.get("commissioning_landing_unit_ids")),
+                )
+                affected_units = set(
+                    _strings(gate.get("affected_landing_unit_ids")),
+                )
+                if commissioning_units != affected_units:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        f"commissioning Landing Units must exactly match gate "
+                        f"{gate.get('gate_id')} affected Landing Units",
+                    )
+                source_owner_repo = chain.get("source_owner_repo")
+                if source_owner_repo not in owner_repos:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "source owner is outside descendant ownership",
+                    )
+                source_evidence = chain.get("source_activation_evidence")
+                source_evidence = (
+                    source_evidence if isinstance(source_evidence, dict) else {}
+                )
+                if source_evidence.get("repo") != source_owner_repo:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "source evidence repo must match its source owner",
+                    )
+                source_snapshot = artifact.get("source_snapshot")
+                source_snapshot = (
+                    source_snapshot if isinstance(source_snapshot, dict) else {}
+                )
+                source_revision_by_repo = {
+                    entry.get("repo"): entry.get("commit")
+                    for entry in _objects(source_snapshot.get("repo_revisions"))
+                    if isinstance(entry.get("repo"), str)
+                    and isinstance(entry.get("commit"), str)
+                }
+                if source_evidence.get("revision") != source_revision_by_repo.get(
+                    source_owner_repo,
+                ):
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "source evidence revision must match source snapshot "
+                        f"revision for {source_owner_repo}",
+                    )
+                source_posture = chain.get("source_activation_posture")
+                if source_evidence.get("observed_posture") != source_posture:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "source evidence posture must match its declared source "
+                        "activation posture",
+                    )
+                authority_landing_unit_id = landing_unit_by_work_item.get(
+                    gate.get("authority_work_item_id"),
+                )
+                for commissioning_unit_id in commissioning_units:
+                    commissioning_unit = landing_unit_by_id.get(
+                        commissioning_unit_id,
+                    )
+                    if (
+                        commissioning_unit is not None
+                        and commissioning_unit.get("source_backed") is not True
+                    ):
+                        errors.append(
+                            f"architecture runtime activation chain {chain_id} "
+                            f"commissioning Landing Unit {commissioning_unit_id} "
+                            "must be source-backed",
+                        )
+                if source_posture == "source-ready":
+                    for commissioning_unit_id in commissioning_units:
+                        if (
+                            authority_landing_unit_id in source_nodes
+                            and commissioning_unit_id in source_nodes
+                            and not _graph_has_path(
+                                source_edges,
+                                authority_landing_unit_id,
+                                commissioning_unit_id,
+                            )
+                        ):
+                            errors.append(
+                                f"architecture runtime activation chain {chain_id} "
+                                "does not order gate authority before commissioning "
+                                f"Landing Unit {commissioning_unit_id}",
+                            )
+                    continue
+                if source_posture != "owner-source-change-required":
+                    continue
+                activation_unit_id = chain.get(
+                    "source_activation_landing_unit_id",
+                )
+                activation_unit = landing_unit_by_id.get(activation_unit_id)
+                if activation_unit is None:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "references unknown source activation Landing Unit "
+                        f"{activation_unit_id}",
+                    )
+                    continue
+                if activation_unit.get("source_backed") is not True:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        f"source activation Landing Unit {activation_unit_id} "
+                        "must be source-backed",
+                    )
+                if activation_unit.get("owner_repo") != source_owner_repo:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        f"source activation Landing Unit {activation_unit_id} "
+                        f"is not owned by {source_owner_repo}",
+                    )
+                if activation_unit_id in commissioning_units:
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} must "
+                        "separate source activation from commissioning",
+                    )
+                if (
+                    authority_landing_unit_id in source_nodes
+                    and activation_unit_id in source_nodes
+                    and not _graph_has_path(
+                        source_edges,
+                        authority_landing_unit_id,
+                        activation_unit_id,
+                    )
+                ):
+                    errors.append(
+                        f"architecture runtime activation chain {chain_id} "
+                        "does not order gate authority before source activation "
+                        f"Landing Unit {activation_unit_id}",
+                    )
+                for activation_work_item_id in _strings(
+                    activation_unit.get("covered_work_item_ids"),
+                ):
+                    activation_plan = execution_plan_by_work_item.get(
+                        activation_work_item_id,
+                        {},
+                    )
+                    activation_prerequisites = set(
+                        _strings(
+                            activation_plan.get("start_after_work_item_ids"),
+                        ),
+                    ) | set(
+                        _strings(
+                            activation_plan.get("close_after_work_item_ids"),
+                        ),
+                    )
+                    if gate.get("authority_work_item_id") not in (
+                        activation_prerequisites
+                    ):
+                        errors.append(
+                            f"architecture runtime activation chain {chain_id} "
+                            f"source activation work item {activation_work_item_id} "
+                            "must wait for gate authority work item "
+                            f"{gate.get('authority_work_item_id')}",
+                        )
+                for commissioning_unit_id in commissioning_units:
+                    if (
+                        activation_unit_id in source_nodes
+                        and commissioning_unit_id in source_nodes
+                        and not _graph_has_path(
+                            source_edges,
+                            activation_unit_id,
+                            commissioning_unit_id,
+                        )
+                    ):
+                        errors.append(
+                            f"architecture runtime activation chain {chain_id} "
+                            "does not order source activation Landing Unit "
+                            f"{activation_unit_id} before commissioning Landing "
+                            f"Unit {commissioning_unit_id}",
+                        )
+
+        if schema_version in {5, 6}:
             for conformance_case in _objects(
                 artifact.get("conformance_plan", {}).get("cases"),
             ):
