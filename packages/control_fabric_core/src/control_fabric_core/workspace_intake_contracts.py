@@ -188,10 +188,25 @@ class IntakeAuthority:
         self.trusted_ref = trusted_ref
 
     def _git(self, *args: str) -> bytes:
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update({
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_GRAFT_FILE": os.devnull,
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_TERMINAL_PROMPT": "0",
+        })
         try:
             return subprocess.run(
-                ["git", "-C", str(self.repo_root), *args],
-                check=True, capture_output=True, timeout=10,
+                [
+                    "git",
+                    "-c", f"safe.directory={self.repo_root.resolve()}",
+                    "-c", f"core.hooksPath={os.devnull}",
+                    "-C", str(self.repo_root),
+                    *args,
+                ],
+                check=True, capture_output=True, timeout=10, env=env,
             ).stdout
         except (OSError, subprocess.SubprocessError) as exc:
             raise IntakeUnavailable("committed intake authority is unavailable") from exc
