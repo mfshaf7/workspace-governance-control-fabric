@@ -61,6 +61,7 @@ class DeliveryArtEvidenceProfileTests(unittest.TestCase):
             {
                 "owner-repository-tests",
                 "owner-repository-sandbox-runtime-tests",
+                "owner-repository-real-git-tests",
             },
             set(test_commands),
         )
@@ -78,6 +79,10 @@ class DeliveryArtEvidenceProfileTests(unittest.TestCase):
         self.assertEqual(
             "sandbox-runtime",
             test_commands["owner-repository-sandbox-runtime-tests"]["fidelity"],
+        )
+        self.assertEqual(
+            "real-git",
+            test_commands["owner-repository-real-git-tests"]["fidelity"],
         )
 
         validation_command = next(
