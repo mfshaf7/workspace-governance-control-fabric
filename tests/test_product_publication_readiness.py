@@ -324,14 +324,17 @@ class ProductPublicationReadinessTests(TestCase):
             503,
         )
 
-    def test_runtime_stays_disabled_until_later_security_and_platform_items(self) -> None:
-        self.assertFalse(ProductPublicationContracts.load().manifest["runtime_activation"])
+    def test_runtime_activation_still_requires_platform_authority_roots(self) -> None:
+        self.assertTrue(ProductPublicationContracts.load().manifest["runtime_activation"])
         with patch.dict(
             "os.environ",
             {"WGCF_RUNTIME_PROFILE": "dev-integration", "WGCF_PRODUCT_PUBLICATION_READINESS_ENABLED": "true"},
             clear=True,
         ):
-            with self.assertRaises(ProductPublicationUnavailable):
+            with self.assertRaisesRegex(
+                ProductPublicationUnavailable,
+                "authority roots are not configured",
+            ):
                 build_product_publication_readiness_runtime()
 
     @staticmethod

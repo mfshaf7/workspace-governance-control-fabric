@@ -11,5 +11,5 @@
     "evaluation.schema.json": "88414f8db82978239815f69f47f6d0986277dd1478928664503ecf1ae1705a3e",
     "readiness.schema.json": "d171942f3557d7328790db81605a05fbd9b044076808ed753f91920eeaca94f5"
   },
-  "runtime_activation": false
+  "runtime_activation": true
 }
