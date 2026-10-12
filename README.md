@@ -320,17 +320,16 @@ those artifacts and safe OpenProject reference projection remain separate work;
 the registry does not mutate ART or accept arbitrary evidence.
 
 The pinned architecture contract accepts schema v1 through v6. Versions 1
-through 4 are immutable historical formats: WGCF can read and validate their
+through 5 are immutable historical formats: WGCF can read and validate their
 existing durable references for work already bound to them, but rejects new
-historical registrations and fresh architecture-readiness decisions. Version 5
+historical registrations and fresh architecture-readiness decisions. Version 6
 is the only current authoring and admission format. It retains the v4 exact
 per-item execution plan, gate bindings, and machine-readable capability
-boundaries while adding exact evidence ownership. A v5 generation replacing a
+boundaries, exact evidence ownership, and source-activation chains. A v6 generation replacing a
 historical current packet must supersede its exact durable reference. OOS owns the active-session
 inventory that guards current-pointer cutover; WGCF does not duplicate it.
-Version 6 source-activation ownership is validation-only: WGCF proves exact
-source evidence and Security-to-source-to-commissioning order but rejects v6
-custody and architecture readiness until coordinated activation completes.
+WGCF proves exact source evidence and Security-to-source-to-commissioning order
+before granting v6 custody or architecture readiness.
 
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
 `wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`

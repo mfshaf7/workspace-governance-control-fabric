@@ -979,38 +979,37 @@ Approved classes are limited to:
 - `delivery_art_work_start_record`
 - `art_review_packet`
 
-Architecture packets may use schema v1 through v6. Versions 1 through 4 are
-read-only historical evidence, version 5 is current, and version 6 is staged
-validation-only. Existing immutable
+Architecture packets may use schema v1 through v6. Versions 1 through 5 are
+read-only historical evidence and version 6 is current. Existing immutable
 references remain resolvable for already-bound work, but registration of a new
 noncurrent packet and a fresh
-`architecture-ready` decision are rejected. Version 5 is the only current
+`architecture-ready` decision are rejected. Version 6 is the only current
 authoring shape. It uses the exact per-item start/close execution plan, requires
 an executable acyclic schedule, binds each declared gate to one authority work
 item, preserves gate evidence prerequisites, and requires machine-readable
 runtime capability boundaries and exact evidence ownership. WGCF does not infer
-capabilities from historical prose. A v5 replacement must use
+capabilities from historical prose. A v6 replacement must use
 `custody.supersedes` to bind the exact prior durable generation. OOS separately
 guards current-pointer cutover by inventorying active sessions.
 
-WGCF's active v5 support validates that every atomic conformance case names
+WGCF's active v6 support validates that every atomic conformance case names
 one existing evidence-owner Landing Unit and that execution ordering followed
 by child-to-parent closure reaches every applicable outcome. Readiness selects
-v5 evidence only for the exact Landing Unit matching the Review Packet scope
+v5+ evidence only for the exact Landing Unit matching the Review Packet scope
 and the exact requested phase: `merge-ready` before merge or
-`operating-ready` after merge. V1-v4 selection behavior remains unchanged.
+`operating-ready` after merge. V1-v4 selection behavior remains unchanged, and
+v5 remains immutable historical evidence for already-bound work.
 The matching OOS and WGCF consumer changes, Security delta review, explicit
 version activation, and OOS active-session inventory are recorded. Runtime use
 still requires joint dev-integration deployment and live parity verification.
 
-Staged v6 validates one exact activation chain for every
+Current v6 validates one exact activation chain for every
 `before_runtime_activation` gate. The chain binds exact source repo, revision,
 path, field, observed value, and posture, and the evidence revision must equal
 that owner's pinned source-snapshot commit. When an owner source change is
 required, it also proves a separate source-backed activation Landing Unit
-ordered after the human authority and before commissioning. V6 remains
-unsupported for new custody and fresh readiness until Security review, consumer
-parity, session inventory, and coordinated activation complete.
+ordered after the human authority and before commissioning. V6 is the only
+schema admitted to new custody and fresh architecture readiness.
 
 The API surface is:
 
