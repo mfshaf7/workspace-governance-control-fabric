@@ -28,6 +28,20 @@
       "timeout_seconds": 1200
     },
     {
+      "id": "owner-repository-real-git-tests",
+      "kind": "tests",
+      "name": "WGCF merge-ready owner repository validation and test suite",
+      "executable": "python3",
+      "args": [
+        "scripts/run_delivery_art_evidence.py",
+        "--repo-root",
+        "."
+      ],
+      "fidelity": "real-git",
+      "conformance_binding": "matching-fidelity",
+      "timeout_seconds": 1200
+    },
+    {
       "id": "source-diff-validation",
       "kind": "validations",
       "name": "Source diff whitespace validation",
