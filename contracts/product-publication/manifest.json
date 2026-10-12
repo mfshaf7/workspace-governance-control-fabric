@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "contract_id": "wgcf.product-publication-readiness.v1",
+  "authority_repo": "workspace-governance",
+  "authority_commit": "213b9fed48f8bd0e6e6fd658bfeae38cfd9e3784",
+  "authority_files": {
+    "contracts/product-publication.yaml": "11d2e4fa274ec51bf5cee8ed47a2f3948a0ef8b6dc54dc01df10aea9d83aef53",
+    "contracts/schemas/product-publication-manifest.schema.json": "f91ae0f7022ccae63af9b97a7597803721ee8fd244ecdd6fbcc191af0ab50865"
+  },
+  "transport_schemas": {
+    "evaluation.schema.json": "88414f8db82978239815f69f47f6d0986277dd1478928664503ecf1ae1705a3e",
+    "readiness.schema.json": "d171942f3557d7328790db81605a05fbd9b044076808ed753f91920eeaca94f5"
+  },
+  "runtime_activation": false
+}

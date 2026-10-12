@@ -527,6 +527,29 @@ class PrototypeClosureReadinessRecord(TimestampMixin, Base):
     readiness: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
 
 
+class ProductPublicationReadinessRecord(TimestampMixin, Base):
+    """Immutable Product Publication readiness artifact and caller binding."""
+
+    __tablename__ = "product_publication_readiness"
+    __table_args__ = (
+        UniqueConstraint("actor", "idempotency_key"),
+        UniqueConstraint("actor", "request_id"),
+    )
+
+    evaluation_id: Mapped[str] = mapped_column(String(192), primary_key=True)
+    evaluation_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    readiness_digest: Mapped[str] = mapped_column(String(71), unique=True, nullable=False)
+    actor: Mapped[str] = mapped_column(String(256), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(192), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    authority_revision: Mapped[str] = mapped_column(String(40), nullable=False)
+    contract_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    implementation_ref: Mapped[str] = mapped_column(String(40), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    readiness: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+
+
 class LifecycleTransitionReadinessRecord(TimestampMixin, Base):
     """Immutable lifecycle-transition readiness artifact and caller binding."""
 

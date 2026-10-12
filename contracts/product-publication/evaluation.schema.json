@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version", "artifact_type", "evaluation_id", "session_ref",
+    "execution_ref", "authority_revision", "manifest_source", "request",
+    "evaluation_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "wgcf-product-publication-evaluation" },
+    "evaluation_id": { "type": "string", "pattern": "^product-publication-evaluation:[a-z0-9][a-z0-9._:-]*$" },
+    "session_ref": { "$ref": "#/$defs/text" },
+    "execution_ref": { "$ref": "#/$defs/text" },
+    "authority_revision": { "$ref": "#/$defs/commit" },
+    "manifest_source": {
+      "type": "object",
+      "required": ["repo", "path", "source_revision", "manifest_revision", "manifest_digest"],
+      "properties": {
+        "repo": { "$ref": "#/$defs/repo" },
+        "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+        "source_revision": { "$ref": "#/$defs/commit" },
+        "manifest_revision": { "$ref": "#/$defs/commit" },
+        "manifest_digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "request_id", "idempotency_key", "action", "expected_publication_version",
+        "current_publication_posture", "target_publication", "previous_receipt",
+        "requested_at", "request_digest"
+      ],
+      "properties": {
+        "request_id": { "type": "string", "pattern": "^product-publication-request:[a-z0-9][a-z0-9._:-]*$" },
+        "idempotency_key": { "$ref": "#/$defs/text" },
+        "action": { "enum": ["publish", "update", "unpublish", "archive"] },
+        "expected_publication_version": { "type": "integer", "minimum": 0 },
+        "current_publication_posture": { "$ref": "#/$defs/posture" },
+        "target_publication": {
+          "type": "object",
+          "required": ["posture", "listing_scope", "audience", "access_class"],
+          "properties": {
+            "posture": { "$ref": "#/$defs/posture" },
+            "listing_scope": { "type": ["string", "null"], "enum": [null, "workspace-portfolio", "client-portfolio", "public-catalog", "historical-archive"] },
+            "audience": { "type": ["string", "null"], "enum": [null, "workspace-operators", "authorized-clients", "public", "historical"] },
+            "access_class": { "type": ["string", "null"], "enum": [null, "workspace-authenticated", "client-authorized", "public-anonymous", "historical-read-only"] }
+          },
+          "additionalProperties": false
+        },
+        "previous_receipt": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["receipt_id", "receipt_digest", "publication_version"],
+              "properties": {
+                "receipt_id": { "$ref": "#/$defs/text" },
+                "receipt_digest": { "$ref": "#/$defs/digest" },
+                "publication_version": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "requested_at": { "type": "string", "format": "date-time" },
+        "request_digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "evaluation_digest": { "$ref": "#/$defs/digest" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "repo": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "posture": { "enum": ["unlisted", "internal", "client", "public", "archived"] }
+  }
+}

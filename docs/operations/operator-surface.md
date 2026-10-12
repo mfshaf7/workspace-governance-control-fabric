@@ -249,6 +249,40 @@ checkout. The current Security and Platform repair items must approve and
 compose those settings. Migration `0010_inventory_lifecycle` stores immutable
 evaluation evidence only.
 
+### Product Publication Readiness
+
+OOS submits one digest-bound evaluation to
+`POST /v1/readiness/product-publication` through the existing authenticated
+WGCF caller boundary. The envelope names the exact Workspace Governance
+revision, the exact product-source revision described by the owner manifest,
+and the later owner-repository revision that commits that manifest. These are
+deliberately separate: a manifest cannot contain the hash of the commit that
+contains itself.
+
+WGCF reads Product Publication policy and active product inventory only from
+committed Workspace Governance truth. It then reads the owner manifest from
+the declared committed revision, proves that revision descends from the source
+snapshot, matches the submitted canonical digest, belongs to an authorized
+runtime or source owner, and is current in the trusted owner history. It also
+checks publication action, posture tuple, lifecycle eligibility, expected
+version, request time, request identity, and idempotency reuse.
+
+The result is an immutable `product-publication-readiness` artifact with both
+source and manifest revisions, policy and inventory bindings, a bounded
+15-minute lifetime, and deterministic `ready`, `stale`, or `blocked` findings.
+Exact retries reuse caller-scoped evidence; conflicting evaluation, request, or
+idempotency identities return 409. Readback uses
+`GET /v1/readiness/product-publication/{readiness_token}`. Malformed or
+untrusted source bindings return 422, oversized requests 413, missing caller
+evidence 401/403, absent caller-scoped readback 404, and unavailable authority
+or storage 503.
+
+This source capability does not publish, mutate product inventory, write an
+owner manifest, issue a Security decision, or activate runtime. The route is
+intentionally disabled by the pinned bundle until the later Epic 894 Security
+and Platform items approve and compose it. Migration
+`0015_product_publication` stores immutable evaluation evidence only.
+
 ### Prototype Landing Readiness
 
 OOS submits the exact Entry Packet, accepted Landing request, and Landing plan
