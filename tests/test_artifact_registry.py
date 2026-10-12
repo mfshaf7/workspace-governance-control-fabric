@@ -92,7 +92,7 @@ def artifact_content(
     supersedes: dict[str, str] | None = None,
 ) -> dict:
     content = {
-        "schema_version": 5,
+        "schema_version": 6,
         "artifact_type": "delivery_art_architecture_packet",
         "artifact_id": artifact_id,
         "delivery_id": "delivery-698",
@@ -217,16 +217,16 @@ class ArtifactRegistryTests(TestCase):
         )
 
     def test_new_noncurrent_architecture_registration_is_rejected(self) -> None:
-        for schema_version in (1, 2, 3, 4):
+        for schema_version in (1, 2, 3, 4, 5):
             noncurrent = artifact_content()
             noncurrent["schema_version"] = schema_version
             with self.subTest(schema_version=schema_version), self.assertRaisesRegex(
                 ArtifactRegistryContractError,
-                "new architecture registration requires schema v5",
+                "new architecture registration requires schema v6",
             ):
                 self.registry.register(registration_request(noncurrent), actor="oos")
 
-    def test_v5_can_exactly_supersede_an_existing_historical_architecture(self) -> None:
+    def test_v6_can_exactly_supersede_an_existing_historical_architecture(self) -> None:
         historical = artifact_content()
         historical["schema_version"] = 3
         with patch(
@@ -245,7 +245,7 @@ class ArtifactRegistryTests(TestCase):
         current = self.registry.register(registration_request(replacement), actor="oos")
 
         self.assertEqual(current.generation, 2)
-        self.assertEqual(current.artifact["schema_version"], 5)
+        self.assertEqual(current.artifact["schema_version"], 6)
         self.assertEqual(
             current.artifact["custody"]["supersedes"],
             replacement["custody"]["supersedes"],

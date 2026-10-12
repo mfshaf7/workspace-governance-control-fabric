@@ -486,7 +486,7 @@ class DeliveryArtReadinessTests(TestCase):
             contract_bundle=self.contract_bundle,
             clock=lambda: datetime(2026, 8, 8, 3, 30, tzinfo=timezone.utc),
         )
-        self.architecture = self._register(architecture_v5())
+        self.architecture = self._register(architecture_v6())
         self.work_start = self._register(work_start_for_architecture(self.architecture))
         self.merge_ready = self._register(review_packet_for_work_start(self.work_start))
 
@@ -608,18 +608,19 @@ class DeliveryArtReadinessTests(TestCase):
             fixture("architecture-packet.valid.json"),
             architecture_v2(),
             architecture_v3(),
+            architecture_v5(),
             historical_prose_architecture(),
         ):
             with self.subTest(schema_version=candidate["schema_version"]):
                 self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
                 with self.assertRaisesRegex(
                     ArtifactRegistryContractError,
-                    "new architecture registration requires schema v5",
+                    "new architecture registration requires schema v6",
                 ):
                     self._register(candidate)
 
-    def test_v5_is_current_and_enforces_causal_evidence_ownership(self) -> None:
-        current = architecture_v5()
+    def test_v6_is_current_and_enforces_causal_evidence_ownership(self) -> None:
+        current = architecture_v6()
 
         self.assertEqual(self.contract_bundle.validation_errors(current), ())
         self.assertEqual(
@@ -703,13 +704,13 @@ class DeliveryArtReadinessTests(TestCase):
                         expectation["selected_case_ids"],
                     )
 
-    def test_v6_stages_exact_source_activation_ownership_and_ordering(self) -> None:
+    def test_v6_is_current_with_exact_source_activation_ownership_and_ordering(self) -> None:
         candidate = architecture_v6()
 
         self.assertEqual(self.contract_bundle.validation_errors(candidate), ())
         self.assertEqual(
             delivery_art_architecture_contract_posture(candidate),
-            "unsupported",
+            "current",
         )
 
     def test_v6_rejects_missing_mismatched_and_unordered_source_activation(
@@ -813,13 +814,13 @@ class DeliveryArtReadinessTests(TestCase):
             },
         )
 
-    def test_v5_architecture_receives_new_custody_and_readiness(self) -> None:
+    def test_v6_architecture_receives_new_custody_and_readiness(self) -> None:
         result = self.service.issue(
             readiness_request(self.architecture, "architecture-ready"),
             actor="operator-orchestration-service",
         )
 
-        self.assertEqual(self.architecture["schema_version"], 5)
+        self.assertEqual(self.architecture["schema_version"], 6)
         self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
         self.assertEqual(
             result.artifact["subject"]["digest"],
@@ -854,15 +855,15 @@ class DeliveryArtReadinessTests(TestCase):
 
         with self.assertRaisesRegex(
             DeliveryArtReadinessContractError,
-            "architecture readiness requires schema v5",
+            "architecture readiness requires schema v6",
         ):
             self.service.issue(
                 readiness_request(durable_historical, "architecture-ready"),
                 actor="operator-orchestration-service",
             )
 
-    def test_v5_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
-        durable = self._register(architecture_v5())
+    def test_v6_readiness_receipt_binds_gate_evidence_and_security_authority(self) -> None:
+        durable = self._register(architecture_v6())
         result = self.service.issue(
             readiness_request(durable, "architecture-ready"),
             actor="operator-orchestration-service",
@@ -961,9 +962,9 @@ class DeliveryArtReadinessTests(TestCase):
                     ),
                 )
 
-    def test_v5_invalid_topology_cannot_receive_readiness(self) -> None:
-        packet = architecture_v5()
-        packet["artifact_id"] = "architecture-packet:delivery-698-v5-cyclic"
+    def test_v6_invalid_topology_cannot_receive_readiness(self) -> None:
+        packet = architecture_v6()
+        packet["artifact_id"] = "architecture-packet:delivery-698-v6-cyclic"
         packet["architecture"]["source_landing_graph"]["edges"].append(
             {
                 "prerequisite_landing_unit_id": "delivery-698-implementation",
@@ -982,7 +983,7 @@ class DeliveryArtReadinessTests(TestCase):
                 actor="operator-orchestration-service",
             )
 
-    def test_v3_and_v5_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
+    def test_v3_and_v6_invalid_execution_and_gate_semantics_fail_closed(self) -> None:
         cases = []
 
         duplicate_plan = architecture_v3()
@@ -1076,8 +1077,8 @@ class DeliveryArtReadinessTests(TestCase):
                 errors = self.contract_bundle.validation_errors(packet)
                 self.assertTrue(any(expected in error for error in errors), errors)
 
-        invalid = architecture_v5()
-        invalid["artifact_id"] = "architecture-packet:delivery-698-v5-impossible"
+        invalid = architecture_v6()
+        invalid["artifact_id"] = "architecture-packet:delivery-698-v6-impossible"
         invalid["architecture"]["work_item_execution_plan"][0][
             "close_after_work_item_ids"
         ] = ["work-item-802"]
@@ -1222,7 +1223,7 @@ class DeliveryArtReadinessTests(TestCase):
             implementation_ref=IMPLEMENTATION_REF,
             clock=lambda: datetime(2026, 8, 8, 2, 5, tzinfo=timezone.utc),
         )
-        blocked = architecture_v5()
+        blocked = architecture_v6()
         blocked["decision"]["status"] = "blocked-pending-architecture-decision"
         blocked["architecture"]["contradictions_open_decisions"][0]["status"] = "open"
         blocked["architecture"]["contradictions_open_decisions"][0]["resolution"] = None

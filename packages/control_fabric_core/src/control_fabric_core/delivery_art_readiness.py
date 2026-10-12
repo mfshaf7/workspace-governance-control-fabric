@@ -107,8 +107,9 @@ def delivery_art_conformance_cases_for_readiness(
     """Select cases owned by one packet at one readiness phase.
 
     Versions 1-4 retain their immutable overlap-based merge-ready behavior.
-    Current v5 and staged v6 packets bind each case to one exact evidence-owner
-    Landing Unit and use exact readiness-phase selection.
+    V5 and current v6 packets bind each case to one exact evidence-owner Landing
+    Unit and use exact readiness-phase selection. V5 remains readable for work
+    already bound to its immutable reference; new custody requires v6.
     """
 
     conformance_plan = architecture_packet.get("conformance_plan", {})
@@ -657,7 +658,7 @@ class DeliveryArtReadinessService:
             add(
                 "conformance-owner-unresolved",
                 "blocker",
-                "Architecture v5 conformance cannot resolve exactly one evidence-owner "
+                "Architecture v5+ conformance cannot resolve exactly one evidence-owner "
                 "Landing Unit for the Review Packet scope.",
             )
             return
