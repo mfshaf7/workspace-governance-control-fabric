@@ -730,6 +730,17 @@ class ProductPublicationReadinessTests(TestCase):
             ):
                 build_product_publication_readiness_runtime()
 
+    def test_bundle_pins_approved_lifecycle_authority(self) -> None:
+        manifest = ProductPublicationContracts.load().manifest
+        self.assertEqual(
+            manifest["authority_commit"],
+            "fab38a8266512b0004081039b017904c9c55f288",
+        )
+        self.assertEqual(
+            manifest["authority_files"]["contracts/product-publication.yaml"],
+            "e2df9581fd31237a451c65c54b7398f12d055c667f1efd9ad634736b72b905ec",
+        )
+
     @staticmethod
     def _init_repo(path: Path) -> None:
         path.mkdir(parents=True)

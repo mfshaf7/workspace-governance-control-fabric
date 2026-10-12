@@ -12,7 +12,7 @@
 
 Workspace Governance remains the policy, artifact, Product Inventory, and
 append-only inventory-history authority. The evaluator pins merge
-`06b954b31466f9779dce8ec54f722f348b885505` and the exact Product Publication
+`fab38a8266512b0004081039b017904c9c55f288` and the exact Product Publication
 contract, owner-manifest schema, and Workspace Inventory history schema from
 that revision.
 
@@ -34,6 +34,13 @@ or runtime state.
   history digest in immutable readiness evidence;
 - continue to reject stale, contradictory, unauthorized, and replay-conflicting
   evidence before downstream mutation.
+
+The initial lifecycle evaluator source retained the earlier internal-only
+authority bundle even though its schema-v2 code targeted the later lifecycle
+policy. This maintenance correction binds the bundle to the already-approved
+Workspace Governance lifecycle authority and adds an exact regression check so
+the source gate cannot again claim lifecycle readiness with the superseded
+policy digest.
 
 ## Validation
 
