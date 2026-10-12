@@ -7,7 +7,7 @@
     "evaluation_digest"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "enum": [1, 2] },
     "artifact_type": { "const": "wgcf-product-publication-evaluation" },
     "evaluation_id": { "type": "string", "pattern": "^product-publication-evaluation:[a-z0-9][a-z0-9._:-]*$" },
     "session_ref": { "$ref": "#/$defs/text" },
@@ -35,7 +35,7 @@
       "properties": {
         "request_id": { "type": "string", "pattern": "^product-publication-request:[a-z0-9][a-z0-9._:-]*$" },
         "idempotency_key": { "$ref": "#/$defs/text" },
-        "action": { "enum": ["publish", "update", "unpublish", "archive"] },
+        "action": { "enum": ["publish", "update", "unpublish", "archive", "restore"] },
         "expected_publication_version": { "type": "integer", "minimum": 0 },
         "current_publication_posture": { "$ref": "#/$defs/posture" },
         "target_publication": {
@@ -58,7 +58,8 @@
               "properties": {
                 "receipt_id": { "$ref": "#/$defs/text" },
                 "receipt_digest": { "$ref": "#/$defs/digest" },
-                "publication_version": { "type": "integer", "minimum": 1 }
+                "publication_version": { "type": "integer", "minimum": 1 },
+                "publication_posture": { "$ref": "#/$defs/posture" }
               },
               "additionalProperties": false
             }
@@ -71,6 +72,86 @@
     },
     "evaluation_digest": { "$ref": "#/$defs/digest" }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schema_version": { "const": 1 } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "properties": {
+              "action": { "enum": ["publish", "update", "unpublish", "archive"] }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "schema_version": { "const": 2 } },
+        "required": ["schema_version"]
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "properties": {
+              "previous_receipt": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "required": ["receipt_id", "receipt_digest", "publication_version", "publication_posture"],
+                    "properties": {
+                      "receipt_id": { "$ref": "#/$defs/text" },
+                      "receipt_digest": { "$ref": "#/$defs/digest" },
+                      "publication_version": { "type": "integer", "minimum": 1 },
+                      "publication_posture": { "$ref": "#/$defs/posture" }
+                    },
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": { "action": { "const": "restore" } },
+            "required": ["action"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "schema_version": { "const": 2 },
+          "request": {
+            "properties": {
+              "current_publication_posture": { "const": "archived" },
+              "target_publication": {
+                "properties": {
+                  "posture": { "const": "unlisted" },
+                  "listing_scope": { "const": null },
+                  "audience": { "const": null },
+                  "access_class": { "const": null }
+                }
+              },
+              "previous_receipt": {
+                "type": "object",
+                "required": ["receipt_id", "receipt_digest", "publication_version", "publication_posture"],
+                "properties": { "publication_posture": { "const": "archived" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "additionalProperties": false,
   "$defs": {
     "text": { "type": "string", "minLength": 1, "maxLength": 512 },

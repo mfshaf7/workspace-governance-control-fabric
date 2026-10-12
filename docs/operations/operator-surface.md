@@ -267,9 +267,21 @@ runtime or source owner, and is current in the trusted owner history. It also
 checks publication action, posture tuple, lifecycle eligibility, expected
 version, request time, request identity, and idempotency reuse.
 
+Schema-v2 requests also bind the current committed Workspace Inventory history.
+WGCF verifies that the manifest's lifecycle event is the latest event for the
+same product, that its digest, sequence, action, predecessor, and resulting
+record state match committed authority, and that its receipt identity belongs
+to the same lifecycle operation. Archive readiness requires the exact retirement
+event. Restore readiness additionally requires the exact prior suspension or
+retirement event, the exact previous archived publication receipt, and a fixed
+`archived` to `unlisted` target. A listed restore target is invalid input.
+
 The result is an immutable `product-publication-readiness` artifact with both
 source and manifest revisions, policy and inventory bindings, a bounded
 15-minute lifetime, and deterministic `ready`, `stale`, or `blocked` findings.
+Schema-v2 readiness also preserves the exact lifecycle binding, history digest,
+current publication posture, action, and previous publication receipt for OOS
+to verify before any mutation.
 Exact retries reuse caller-scoped evidence; conflicting evaluation, request, or
 idempotency identities return 409. Readback uses
 `GET /v1/readiness/product-publication/{readiness_token}`. Malformed or
@@ -277,10 +289,11 @@ untrusted source bindings return 422, oversized requests 413, missing caller
 evidence 401/403, absent caller-scoped readback 404, and unavailable authority
 or storage 503.
 
-This source capability does not publish, mutate product inventory, write an
-owner manifest, issue a Security decision, or activate runtime. The route is
-intentionally disabled by the pinned bundle until the later Epic 894 Security
-and Platform items approve and compose it. Migration
+This source capability does not publish, mutate product inventory or history,
+write an owner manifest, restore runtime/release/access, issue a Security
+decision, or activate runtime. Lifecycle readiness extends the already
+commissioned evaluator route; OOS action activation and Platform commissioning
+remain separate later Epic 894 gates. Migration
 `0015_product_publication` stores immutable evaluation evidence only.
 
 ### Prototype Landing Readiness

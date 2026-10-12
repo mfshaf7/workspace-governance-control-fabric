@@ -98,7 +98,7 @@ class ProductPublicationReadinessService:
             result = evaluate_product_publication(envelope, snapshot, evaluated_at)
             manifest = snapshot.manifest
             readiness = {
-                "schema_version": 1,
+                "schema_version": envelope["schema_version"],
                 "artifact_type": "product-publication-readiness",
                 "readiness_id": envelope["evaluation_id"].replace(
                     "product-publication-evaluation:", "product-publication-readiness:", 1
@@ -129,6 +129,16 @@ class ProductPublicationReadinessService:
                 "findings": result["findings"],
                 "secret_values_embedded": False,
             }
+            if envelope["schema_version"] == 2:
+                readiness["action"] = request["action"]
+                readiness["current_publication_posture"] = request[
+                    "current_publication_posture"
+                ]
+                readiness["previous_receipt"] = copy.deepcopy(request["previous_receipt"])
+                readiness["inventory_lifecycle_binding"] = copy.deepcopy(
+                    manifest["inventory_lifecycle_binding"]
+                )
+                readiness["authority_binding"]["history_digest"] = snapshot.history_digest
             readiness["readiness_digest"] = digest(readiness)
             try:
                 self.contracts.validate("readiness.schema.json", readiness)
