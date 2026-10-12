@@ -141,9 +141,13 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/readiness/product-publication/{readiness_token}`. The source
   evaluator separates the product source snapshot from the later commit that
   contains the owner manifest, verifies both committed histories and the exact
-  manifest digest, and issues caller-scoped immutable readiness evidence. The
-  route remains fail-closed until the later Security review and Platform
-  activation items enable its runtime composition.
+  manifest digest, and issues caller-scoped immutable readiness evidence.
+  Schema-v2 evaluation additionally binds the latest committed Workspace
+  Inventory lifecycle event, predecessor, owner lifecycle receipt reference,
+  resulting inventory state, and previous publication receipt. Archive requires
+  the exact retirement event; restore is limited to archived-to-unlisted after
+  an exact owner restore event. The evaluator remains non-mutating and grants no
+  runtime, release, Security, access, or lifecycle authority.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an

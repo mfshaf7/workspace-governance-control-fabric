@@ -48,13 +48,19 @@ class ProductPublicationReadinessTests(TestCase):
         self._init_repo(self.owner)
 
         policy = self.policy()
-        policy_raw = yaml.safe_dump(policy, sort_keys=False).encode()
-        schema_raw = json.dumps(self.manifest_schema(), sort_keys=True).encode()
-        self._write(self.workspace, "contracts/product-publication.yaml", policy_raw)
+        self.policy_raw = yaml.safe_dump(policy, sort_keys=False).encode()
+        self.schema_raw = json.dumps(self.manifest_schema(), sort_keys=True).encode()
+        self.history_schema_raw = json.dumps(self.history_schema(), sort_keys=True).encode()
+        self._write(self.workspace, "contracts/product-publication.yaml", self.policy_raw)
         self._write(
             self.workspace,
             "contracts/schemas/product-publication-manifest.schema.json",
-            schema_raw,
+            self.schema_raw,
+        )
+        self._write(
+            self.workspace,
+            "contracts/schemas/workspace-inventory-history.schema.json",
+            self.history_schema_raw,
         )
         self.products = {
             "schema_version": 2,
@@ -72,6 +78,12 @@ class ProductPublicationReadinessTests(TestCase):
             self.workspace,
             "contracts/products.yaml",
             yaml.safe_dump(self.products, sort_keys=False).encode(),
+        )
+        self.history = {"schema_version": 1, "events": []}
+        self._write(
+            self.workspace,
+            "contracts/workspace-inventory-history.yaml",
+            yaml.safe_dump(self.history, sort_keys=False).encode(),
         )
         self._commit(self.workspace, "Authority contract")
         self.authority_revision = self._git(self.workspace, "rev-parse", "HEAD")
@@ -95,8 +107,9 @@ class ProductPublicationReadinessTests(TestCase):
                 **contracts.manifest,
                 "authority_commit": self.authority_revision,
                 "authority_files": {
-                    "contracts/product-publication.yaml": hashlib.sha256(policy_raw).hexdigest(),
-                    "contracts/schemas/product-publication-manifest.schema.json": hashlib.sha256(schema_raw).hexdigest(),
+                    "contracts/product-publication.yaml": hashlib.sha256(self.policy_raw).hexdigest(),
+                    "contracts/schemas/product-publication-manifest.schema.json": hashlib.sha256(self.schema_raw).hexdigest(),
+                    "contracts/schemas/workspace-inventory-history.schema.json": hashlib.sha256(self.history_schema_raw).hexdigest(),
                 },
             },
         )
@@ -142,6 +155,7 @@ class ProductPublicationReadinessTests(TestCase):
                     "update": {"allowed_source_postures": ["internal", "client", "public"], "allowed_target_postures": ["internal", "client", "public"]},
                     "unpublish": {"allowed_source_postures": ["internal", "client", "public"], "allowed_target_postures": ["unlisted"]},
                     "archive": {"allowed_source_postures": ["unlisted"], "allowed_target_postures": ["archived"]},
+                    "restore": {"allowed_source_postures": ["archived"], "allowed_target_postures": ["unlisted"]},
                 },
                 "posture_bindings": {
                     "unlisted": {"listing_scope": None, "audience": None, "access_class": None, "allowed_lifecycle_states": ["active", "suspended", "retired"]},
@@ -164,7 +178,33 @@ class ProductPublicationReadinessTests(TestCase):
                 "lifecycle_state", "owner_repo", "owner_role", "owner_revision",
                 "source_refs", "lifecycle_evidence", "issued_at",
             ],
+            "properties": {
+                "schema_version": {"enum": [1, 2]},
+                "inventory_lifecycle_binding": {"type": "object"},
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"schema_version": {"const": 2}},
+                        "required": ["schema_version"],
+                    },
+                    "then": {"required": ["inventory_lifecycle_binding"]},
+                }
+            ],
             "additionalProperties": True,
+        }
+
+    @staticmethod
+    def history_schema() -> dict:
+        return {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "required": ["schema_version", "events"],
+            "properties": {
+                "schema_version": {"const": 1},
+                "events": {"type": "array"},
+            },
+            "additionalProperties": False,
         }
 
     def owner_manifest(self) -> dict:
@@ -192,27 +232,272 @@ class ProductPublicationReadinessTests(TestCase):
             "issued_at": "2026-10-12T04:30:00Z",
         }
 
-    def envelope(self) -> dict:
-        request = {
-            "request_id": "product-publication-request:console:1",
-            "idempotency_key": "product-publication:console:1",
-            "action": "publish",
-            "expected_publication_version": 0,
-            "current_publication_posture": "unlisted",
-            "target_publication": {
-                "posture": "internal",
-                "listing_scope": "workspace-portfolio",
-                "audience": "workspace-operators",
-                "access_class": "workspace-authenticated",
+    def install_lifecycle_state(self, action: str) -> None:
+        if action not in {"archive", "restore"}:
+            raise ValueError(action)
+        product = copy.deepcopy(
+            self.products["products"]["governance-operations-console"]
+        )
+        before = {
+            "record_version": product["record"]["version"],
+            "record_digest": digest(product),
+            "posture": product["posture"],
+        }
+        events = []
+        previous_ref = None
+
+        product["posture"] = "retired"
+        product["record"]["version"] = 2
+        product["record"]["last_mutation"] = {
+            "id": "workspace-inventory-lifecycle:retire-console",
+            "action": "retire",
+            "idempotency_key": "retire-console",
+            "request_ref": "workspace-inventory-lifecycle-request:retire-console",
+            "request_digest": digest({"request": "retire-console"}),
+            "readiness_ref": "workspace-inventory-lifecycle-readiness:retire-console",
+            "readiness_digest": digest({"readiness": "retire-console"}),
+            "applied_at": "2026-10-12T04:35:00Z",
+        }
+        retired = {
+            "record_version": 2,
+            "record_digest": digest(product),
+            "posture": "retired",
+        }
+        retire_event = self.lifecycle_event(
+            sequence=1,
+            action="retire",
+            idempotency_key="retire-console",
+            before=before,
+            after=retired,
+            previous_event_ref=None,
+        )
+        events.append(retire_event)
+        latest_event = retire_event
+
+        if action == "restore":
+            previous_ref = {
+                "id": retire_event["event_id"],
+                "digest": retire_event["event_digest"],
+            }
+            product["posture"] = "active"
+            product["record"]["version"] = 3
+            product["record"]["last_mutation"] = {
+                "id": "workspace-inventory-lifecycle:restore-console",
+                "action": "restore",
+                "idempotency_key": "restore-console",
+                "request_ref": "workspace-inventory-lifecycle-request:restore-console",
+                "request_digest": digest({"request": "restore-console"}),
+                "readiness_ref": "workspace-inventory-lifecycle-readiness:restore-console",
+                "readiness_digest": digest({"readiness": "restore-console"}),
+                "applied_at": "2026-10-12T04:40:00Z",
+            }
+            restored = {
+                "record_version": 3,
+                "record_digest": digest(product),
+                "posture": "active",
+            }
+            latest_event = self.lifecycle_event(
+                sequence=2,
+                action="restore",
+                idempotency_key="restore-console",
+                before=retired,
+                after=restored,
+                previous_event_ref=previous_ref,
+            )
+            events.append(latest_event)
+
+        self.products["products"]["governance-operations-console"] = product
+        self.history = {"schema_version": 1, "events": events}
+        self._write(
+            self.workspace,
+            "contracts/products.yaml",
+            yaml.safe_dump(self.products, sort_keys=False).encode(),
+        )
+        self._write(
+            self.workspace,
+            "contracts/workspace-inventory-history.yaml",
+            yaml.safe_dump(self.history, sort_keys=False).encode(),
+        )
+        self._commit(self.workspace, f"Apply product {action} lifecycle state")
+        self.authority_revision = self._git(self.workspace, "rev-parse", "HEAD")
+
+        manifest = self.owner_manifest()
+        manifest.update(
+            schema_version=2,
+            manifest_id=(
+                "product-publication-manifest:governance-operations-console:"
+                f"{product['record']['version']}"
+            ),
+            product_record_ref=(
+                "workspace-governance://products/governance-operations-console/"
+                f"v{product['record']['version']}"
+            ),
+            product_record_version=product["record"]["version"],
+            lifecycle_state=product["posture"],
+        )
+        manifest["lifecycle_evidence"]["project_phase"] = (
+            "retired" if action == "archive" else "operational"
+        )
+        manifest["lifecycle_evidence"]["publication_posture"] = "unlisted"
+        manifest["inventory_lifecycle_binding"] = {
+            "action": latest_event["action"],
+            "receipt_ref": {
+                "id": (
+                    "workspace-inventory-lifecycle-receipt:"
+                    f"{latest_event['idempotency_key']}:review-branch"
+                ),
+                "digest": digest({"receipt": latest_event["idempotency_key"]}),
             },
-            "previous_receipt": None,
+            "history_event_ref": {
+                "id": latest_event["event_id"],
+                "digest": latest_event["event_digest"],
+                "sequence": latest_event["sequence"],
+            },
+            "previous_event_ref": previous_ref,
+            "after": copy.deepcopy(latest_event["after"]),
+        }
+        self.manifest = manifest
+        self._write(
+            self.owner,
+            "product-publication/manifest.json",
+            json.dumps(self.manifest, indent=2).encode(),
+        )
+        self._commit(self.owner, f"Bind product {action} lifecycle evidence")
+        self.manifest_revision = self._git(self.owner, "rev-parse", "HEAD")
+        self._rebuild_runtime()
+
+    def lifecycle_event(
+        self,
+        *,
+        sequence: int,
+        action: str,
+        idempotency_key: str,
+        before: dict,
+        after: dict,
+        previous_event_ref: dict | None,
+    ) -> dict:
+        event = {
+            "event_id": (
+                "workspace-inventory-event:product:governance-operations-console:"
+                f"{sequence}"
+            ),
+            "sequence": sequence,
+            "target": {
+                "kind": "product",
+                "name": "governance-operations-console",
+                "record_id": "product:governance-operations-console",
+            },
+            "action": action,
+            "idempotency_key": idempotency_key,
+            "before": copy.deepcopy(before),
+            "after": copy.deepcopy(after),
+            "request_ref": {
+                "id": f"workspace-inventory-lifecycle-request:{idempotency_key}",
+                "digest": digest({"request": idempotency_key}),
+            },
+            "readiness_ref": {
+                "id": f"workspace-inventory-lifecycle-readiness:{idempotency_key}",
+                "digest": digest({"readiness": idempotency_key}),
+            },
+            "previous_event_ref": copy.deepcopy(previous_event_ref),
+            "operator_ref": "operator:test",
+            "applied_at": f"2026-10-12T04:{34 + sequence * 5}:00Z",
+        }
+        event["event_digest"] = digest(event)
+        return event
+
+    def _rebuild_runtime(self) -> None:
+        self.contracts = replace(
+            ProductPublicationContracts.load(),
+            manifest={
+                **ProductPublicationContracts.load().manifest,
+                "authority_commit": self.authority_revision,
+                "authority_files": {
+                    "contracts/product-publication.yaml": hashlib.sha256(self.policy_raw).hexdigest(),
+                    "contracts/schemas/product-publication-manifest.schema.json": hashlib.sha256(self.schema_raw).hexdigest(),
+                    "contracts/schemas/workspace-inventory-history.schema.json": hashlib.sha256(self.history_schema_raw).hexdigest(),
+                },
+            },
+        )
+        self.authority = ProductPublicationAuthority(
+            self.workspace,
+            {"governance-operations-console": self.owner},
+            self.contracts,
+            trusted_ref="refs/heads/main",
+        )
+        self.service = ProductPublicationReadinessService(
+            session_factory=self.sessions,
+            authority=self.authority,
+            service_identity_ref="spiffe://test/product-publication",
+            implementation_ref="1" * 40,
+            clock=lambda: datetime(2026, 10, 12, 5, 0, tzinfo=timezone.utc),
+        )
+        self.client.close()
+        self.client = TestClient(
+            create_app(
+                product_publication_readiness=self.service,
+                artifact_registry_authorizer=ArtifactRegistryAuthorizer(
+                    oos_secret="o" * 32,
+                    reconciler_secret="r" * 32,
+                ),
+            )
+        )
+        self.addCleanup(self.client.close)
+
+    def envelope(self, *, schema_version: int = 1, action: str = "publish") -> dict:
+        target = {
+            "posture": "internal",
+            "listing_scope": "workspace-portfolio",
+            "audience": "workspace-operators",
+            "access_class": "workspace-authenticated",
+        }
+        current = "unlisted"
+        expected_version = 0
+        previous_receipt = None
+        if action == "archive":
+            target = {
+                "posture": "archived",
+                "listing_scope": "historical-archive",
+                "audience": "historical",
+                "access_class": "historical-read-only",
+            }
+            expected_version = 1
+            previous_receipt = {
+                "receipt_id": "product-publication-receipt:console:1",
+                "receipt_digest": digest({"publication": 1}),
+                "publication_version": 1,
+                "publication_posture": "unlisted",
+            }
+        if action == "restore":
+            current = "archived"
+            target = {
+                "posture": "unlisted",
+                "listing_scope": None,
+                "audience": None,
+                "access_class": None,
+            }
+            expected_version = 2
+            previous_receipt = {
+                "receipt_id": "product-publication-receipt:console:2",
+                "receipt_digest": digest({"publication": 2}),
+                "publication_version": 2,
+                "publication_posture": "archived",
+            }
+        request = {
+            "request_id": f"product-publication-request:console:{action}",
+            "idempotency_key": f"product-publication:console:{action}",
+            "action": action,
+            "expected_publication_version": expected_version,
+            "current_publication_posture": current,
+            "target_publication": target,
+            "previous_receipt": previous_receipt,
             "requested_at": "2026-10-12T04:45:00Z",
         }
         request["request_digest"] = artifact_digest(request, "request_digest")
         envelope = {
-            "schema_version": 1,
+            "schema_version": schema_version,
             "artifact_type": "wgcf-product-publication-evaluation",
-            "evaluation_id": "product-publication-evaluation:console:1",
+            "evaluation_id": f"product-publication-evaluation:console:{action}",
             "session_ref": "session:console:1",
             "execution_ref": "execution:console:1",
             "authority_revision": self.authority_revision,
@@ -259,6 +544,114 @@ class ProductPublicationReadinessTests(TestCase):
         with self.sessions() as session:
             self.assertEqual(len(session.scalars(select(ProductPublicationReadinessRecord)).all()), 1)
             self.assertEqual(len(session.scalars(select(LedgerEvent)).all()), 3)
+
+    def test_schema_v2_archive_binds_exact_retirement_history(self) -> None:
+        self.install_lifecycle_state("archive")
+        before = (
+            self._git(self.workspace, "status", "--porcelain"),
+            self._git(self.owner, "status", "--porcelain"),
+        )
+        response = self.post(self.envelope(schema_version=2, action="archive"))
+        self.assertEqual(response.status_code, 200, response.text)
+        readiness = response.json()["readiness"]
+        self.assertEqual("ready", readiness["outcome"], readiness["findings"])
+        self.assertEqual(2, readiness["schema_version"])
+        self.assertEqual("archive", readiness["action"])
+        self.assertEqual(
+            self.manifest["inventory_lifecycle_binding"],
+            readiness["inventory_lifecycle_binding"],
+        )
+        self.assertEqual(digest(self.history), readiness["authority_binding"]["history_digest"])
+        self.assertEqual(
+            before,
+            (
+                self._git(self.workspace, "status", "--porcelain"),
+                self._git(self.owner, "status", "--porcelain"),
+            ),
+        )
+
+    def test_schema_v2_restore_is_archived_to_unlisted_only(self) -> None:
+        self.install_lifecycle_state("restore")
+        value = self.envelope(schema_version=2, action="restore")
+        response = self.post(value)
+        self.assertEqual(response.status_code, 200, response.text)
+        readiness = response.json()["readiness"]
+        self.assertEqual("ready", readiness["outcome"], readiness["findings"])
+        self.assertEqual("archived", readiness["current_publication_posture"])
+        self.assertEqual("unlisted", readiness["target_publication"]["posture"])
+        self.assertEqual("archived", readiness["previous_receipt"]["publication_posture"])
+        token = readiness["readiness_digest"].removeprefix("sha256:")
+        readback = self.client.get(
+            f"/v1/readiness/product-publication/{token}", headers=self.headers
+        )
+        self.assertEqual(readiness, readback.json()["readiness"])
+        self.assertEqual("reused", self.post(value).json()["ledger"]["resolution"])
+        conflict = copy.deepcopy(value)
+        conflict["evaluation_id"] = "product-publication-evaluation:console:restore-conflict"
+        conflict["request"]["previous_receipt"]["receipt_digest"] = digest(
+            {"publication": "conflict"}
+        )
+        self.bind(conflict)
+        self.assertEqual(409, self.post(conflict).status_code)
+
+    def test_schema_v2_rejects_contradictory_history_and_listed_restore(self) -> None:
+        self.install_lifecycle_state("restore")
+        self.manifest["inventory_lifecycle_binding"]["history_event_ref"]["digest"] = (
+            "sha256:" + "f" * 64
+        )
+        self._write(
+            self.owner,
+            "product-publication/manifest.json",
+            json.dumps(self.manifest, indent=2).encode(),
+        )
+        self._commit(self.owner, "Commit contradictory lifecycle binding")
+        self.manifest_revision = self._git(self.owner, "rev-parse", "HEAD")
+        value = self.envelope(schema_version=2, action="restore")
+        response = self.post(value)
+        self.assertEqual(response.status_code, 200, response.text)
+        readiness = response.json()["readiness"]
+        self.assertEqual("blocked", readiness["outcome"])
+        self.assertIn(
+            "lifecycle-event-digest-mismatch",
+            [finding["code"] for finding in readiness["findings"]],
+        )
+
+        self.manifest["inventory_lifecycle_binding"]["history_event_ref"] = {
+            "id": "workspace-inventory-event:product:governance-operations-console:99",
+            "digest": digest({"missing": "history"}),
+            "sequence": 99,
+        }
+        self._write(
+            self.owner,
+            "product-publication/manifest.json",
+            json.dumps(self.manifest, indent=2).encode(),
+        )
+        self._commit(self.owner, "Commit stale lifecycle binding")
+        self.manifest_revision = self._git(self.owner, "rev-parse", "HEAD")
+        stale = self.envelope(schema_version=2, action="restore")
+        stale["evaluation_id"] = "product-publication-evaluation:console:stale-history"
+        stale["request"]["request_id"] = "product-publication-request:console:stale-history"
+        stale["request"]["idempotency_key"] = "product-publication:console:stale-history"
+        self.bind(stale)
+        stale_readiness = self.post(stale).json()["readiness"]
+        self.assertEqual("stale", stale_readiness["outcome"])
+        self.assertIn(
+            "stale-lifecycle-history",
+            [finding["code"] for finding in stale_readiness["findings"]],
+        )
+
+        listed = self.envelope(schema_version=2, action="restore")
+        listed["evaluation_id"] = "product-publication-evaluation:console:listed-restore"
+        listed["request"]["request_id"] = "product-publication-request:console:listed-restore"
+        listed["request"]["idempotency_key"] = "product-publication:console:listed-restore"
+        listed["request"]["target_publication"] = {
+            "posture": "internal",
+            "listing_scope": "workspace-portfolio",
+            "audience": "workspace-operators",
+            "access_class": "workspace-authenticated",
+        }
+        self.bind(listed)
+        self.assertEqual(422, self.post(listed).status_code)
 
     def test_blocked_stale_conflict_and_auth_boundaries(self) -> None:
         invalid = self.envelope()

@@ -22,6 +22,7 @@ from .workspace_intake_contracts import (
     parse_json as _parse_json,
     yaml_record,
 )
+from .workspace_inventory_contracts import InventoryUnavailable, validate_history
 
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "product-publication"
@@ -83,6 +84,7 @@ class ProductPublicationContracts:
                 or set(manifest["authority_files"]) != {
                     "contracts/product-publication.yaml",
                     "contracts/schemas/product-publication-manifest.schema.json",
+                    "contracts/schemas/workspace-inventory-history.schema.json",
                 }
                 or set(manifest["transport_schemas"]) != {
                     "evaluation.schema.json",
@@ -122,6 +124,8 @@ class ProductPublicationSnapshot:
     authority_revision: str
     products: dict[str, Any]
     products_digest: str
+    history: dict[str, Any]
+    history_digest: str
     policy: dict[str, Any]
     contract_digest: str
     manifest: dict[str, Any]
@@ -195,8 +199,14 @@ class ProductPublicationAuthority:
                 )
             authority_raw[path] = raw
         products_raw = self._read(self.workspace_root, workspace_revision, "contracts/products.yaml")
+        history_raw = self._read(
+            self.workspace_root,
+            workspace_revision,
+            "contracts/workspace-inventory-history.yaml",
+        )
         policy = yaml_record(authority_raw["contracts/product-publication.yaml"])
         products = yaml_record(products_raw)
+        history = yaml_record(history_raw)
         manifest_schema = parse_json(
             authority_raw["contracts/schemas/product-publication-manifest.schema.json"]
         )
@@ -207,6 +217,28 @@ class ProductPublicationAuthority:
             )
         except SchemaError as exc:
             raise ProductPublicationUnavailable("Product Publication manifest schema is invalid") from exc
+        history_schema = parse_json(
+            authority_raw["contracts/schemas/workspace-inventory-history.schema.json"]
+        )
+        try:
+            Draft202012Validator.check_schema(history_schema)
+            history_validator = Draft202012Validator(
+                history_schema, format_checker=FormatChecker()
+            )
+        except SchemaError as exc:
+            raise ProductPublicationUnavailable(
+                "Workspace Inventory history schema is invalid"
+            ) from exc
+        if next(history_validator.iter_errors(history), None) is not None:
+            raise ProductPublicationUnavailable(
+                "committed Workspace Inventory history is invalid"
+            )
+        try:
+            validate_history(history)
+        except InventoryUnavailable as exc:
+            raise ProductPublicationUnavailable(
+                "committed Workspace Inventory history is invalid"
+            ) from exc
 
         owner_root = self.owner_roots[repo_name]
         owner_head = self._commit(owner_root, self.trusted_ref)
@@ -230,6 +262,8 @@ class ProductPublicationAuthority:
             authority_revision=workspace_revision,
             products=products,
             products_digest=digest(products),
+            history=history,
+            history_digest=digest(history),
             policy=policy,
             contract_digest="sha256:" + self.contracts.manifest["authority_files"]["contracts/product-publication.yaml"],
             manifest=manifest,

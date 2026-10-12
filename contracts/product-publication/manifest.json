@@ -2,14 +2,15 @@
   "schema_version": 1,
   "contract_id": "wgcf.product-publication-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "213b9fed48f8bd0e6e6fd658bfeae38cfd9e3784",
+  "authority_commit": "06b954b31466f9779dce8ec54f722f348b885505",
   "authority_files": {
-    "contracts/product-publication.yaml": "11d2e4fa274ec51bf5cee8ed47a2f3948a0ef8b6dc54dc01df10aea9d83aef53",
-    "contracts/schemas/product-publication-manifest.schema.json": "f91ae0f7022ccae63af9b97a7597803721ee8fd244ecdd6fbcc191af0ab50865"
+    "contracts/product-publication.yaml": "e4bdbc4f5eb3a1e43e08895c7754b06836569f0e7ddc4bb18c2d8ca795d158bc",
+    "contracts/schemas/product-publication-manifest.schema.json": "36ba4408f05198da8227dda456ba4acabe270d8c3daf70fbebd215b092a57149",
+    "contracts/schemas/workspace-inventory-history.schema.json": "e4c81c2583b1ca85208ec80141e36282db9ebcf31d7a3e8398eb146e1f7fc58a"
   },
   "transport_schemas": {
-    "evaluation.schema.json": "88414f8db82978239815f69f47f6d0986277dd1478928664503ecf1ae1705a3e",
-    "readiness.schema.json": "d171942f3557d7328790db81605a05fbd9b044076808ed753f91920eeaca94f5"
+    "evaluation.schema.json": "23fd696d884749523e73e760b0b60ad44e188e9562aa1fae8d7945a14e7ddfc5",
+    "readiness.schema.json": "42218ea3c333fceb8b989c890462f2f91f16e36c15c4f7c826196cb22883e70d"
   },
   "runtime_activation": true
 }
