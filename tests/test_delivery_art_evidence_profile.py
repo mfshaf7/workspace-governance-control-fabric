@@ -52,16 +52,33 @@ class DeliveryArtEvidenceProfileTests(unittest.TestCase):
         profile = json.loads(
             (ROOT / "contracts/delivery-art-work-session/evidence-profile.json").read_text()
         )
-        test_command = next(
-            command for command in profile["commands"] if command["kind"] == "tests"
-        )
-        self.assertEqual("python3", test_command["executable"])
+        test_commands = {
+            command["id"]: command
+            for command in profile["commands"]
+            if command["kind"] == "tests"
+        }
         self.assertEqual(
-            ["scripts/run_delivery_art_evidence.py", "--repo-root", "."],
-            test_command["args"],
+            {
+                "owner-repository-tests",
+                "owner-repository-sandbox-runtime-tests",
+            },
+            set(test_commands),
         )
-        self.assertEqual("filesystem", test_command["fidelity"])
-        self.assertEqual("matching-fidelity", test_command["conformance_binding"])
+        for command in test_commands.values():
+            self.assertEqual("python3", command["executable"])
+            self.assertEqual(
+                ["scripts/run_delivery_art_evidence.py", "--repo-root", "."],
+                command["args"],
+            )
+            self.assertEqual("matching-fidelity", command["conformance_binding"])
+        self.assertEqual(
+            "filesystem",
+            test_commands["owner-repository-tests"]["fidelity"],
+        )
+        self.assertEqual(
+            "sandbox-runtime",
+            test_commands["owner-repository-sandbox-runtime-tests"]["fidelity"],
+        )
 
         validation_command = next(
             command for command in profile["commands"]
