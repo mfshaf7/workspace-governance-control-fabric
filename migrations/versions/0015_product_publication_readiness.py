@@ -36,8 +36,16 @@ def upgrade() -> None:
             server_default=sa.text("now()"),
             nullable=False,
         ),
-        sa.UniqueConstraint("actor", "idempotency_key"),
-        sa.UniqueConstraint("actor", "request_id"),
+        sa.UniqueConstraint(
+            "actor",
+            "idempotency_key",
+            name="uq_product_publication_actor_idempotency",
+        ),
+        sa.UniqueConstraint(
+            "actor",
+            "request_id",
+            name="uq_product_publication_actor_request",
+        ),
     )
 
 

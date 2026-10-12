@@ -10,6 +10,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.validate_project import (  # noqa: E402
     ALEMBIC_REVISION_ID_MAX_LENGTH,
+    validate_migration_constraint_names,
     validate_migration_revision_ids,
     validate_migration_revisions,
 )
@@ -18,6 +19,9 @@ from scripts.validate_project import (  # noqa: E402
 class MigrationContractTests(TestCase):
     def test_revision_ids_fit_alembic_version_storage(self) -> None:
         self.assertEqual(validate_migration_revisions(REPO_ROOT), [])
+
+    def test_unique_constraints_have_stable_explicit_names(self) -> None:
+        self.assertEqual(validate_migration_constraint_names(REPO_ROOT), [])
 
     def test_revision_limit_matches_alembic_default_storage(self) -> None:
         self.assertEqual(ALEMBIC_REVISION_ID_MAX_LENGTH, 32)
