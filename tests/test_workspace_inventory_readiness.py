@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 from dataclasses import replace
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -115,6 +116,26 @@ class WorkspaceInventoryReadinessTests(TestCase):
             "x-wgcf-caller-id": "operator-orchestration-service",
             "x-wgcf-caller-secret": "o" * 32,
         }
+
+    def test_authority_git_is_safe_for_mounted_source_and_ignores_ambient_git_config(self) -> None:
+        with (
+            patch.dict(os.environ, {
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.hooksPath",
+                "GIT_CONFIG_VALUE_0": "/tmp/untrusted-hooks",
+            }),
+            patch(
+                "control_fabric_core.workspace_inventory_contracts.subprocess.run",
+                wraps=subprocess.run,
+            ) as run,
+        ):
+            self.assertEqual(self.authority.snapshot().revision, self.pin)
+        for call in run.call_args_list:
+            command = call.args[0]
+            self.assertIn(f"safe.directory={self.repo.resolve()}", command)
+            self.assertIn("core.hooksPath=/dev/null", command)
+            self.assertNotIn("GIT_CONFIG_COUNT", call.kwargs["env"])
+            self.assertEqual(call.kwargs["env"]["GIT_CONFIG_GLOBAL"], "/dev/null")
 
     def new_service(self) -> WorkspaceInventoryReadinessService:
         return WorkspaceInventoryReadinessService(
