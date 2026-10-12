@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import sys
@@ -335,6 +336,33 @@ def validate_migration_revisions(repo_root: Path) -> list[str]:
     if not revisions:
         return ["Alembic migration graph has no revisions"]
     return validate_migration_revision_ids(migration.revision for migration in revisions)
+
+
+def validate_migration_constraint_names(repo_root: Path) -> list[str]:
+    """Require stable explicit names for migration-level unique constraints."""
+    errors: list[str] = []
+    for path in sorted((repo_root / "migrations/versions").glob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError) as exc:
+            errors.append(f"cannot inspect migration constraint names in {path.name}: {exc}")
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            function = node.func
+            if not (
+                isinstance(function, ast.Attribute)
+                and function.attr == "UniqueConstraint"
+            ):
+                continue
+            named = any(keyword.arg == "name" for keyword in node.keywords)
+            if not named:
+                errors.append(
+                    f"migration UniqueConstraint requires an explicit name: "
+                    f"{path.relative_to(repo_root)}:{node.lineno}"
+                )
+    return errors
 
 
 def validate_imports(repo_root: Path) -> list[str]:
@@ -1021,6 +1049,7 @@ def main() -> int:
         *validate_paths(repo_root),
         *validate_pyproject(repo_root),
         *validate_migration_revisions(repo_root),
+        *validate_migration_constraint_names(repo_root),
         *validate_imports(repo_root),
     ]
     if errors:
