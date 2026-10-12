@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schema_version", "artifact_type", "readiness_id", "evaluated_at",
+    "expires_at", "request_ref", "product_id", "manifest_binding",
+    "authority_binding", "target_publication", "outcome", "findings",
+    "readiness_digest", "secret_values_embedded"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "product-publication-readiness" },
+    "readiness_id": { "type": "string", "pattern": "^product-publication-readiness:[a-z0-9][a-z0-9._:-]*$" },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "request_ref": {
+      "type": "object",
+      "required": ["id", "digest", "idempotency_key"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "idempotency_key": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "product_id": { "type": "string", "pattern": "^product:[a-z0-9][a-z0-9._-]*$" },
+    "manifest_binding": {
+      "type": "object",
+      "required": ["manifest_id", "manifest_digest", "owner_repo", "owner_revision", "manifest_revision", "path"],
+      "properties": {
+        "manifest_id": { "type": "string", "minLength": 1 },
+        "manifest_digest": { "$ref": "#/$defs/digest" },
+        "owner_repo": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "owner_revision": { "$ref": "#/$defs/commit" },
+        "manifest_revision": { "$ref": "#/$defs/commit" },
+        "path": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "authority_binding": {
+      "type": "object",
+      "required": ["revision", "contract_digest", "products_digest"],
+      "properties": {
+        "revision": { "$ref": "#/$defs/commit" },
+        "contract_digest": { "$ref": "#/$defs/digest" },
+        "products_digest": { "$ref": "#/$defs/digest" }
+      },
+      "additionalProperties": false
+    },
+    "target_publication": { "type": "object" },
+    "outcome": { "enum": ["ready", "stale", "blocked"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "severity": { "const": "blocking" },
+          "message": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "readiness_digest": { "$ref": "#/$defs/digest" },
+    "secret_values_embedded": { "const": false }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

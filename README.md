@@ -136,6 +136,14 @@ That surface is constrained by the workspace-owned contract in
   inventory evaluators share the same exact #1206 activation binding and remain
   unavailable until the deployment owner supplies the separately approved
   `dev-integration` runtime gates.
+  Product Publication readiness is exposed at
+  `POST /v1/readiness/product-publication` and
+  `GET /v1/readiness/product-publication/{readiness_token}`. The source
+  evaluator separates the product source snapshot from the later commit that
+  contains the owner manifest, verifies both committed histories and the exact
+  manifest digest, and issues caller-scoped immutable readiness evidence. The
+  route remains fail-closed until the later Security review and Platform
+  activation items enable its runtime composition.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an

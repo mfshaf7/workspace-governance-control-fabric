@@ -167,6 +167,17 @@ from control_fabric_core.prototype_closure_readiness import (
     PrototypeClosureReadinessService,
     build_prototype_closure_readiness_runtime,
 )
+from control_fabric_core.product_publication_contracts import (
+    ProductPublicationRequestError,
+    ProductPublicationUnavailable,
+)
+from control_fabric_core.product_publication_readiness import (
+    MAX_PRODUCT_PUBLICATION_EVALUATION_BYTES,
+    ProductPublicationConflict,
+    ProductPublicationNotFound,
+    ProductPublicationReadinessService,
+    build_product_publication_readiness_runtime,
+)
 
 
 DEFAULT_MANIFEST_PATH = "examples/governance-manifest.example.json"
@@ -186,6 +197,7 @@ def create_app(
     prototype_landing_readiness: PrototypeLandingReadinessService | None = None,
     prototype_maturity_readiness: PrototypeMaturityReadinessService | None = None,
     prototype_closure_readiness: PrototypeClosureReadinessService | None = None,
+    product_publication_readiness: ProductPublicationReadinessService | None = None,
     repository_custody_readiness: RepositoryCustodyReadinessService | None = None,
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
@@ -216,6 +228,7 @@ def create_app(
     resolved_prototype_landing_readiness = prototype_landing_readiness
     resolved_prototype_maturity_readiness = prototype_maturity_readiness
     resolved_prototype_closure_readiness = prototype_closure_readiness
+    resolved_product_publication_readiness = product_publication_readiness
     resolved_repository_custody_readiness = repository_custody_readiness
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
@@ -298,6 +311,12 @@ def create_app(
         if resolved_prototype_closure_readiness is None:
             resolved_prototype_closure_readiness = build_prototype_closure_readiness_runtime()
         return resolved_prototype_closure_readiness
+
+    def product_publication_runtime() -> ProductPublicationReadinessService:
+        nonlocal resolved_product_publication_readiness
+        if resolved_product_publication_readiness is None:
+            resolved_product_publication_readiness = build_product_publication_readiness_runtime()
+        return resolved_product_publication_readiness
 
     def repository_readiness_runtime() -> tuple[
         RepositoryReadinessService,
@@ -457,6 +476,44 @@ def create_app(
             PrototypeClosureRequestError, PrototypeClosureNotFound, PrototypeClosureUnavailable
         ) as exc:
             raise _prototype_closure_http_exception(exc) from exc
+
+    @app.post("/v1/readiness/product-publication")
+    async def issue_product_publication_readiness(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "evaluate-readiness")
+            raw = await _read_bounded_request(
+                request,
+                limit=MAX_PRODUCT_PUBLICATION_EVALUATION_BYTES,
+                label="Product Publication evaluation",
+            )
+            return product_publication_runtime().issue(raw, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            ProductPublicationRequestError,
+            ProductPublicationConflict,
+            ProductPublicationUnavailable,
+        ) as exc:
+            raise _product_publication_http_exception(exc) from exc
+
+    @app.get("/v1/readiness/product-publication/{readiness_token}")
+    async def read_product_publication_readiness(
+        readiness_token: str,
+        request: Request,
+    ) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return product_publication_runtime().read(readiness_token, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (
+            ProductPublicationRequestError,
+            ProductPublicationNotFound,
+            ProductPublicationUnavailable,
+        ) as exc:
+            raise _product_publication_http_exception(exc) from exc
 
     @app.post("/v1/readiness/workspace-intake")
     async def issue_workspace_intake_readiness(request: Request) -> dict[str, Any]:
@@ -1335,6 +1392,16 @@ def _prototype_closure_http_exception(exc: Exception) -> HTTPException:
     if isinstance(exc, PrototypeClosureNotFound):
         return HTTPException(status_code=404, detail=str(exc))
     return HTTPException(status_code=503, detail="Prototype Closure readiness is unavailable")
+
+
+def _product_publication_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, ProductPublicationRequestError):
+        return HTTPException(status_code=422, detail=str(exc))
+    if isinstance(exc, ProductPublicationConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, ProductPublicationNotFound):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=503, detail="Product Publication readiness is unavailable")
 
 
 def _workspace_intake_http_exception(exc: Exception) -> HTTPException:
