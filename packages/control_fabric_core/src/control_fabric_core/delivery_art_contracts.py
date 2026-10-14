@@ -267,6 +267,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
         execution_plan_by_work_item: dict[str, dict[str, Any]] = {}
         emitted_gate_authorities: dict[str, list[str]] = {}
         combined_schedule_edges: list[tuple[str, str]] = []
+        work_precedence_edges: list[tuple[str, str]] = []
         if schema_version == 2:
             work_graph = architecture.get("work_dependency_graph")
             work_graph = work_graph if isinstance(work_graph, dict) else {}
@@ -287,6 +288,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 work_edges.append((prerequisite, dependent))
             if not _graph_is_acyclic(work_nodes, work_edges):
                 errors.append("architecture.work_dependency_graph must be acyclic")
+            work_precedence_edges = work_edges
         else:
             execution_plan = _objects(architecture.get("work_item_execution_plan"))
             execution_plan_ids = [
@@ -355,6 +357,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     "architecture.work_item_execution_plan has no executable start-and-close schedule",
                 )
+            work_precedence_edges = combined_schedule_edges
 
         landing_units = _objects(architecture.get("landing_units"))
         landing_unit_ids = [unit.get("id") for unit in landing_units]
@@ -482,6 +485,7 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                     )
 
         gates = _objects(architecture.get("required_human_gates"))
+        early_human_gate_edges: list[tuple[str, str]] = []
         gate_ids = [gate.get("gate_id") for gate in gates]
         if len(gate_ids) != len(set(gate_ids)):
             errors.append("architecture.required_human_gates ids must be unique")
@@ -506,6 +510,22 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                 errors.append(
                     f"architecture human gate {gate_id} blocks source merge for non-source Landing Units",
                 )
+            if gate.get("blocked_transition") in {
+                "before_implementation",
+                "before_source_merge",
+            }:
+                authority_landing_unit_id = landing_unit_by_work_item.get(
+                    authority_work_item_id,
+                )
+                for affected_landing_unit_id in affected:
+                    if (
+                        authority_landing_unit_id in landing_unit_id_set
+                        and affected_landing_unit_id in landing_unit_id_set
+                        and authority_landing_unit_id != affected_landing_unit_id
+                    ):
+                        early_human_gate_edges.append(
+                            (authority_landing_unit_id, affected_landing_unit_id),
+                        )
             if schema_version in {3, 4, 5, 6}:
                 evidence_prerequisites = set(
                     _strings(gate.get("evidence_prerequisite_work_item_ids")),
@@ -534,6 +554,28 @@ def _architecture_semantic_errors(artifact: dict[str, Any]) -> tuple[str, ...]:
                         f"{authority_work_item_id} execution prerequisites: "
                         + ", ".join(sorted(missing_authority_prerequisites)),
                     )
+
+        combined_landing_edges = list(source_edges)
+        for prerequisite_work_item_id, dependent_work_item_id in work_precedence_edges:
+            prerequisite_landing_unit_id = landing_unit_by_work_item.get(
+                prerequisite_work_item_id,
+            )
+            dependent_landing_unit_id = landing_unit_by_work_item.get(
+                dependent_work_item_id,
+            )
+            if (
+                prerequisite_landing_unit_id in landing_unit_id_set
+                and dependent_landing_unit_id in landing_unit_id_set
+                and prerequisite_landing_unit_id != dependent_landing_unit_id
+            ):
+                combined_landing_edges.append(
+                    (prerequisite_landing_unit_id, dependent_landing_unit_id),
+                )
+        combined_landing_edges.extend(early_human_gate_edges)
+        if not _graph_is_acyclic(landing_unit_id_set, combined_landing_edges):
+            errors.append(
+                "architecture combined work, source-landing, and early human-gate topology must be acyclic",
+            )
 
         if schema_version in {3, 4, 5, 6}:
             declared_gate_ids = set(gate_ids)
