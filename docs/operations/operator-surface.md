@@ -249,6 +249,31 @@ checkout. The current Security and Platform repair items must approve and
 compose those settings. Migration `0010_inventory_lifecycle` stores immutable
 evaluation evidence only.
 
+### Workspace Continuity Projection
+
+The Console reads `GET /v1/projections/workspace-continuity` with its dedicated
+WGCF read credential. The route returns the committed Workspace Registry,
+remaining Intake entries, verified lifecycle heads, and latest Product
+Publication readiness using the same canonical identities.
+
+Operator interpretation is deliberately narrow:
+
+- `projection_state: current` means the committed authority and stored evidence
+  were internally consistent enough to publish the read model;
+- `publication_readiness.control_state: current` is actionable only when its
+  own `actionable` field is true;
+- `stale` requires a fresh OOS-owned readiness evaluation; and
+- `unavailable` means no readiness evidence exists and never implies success.
+
+A 401 indicates the Console reader credential is absent or wrong. A 503 means
+the authority checkout, database, identity continuity, lifecycle chain, or
+stored readiness cannot be trusted. The operator should repair that owner
+boundary and retry; the route has no mutation or publication fallback.
+
+The projection reads only the latest readiness record for each canonical
+product. It does not expose raw artifacts, issue readiness, mutate Workspace
+Governance, or replace the OOS workflow and terminal publication authority.
+
 ### Product Publication Readiness
 
 OOS submits one digest-bound evaluation to

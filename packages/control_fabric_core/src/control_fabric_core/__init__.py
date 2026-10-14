@@ -203,6 +203,12 @@ from .workspace_inventory_lifecycle_readiness import (
     WorkspaceInventoryLifecycleReadinessService,
     build_workspace_inventory_lifecycle_readiness_runtime,
 )
+from .workspace_continuity_projection import (
+    CONTINUITY_PROJECTION_ENABLED_ENV,
+    WorkspaceContinuityProjectionService,
+    WorkspaceContinuityProjectionUnavailable,
+    build_workspace_continuity_projection_runtime,
+)
 from .evidence_projection import (
     ArtCompletionEvidenceProjection,
     ChangeRecordReferenceProjection,

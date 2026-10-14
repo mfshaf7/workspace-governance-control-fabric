@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-governance.local/schemas/workspace-continuity-projection.schema.json",
+  "title": "Workspace Continuity Projection",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "projection_state",
+    "authority",
+    "authority_boundary",
+    "inventory",
+    "intake",
+    "products",
+    "projection_digest",
+    "projection_id"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "artifact_type": { "const": "workspace-continuity-projection" },
+    "projection_state": { "const": "current" },
+    "authority": {
+      "type": "object",
+      "required": ["owner_repo", "revision", "file_digests"],
+      "properties": {
+        "owner_repo": { "const": "workspace-governance" },
+        "revision": { "$ref": "#/$defs/commit" },
+        "file_digests": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/digest" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "authority_boundary": {
+      "type": "object",
+      "required": [
+        "canonical_registry",
+        "readiness_projection",
+        "workflow_authority",
+        "terminal_publication_authority",
+        "mutation_authority"
+      ],
+      "properties": {
+        "canonical_registry": { "const": "workspace-governance" },
+        "readiness_projection": { "const": "workspace-governance-control-fabric" },
+        "workflow_authority": { "const": "operator-orchestration-service" },
+        "terminal_publication_authority": { "const": "operator-orchestration-service" },
+        "mutation_authority": { "const": "none" }
+      },
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/inventory" }
+    },
+    "intake": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/intake" }
+    },
+    "products": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/product" }
+    },
+    "projection_digest": { "$ref": "#/$defs/digest" },
+    "projection_id": {
+      "type": "string",
+      "pattern": "^workspace-continuity-projection:[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "recordId": {
+      "type": "string",
+      "pattern": "^(repo|product|component):[a-z0-9][a-z0-9._-]*$"
+    },
+    "nullableText": { "type": ["string", "null"] },
+    "lineage": {
+      "type": "object",
+      "required": ["source", "source_ref", "source_digest", "intake_entry_version"],
+      "properties": {
+        "source": { "enum": ["legacy-migration", "workspace-intake"] },
+        "source_ref": { "type": "string", "minLength": 1 },
+        "source_digest": { "$ref": "#/$defs/digest" },
+        "intake_entry_version": { "type": ["integer", "null"], "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "lastMutation": {
+      "type": "object",
+      "required": ["id", "action", "idempotency_key", "request_ref", "request_digest", "readiness_ref", "readiness_digest", "applied_at"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "action": { "enum": ["migrate", "promote", "update", "suspend", "restore", "retire"] },
+        "idempotency_key": { "type": "string", "minLength": 1 },
+        "request_ref": { "$ref": "#/$defs/nullableText" },
+        "request_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "readiness_ref": { "$ref": "#/$defs/nullableText" },
+        "readiness_digest": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+        "applied_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "inventory": {
+      "type": "object",
+      "required": ["record_id", "kind", "name", "record_version", "record_digest", "posture", "lifecycle", "retired_collection", "lineage", "last_mutation"],
+      "properties": {
+        "record_id": { "$ref": "#/$defs/recordId" },
+        "kind": { "enum": ["repo", "product", "component"] },
+        "name": { "type": "string", "minLength": 1 },
+        "record_version": { "type": "integer", "minimum": 1 },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "posture": { "enum": ["active", "suspended", "retired"] },
+        "lifecycle": { "type": "string", "minLength": 1 },
+        "retired_collection": { "type": "boolean" },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "last_mutation": { "$ref": "#/$defs/lastMutation" }
+      },
+      "additionalProperties": false
+    },
+    "intake": {
+      "type": "object",
+      "required": ["record_id", "kind", "name", "record_version", "record_digest", "status", "decision_source", "owner_route", "source", "decision", "last_mutation"],
+      "properties": {
+        "record_id": { "$ref": "#/$defs/recordId" },
+        "kind": { "enum": ["repo", "product", "component"] },
+        "name": { "type": "string", "minLength": 1 },
+        "record_version": { "type": "integer", "minimum": 1 },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "status": { "enum": ["out-of-scope", "proposed", "admitted"] },
+        "decision_source": { "enum": ["operator", "ai-suggested"] },
+        "owner_route": { "type": "string", "minLength": 1 },
+        "source": { "type": "object" },
+        "decision": { "type": "object" },
+        "last_mutation": { "type": "object" }
+      },
+      "additionalProperties": false
+    },
+    "lifecycleEvent": {
+      "type": ["object", "null"],
+      "required": ["id", "digest", "sequence", "action", "applied_at"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "action": { "enum": ["update", "suspend", "restore", "retire"] },
+        "applied_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "publicationReadiness": {
+      "type": "object",
+      "required": ["product_id", "control_state", "actionable", "outcome", "action", "current_publication_posture", "target_publication", "readiness_ref", "authority_revision", "expires_at", "stale_reasons"],
+      "properties": {
+        "product_id": { "type": "string", "pattern": "^product:[a-z0-9][a-z0-9._-]*$" },
+        "control_state": { "enum": ["current", "stale", "unavailable"] },
+        "actionable": { "type": "boolean" },
+        "outcome": { "type": ["string", "null"] },
+        "action": { "type": ["string", "null"] },
+        "current_publication_posture": { "type": ["string", "null"] },
+        "target_publication": { "type": ["object", "null"] },
+        "readiness_ref": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["uri", "digest"],
+              "properties": {
+                "uri": { "type": "string", "pattern": "^wgcf://readiness/product-publication/[0-9a-f]{64}$" },
+                "digest": { "$ref": "#/$defs/digest" }
+              },
+              "additionalProperties": false
+            },
+            { "type": "null" }
+          ]
+        },
+        "authority_revision": { "oneOf": [{ "$ref": "#/$defs/commit" }, { "type": "null" }] },
+        "expires_at": { "type": ["string", "null"], "format": "date-time" },
+        "stale_reasons": {
+          "type": "array",
+          "items": { "enum": ["expired", "authority-revision-changed", "no-readiness-evidence"] },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "product": {
+      "type": "object",
+      "required": ["product_id", "name", "record_version", "record_digest", "posture", "maturity", "lifecycle", "owners", "stage_supported", "governed_prod_promotion", "highest_real_endpoint", "lineage", "latest_lifecycle_event", "publication_readiness"],
+      "properties": {
+        "product_id": { "type": "string", "pattern": "^product:[a-z0-9][a-z0-9._-]*$" },
+        "name": { "type": "string", "minLength": 1 },
+        "record_version": { "type": "integer", "minimum": 1 },
+        "record_digest": { "$ref": "#/$defs/digest" },
+        "posture": { "enum": ["active", "suspended", "retired"] },
+        "maturity": { "enum": ["owner-managed", "platform-integrated", "fully-governed"] },
+        "lifecycle": { "type": "string", "minLength": 1 },
+        "owners": {
+          "type": "object",
+          "required": ["platform", "security", "runtime", "source"],
+          "properties": {
+            "platform": { "type": "string", "minLength": 1 },
+            "security": { "type": "string", "minLength": 1 },
+            "runtime": { "type": "string", "minLength": 1 },
+            "source": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          },
+          "additionalProperties": false
+        },
+        "stage_supported": { "type": "boolean" },
+        "governed_prod_promotion": { "type": "boolean" },
+        "highest_real_endpoint": { "type": "string", "minLength": 1 },
+        "lineage": { "$ref": "#/$defs/lineage" },
+        "latest_lifecycle_event": { "$ref": "#/$defs/lifecycleEvent" },
+        "publication_readiness": { "$ref": "#/$defs/publicationReadiness" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

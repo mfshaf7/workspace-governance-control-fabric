@@ -30,6 +30,9 @@ Current slice:
 - implement authenticated `GET /v1/governance-history` and
   `GET /v1/governance-history/{history_id}` for normalized, bounded readiness,
   escalation, ledger, and receipt navigation without exposing stored payloads
+- implement authenticated `GET /v1/projections/workspace-continuity` for one
+  bounded registry, intake-lineage, lifecycle, and publication-readiness view
+  with explicit per-product stale and unavailable states
 - implement `POST /v1/readiness/evaluate` for local readiness decisions with a
   fabric-local ledger event
 - implement `POST /v1/agent-actions/evaluate` for a bounded `allow`, `deny`, or
