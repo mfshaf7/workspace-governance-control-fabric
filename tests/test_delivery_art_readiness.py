@@ -1000,6 +1000,29 @@ class DeliveryArtReadinessTests(TestCase):
         ] = ["work-item-802"]
         cases.append((impossible_schedule, "has no executable start-and-close schedule"))
 
+        cyclic_early_gate = architecture_v3()
+        cyclic_early_gate["architecture"]["required_human_gates"][0][
+            "authority_work_item_id"
+        ] = "work-item-802"
+        cyclic_early_gate["architecture"]["required_human_gates"][0][
+            "authority_owner_repo"
+        ] = "operator-orchestration-service"
+        cyclic_early_gate["architecture"]["required_human_gates"][0][
+            "affected_landing_unit_ids"
+        ] = ["delivery-698-contract"]
+        cyclic_early_gate["architecture"]["work_item_execution_plan"][0][
+            "emits_human_gate_ids"
+        ] = []
+        cyclic_early_gate["architecture"]["work_item_execution_plan"][1][
+            "emits_human_gate_ids"
+        ] = ["gate:security-source-merge"]
+        cases.append(
+            (
+                cyclic_early_gate,
+                "combined work, source-landing, and early human-gate topology must be acyclic",
+            ),
+        )
+
         missing_gate_emission = architecture_v3()
         missing_gate_emission["architecture"]["work_item_execution_plan"][0][
             "emits_human_gate_ids"
