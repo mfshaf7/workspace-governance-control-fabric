@@ -177,6 +177,18 @@ class StubGovernanceHistory:
         return {"projection_state": "complete", "record": {"history_id": history_id}}
 
 
+class StubWorkspaceContinuityProjection:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def read(self) -> dict[str, Any]:
+        self.calls += 1
+        return {
+            "projection_state": "current",
+            "products": [{"product_id": "product:governance-operations-console"}],
+        }
+
+
 class ApiTests(TestCase):
     def registry_app(self) -> tuple[Any, StubArtifactRegistry]:
         registry = StubArtifactRegistry()
@@ -206,6 +218,23 @@ class ApiTests(TestCase):
                 governance_history_authorizer=authorizer,
             ),
             history,
+        )
+
+    def workspace_continuity_app(
+        self,
+    ) -> tuple[Any, StubWorkspaceContinuityProjection]:
+        projection = StubWorkspaceContinuityProjection()
+        authorizer = GovernanceHistoryAuthorizer(
+            caller_id="governance-operations-console",
+            caller_secret="h" * 32,
+        )
+        return (
+            create_app(
+                REPO_ROOT,
+                workspace_continuity_projection=projection,
+                governance_history_authorizer=authorizer,
+            ),
+            projection,
         )
 
     def readiness_app(self) -> tuple[Any, StubDeliveryArtReadiness]:
@@ -376,6 +405,41 @@ class ApiTests(TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(body["detail"], "governance-history caller authentication failed")
         self.assertEqual(history.calls, [])
+
+    def test_workspace_continuity_projection_is_authenticated_and_read_only(self) -> None:
+        app, projection = self.workspace_continuity_app()
+        headers = {
+            "x-wgcf-caller-id": "governance-operations-console",
+            "x-wgcf-caller-secret": "h" * 32,
+        }
+
+        status, body = asyncio.run(
+            asgi_request_json(
+                "GET",
+                "/v1/projections/workspace-continuity",
+                app=app,
+                headers=headers,
+            )
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["projection_state"], "current")
+        self.assertEqual(projection.calls, 1)
+
+    def test_workspace_continuity_projection_rejects_anonymous_access(self) -> None:
+        app, projection = self.workspace_continuity_app()
+
+        status, body = asyncio.run(
+            asgi_request_json(
+                "GET",
+                "/v1/projections/workspace-continuity",
+                app=app,
+            )
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(body["detail"], "governance-history caller authentication failed")
+        self.assertEqual(projection.calls, 0)
 
     def test_agent_action_evaluation_is_authenticated_and_compact(self) -> None:
         with tempfile.TemporaryDirectory(dir=REPO_ROOT) as temp_dir:

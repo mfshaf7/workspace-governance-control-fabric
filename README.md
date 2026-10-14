@@ -79,6 +79,7 @@ That surface is constrained by the workspace-owned contract in
   `GET /v1/receipts/{receipt_id}`, `GET /v1/metrics/receipts`,
   `GET /v1/governance-history`,
   `GET /v1/governance-history/{history_id}`,
+  `GET /v1/projections/workspace-continuity`,
   `POST /v1/readiness/evaluate`,
   `POST /v1/agent-actions/evaluate`,
   `POST /v1/art/graph`, `POST /v1/art/readiness`, and
@@ -148,6 +149,15 @@ That surface is constrained by the workspace-owned contract in
   the exact retirement event; restore is limited to archived-to-unlisted after
   an exact owner restore event. The evaluator remains non-mutating and grants no
   runtime, release, Security, access, or lifecycle authority.
+  The separate authenticated Workspace continuity projection joins the current
+  committed Registry, remaining Intake records, append-only lifecycle head,
+  and latest persisted publication readiness at
+  `GET /v1/projections/workspace-continuity`. It returns one canonical product
+  identity across list and detail consumers. Expired or authority-mismatched
+  readiness remains visible as stale but never actionable; missing readiness is
+  explicitly unavailable. The route is read-only, selects only the latest
+  readiness record for each canonical product, and remains default-denied until
+  the approved Platform composition enables it.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an

@@ -50,6 +50,8 @@ from control_fabric_core import (
     GovernanceHistoryService,
     GovernanceHistoryUnauthorized,
     GovernanceHistoryUnavailable,
+    WorkspaceContinuityProjectionService,
+    WorkspaceContinuityProjectionUnavailable,
     LifecycleTransitionConflict,
     LifecycleTransitionNotFound,
     LifecycleTransitionReadinessError,
@@ -90,6 +92,7 @@ from control_fabric_core import (
     build_operator_validation_plan,
     build_graph_from_manifest_file,
     build_governance_history_runtime,
+    build_workspace_continuity_projection_runtime,
     build_source_snapshot,
     build_retention_plan,
     evaluate_operation_budget,
@@ -202,6 +205,7 @@ def create_app(
     repository_lifecycle_readiness: RepositoryLifecycleReadinessService | None = None,
     repository_readiness: RepositoryReadinessService | None = None,
     workspace_intake_readiness: WorkspaceIntakeReadinessService | None = None,
+    workspace_continuity_projection: WorkspaceContinuityProjectionService | None = None,
     workspace_inventory_readiness: WorkspaceInventoryReadinessService | None = None,
     workspace_inventory_lifecycle_readiness: (
         WorkspaceInventoryLifecycleReadinessService | None
@@ -233,6 +237,7 @@ def create_app(
     resolved_repository_lifecycle_readiness = repository_lifecycle_readiness
     resolved_repository_readiness = repository_readiness
     resolved_workspace_intake_readiness = workspace_intake_readiness
+    resolved_workspace_continuity_projection = workspace_continuity_projection
     resolved_workspace_inventory_readiness = workspace_inventory_readiness
     resolved_workspace_inventory_lifecycle_readiness = (
         workspace_inventory_lifecycle_readiness
@@ -270,14 +275,18 @@ def create_app(
         GovernanceHistoryService,
         GovernanceHistoryAuthorizer,
     ]:
-        nonlocal resolved_governance_history, resolved_governance_history_authorizer
+        nonlocal resolved_governance_history
         if resolved_governance_history is None:
             resolved_governance_history = build_governance_history_runtime()
+        return resolved_governance_history, governance_history_auth_runtime()
+
+    def governance_history_auth_runtime() -> GovernanceHistoryAuthorizer:
+        nonlocal resolved_governance_history_authorizer
         if resolved_governance_history_authorizer is None:
             resolved_governance_history_authorizer = (
                 GovernanceHistoryAuthorizer.from_environment()
             )
-        return resolved_governance_history, resolved_governance_history_authorizer
+        return resolved_governance_history_authorizer
 
     def caller_authorizer() -> ArtifactRegistryAuthorizer:
         if resolved_registry_authorizer is not None:
@@ -353,6 +362,14 @@ def create_app(
         if resolved_workspace_intake_readiness is None:
             resolved_workspace_intake_readiness = build_workspace_intake_readiness_runtime()
         return resolved_workspace_intake_readiness
+
+    def workspace_continuity_runtime() -> WorkspaceContinuityProjectionService:
+        nonlocal resolved_workspace_continuity_projection
+        if resolved_workspace_continuity_projection is None:
+            resolved_workspace_continuity_projection = (
+                build_workspace_continuity_projection_runtime()
+            )
+        return resolved_workspace_continuity_projection
 
     def workspace_inventory_runtime() -> WorkspaceInventoryReadinessService:
         nonlocal resolved_workspace_inventory_readiness
@@ -883,6 +900,20 @@ def create_app(
             )
         except GovernanceHistoryError as exc:
             raise _governance_history_http_exception(exc) from exc
+
+    @app.get("/v1/projections/workspace-continuity")
+    async def workspace_continuity_projection(request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            governance_history_auth_runtime().authorize(caller_id, caller_secret)
+            return workspace_continuity_runtime().read()
+        except GovernanceHistoryUnauthorized as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except WorkspaceContinuityProjectionUnavailable as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="workspace continuity projection is unavailable",
+            ) from exc
 
     @app.get("/v1/governance-history/{history_id}")
     async def governance_history_detail(

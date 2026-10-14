@@ -25,6 +25,8 @@ WGCF currently exposes local-first CLI and API surfaces for:
 - receipt metrics and correlation ids
 - authenticated, normalized governance-history list and detail projections over
   readiness, escalation, ledger, and receipt metadata
+- authenticated Workspace continuity projection over canonical Registry,
+  Intake lineage, lifecycle heads, and publication readiness
 - lifecycle retention planning and confirmed cleanup
 - local readiness decision evaluation
 - broker-owned ART graph projection
@@ -54,6 +56,7 @@ semantics for these console views:
 | Readiness decisions | API returns allow, deny, blocked, review-required, or waived decisions with machine-readable reasons and required actions. | Security and platform approval remain upstream authority decisions. |
 | Ledger events | API returns append-only event metadata and linked refs for audit navigation. | Ledger events are runtime audit records, not source-of-truth approval records. |
 | Escalations | API returns blocker or escalation records with owner, impact, route, and required next action. | ART blockers route through `operator-orchestration-service`; security deltas route through `security-architecture`. |
+| Workspace Registry and Product Portfolio | API returns one canonical identity across committed inventory, remaining intake, lifecycle history, and publication readiness; stale or missing readiness is non-actionable. | Workspace Governance owns canonical records, OOS owns workflow and terminal publication, and WGCF owns only the read projection. |
 
 ## API Behavior Requirements
 
@@ -112,3 +115,23 @@ exposes compact record metadata and evidence routes without reopening the
 stored decision payload.
 
 Only after those read paths are stable should the console add operator actions.
+
+## Workspace Continuity Projection
+
+`GET /v1/projections/workspace-continuity` is the canonical Console read model
+for Workspace Registry and Product Portfolio continuity. It authenticates with
+the dedicated Console read credential already used by governance history and
+reads only the committed Workspace Governance revision configured for WGCF.
+
+The response keeps stable `repo:`, `product:`, and `component:` identities,
+record versions and digests, immutable intake lineage, the latest verified
+lifecycle event, product owners and maturity, and the latest persisted Product
+Publication readiness. A readiness record is actionable only when it is
+unexpired, bound to the current authority revision, and has a `ready` outcome.
+Missing evidence is `unavailable`; expired or superseded authority evidence is
+`stale`. Neither state is silently promoted to success.
+
+Contradictory identity, invalid lineage, lifecycle history that does not match
+the current record, corrupted readiness, unavailable Git authority, or an
+unavailable database fails the route closed with 503. The route performs no
+mutation and does not infer terminal publication from readiness evidence.
