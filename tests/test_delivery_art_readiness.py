@@ -845,6 +845,54 @@ class DeliveryArtReadinessTests(TestCase):
 
         self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
 
+    def test_corrected_architecture_can_supersede_semantically_invalid_lineage(self) -> None:
+        invalid = architecture_v6()
+        gate = invalid["architecture"]["required_human_gates"][0]
+        gate.update(
+            {
+                "affected_landing_unit_ids": ["delivery-698-contract"],
+                "authority_owner_repo": "operator-orchestration-service",
+                "authority_work_item_id": "work-item-802",
+                "blocked_transition": "before_source_merge",
+            },
+        )
+        invalid["architecture"]["work_item_execution_plan"][0][
+            "emits_human_gate_ids"
+        ] = []
+        invalid["architecture"]["work_item_execution_plan"][1][
+            "emits_human_gate_ids"
+        ] = ["gate:security-source-merge"]
+        invalid["custody"] = {"supersedes": source_ref(self.architecture)}
+        refresh_architecture_scope(invalid)
+        durable_invalid = self._register(invalid)
+
+        with self.assertRaisesRegex(
+            DeliveryArtReadinessContractError,
+            "combined work, source-landing, and early human-gate topology must be acyclic",
+        ):
+            self.service.issue(
+                readiness_request(durable_invalid, "architecture-ready"),
+                actor="operator-orchestration-service",
+            )
+
+        corrected = architecture_v6()
+        corrected["custody"] = {"supersedes": source_ref(durable_invalid)}
+        durable_corrected = self._register(corrected)
+        corrected_work_start = work_start_for_architecture(durable_corrected)
+        corrected_work_start["artifact_id"] = "work-start:delivery-698-corrected"
+        bound_work_start = self._register(corrected_work_start)
+
+        result = self.service.issue(
+            readiness_request(bound_work_start, "implementation-ready"),
+            actor="operator-orchestration-service",
+        )
+
+        self.assertEqual(result.artifact["readiness"]["outcome"], "ready")
+        self.assertEqual(
+            durable_corrected["custody"]["supersedes"],
+            source_ref(durable_invalid),
+        )
+
     def test_historical_architecture_cannot_receive_fresh_architecture_readiness(self) -> None:
         historical = historical_prose_architecture()
         with patch(

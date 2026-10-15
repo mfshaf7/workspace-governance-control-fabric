@@ -367,12 +367,21 @@ class DeliveryArtReadinessService:
     ) -> _ResolvedReadinessContext:
         artifacts: dict[str, dict[str, Any]] = {}
         receipts: dict[str, dict[str, Any]] = {}
+        semantically_validated: set[str] = set()
 
-        def resolve(reference: dict[str, str]) -> dict[str, Any]:
+        def resolve(
+            reference: dict[str, str],
+            *,
+            historical_lineage: bool = False,
+        ) -> dict[str, Any]:
             existing = artifacts.get(reference["uri"])
             if existing is not None:
                 if existing.get("integrity", {}).get("content_digest") != reference["digest"]:
                     raise DeliveryArtReadinessContractError("dependency reference is ambiguous")
+                if not historical_lineage and reference["uri"] not in semantically_validated:
+                    self._require_valid_artifact(existing)
+                    semantically_validated.add(reference["uri"])
+                    self._walk_source_dependencies(existing, resolve)
                 return existing
             result = self._registry.read(reference["digest"], actor=actor)
             artifact = result.artifact
@@ -384,11 +393,20 @@ class DeliveryArtReadinessService:
                 raise DeliveryArtReadinessContractError(
                     "registry dependency does not match its requested reference",
                 )
-            self._require_valid_artifact(artifact)
+            if historical_lineage:
+                expected = canonical_digest(delivery_art_content_projection(artifact))
+                if artifact.get("integrity", {}).get("content_digest") != expected:
+                    raise DeliveryArtReadinessContractError(
+                        "historical lineage artifact integrity digest does not match canonical content",
+                    )
+            else:
+                self._require_valid_artifact(artifact)
             self._contracts.require_valid(custody_receipt)
             artifacts[reference["uri"]] = artifact
             receipts[custody_receipt["custody"]["uri"]] = custody_receipt
-            self._walk_source_dependencies(artifact, resolve)
+            if not historical_lineage:
+                semantically_validated.add(reference["uri"])
+                self._walk_source_dependencies(artifact, resolve)
             return artifact
 
         if prepared.subject_ref is not None:
@@ -419,12 +437,20 @@ class DeliveryArtReadinessService:
     def _walk_source_dependencies(
         self,
         artifact: dict[str, Any],
-        resolve: Callable[[dict[str, str]], dict[str, Any]],
+        resolve: Callable[..., dict[str, Any]],
     ) -> None:
         refs: list[dict[str, str]] = []
         supersedes = artifact.get("custody", {}).get("supersedes")
         if supersedes is not None:
-            refs.append(_require_source_ref(supersedes, "custody.supersedes"))
+            supersedes_ref = _require_source_ref(supersedes, "custody.supersedes")
+            if artifact.get("artifact_type") == "delivery_art_architecture_packet":
+                # A superseded Architecture Packet is immutable audit lineage,
+                # not an active readiness dependency. Prove its exact custody
+                # and integrity without retroactively applying newer semantic
+                # validators to an artifact admitted under earlier rules.
+                resolve(supersedes_ref, historical_lineage=True)
+            else:
+                refs.append(supersedes_ref)
         if artifact.get("artifact_type") == "delivery_art_work_start_record":
             architecture = artifact.get("architecture", {})
             if architecture.get("readiness") == "architecture-ready":
