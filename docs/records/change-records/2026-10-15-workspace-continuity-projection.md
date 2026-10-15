@@ -75,6 +75,40 @@ path through `WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH`, tests both valid and
 missing bindings, and keeps the same fail-closed 503 behavior for unavailable
 contract truth.
 
+## Related Packaged-Contract Repair
+
+Epic #1275 / #1298's real Console provisioning request reached WGCF but failed
+before provider access: the installed loader sought the custody manifest under
+`/usr/local/contracts`, while the image copied it under `/app/contracts`.
+Landing Unit `delivery-1275-packaged-contracts` extends the existing image
+configuration for custody (including lifecycle), repository readiness, Agent
+Action, and Product Publication. The same installed-package path class had
+previously affected the continuity response schema; this repair checks the
+whole packaged contract-loader family instead of one endpoint.
+
+Tracking is the existing operating-truth improvement candidate; no new ART
+child is created. Landing Unit Decision: `child_isolated_landing_unit` for the
+WGCF image's independent review, deployment, and rollback boundary. The source
+base is `981aa6259b2dcc65d41dc739bddadbb395794973`.
+
+The shared API/worker image build now loads all twelve operation bundles and
+the continuity schema as UID10001 through installed Python with isolated import
+resolution and no test-supplied contract-root overrides. Existing CI and image
+publication already require this build, so no CI workflow edits or App
+permission expansion is required. Missing roots or manifests fail the proof.
+Checkout tests additionally compare every runtime contract-root variable
+with the shared image stage and cover missing-bundle denial. These are
+packaging checks, not a claim that the real to-do journey has passed.
+
+Exact-head consumer sequence: merge WGCF, refresh the existing Security
+complete-runtime decision for its new exact head, then reactivate the existing
+Platform composition. Platform source and the other accepted owners need no
+source delta. Retry through the real Console, preserving failed custody
+history. No policy, authority, request, or approval semantics change.
+
+Reverting this repair restores the prior image packaging. Runtime gates and
+canonical owner state are unchanged; do not delete authority or workflow state.
+
 ## Rollback
 
 Disable the Platform-owned runtime gate immediately if commissioned, then

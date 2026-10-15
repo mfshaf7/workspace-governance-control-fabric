@@ -161,6 +161,12 @@ That surface is constrained by the workspace-owned contract in
   The API image binds the projection response contract explicitly through
   `WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH`; a missing or invalid packaged schema
   fails closed instead of resolving relative to the installed Python module.
+  API and worker images explicitly bind every operation contract bundle under
+  `/app/contracts`. Their shared image build runs
+  `python -I /app/scripts/smoke_packaged_contracts.py` as the runtime user to
+  load all bundles through installed package loaders without root overrides.
+  Existing CI and publication both require this image-build check to pass.
+  Generic `/readyz` is not proof that those operation contracts are available.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
