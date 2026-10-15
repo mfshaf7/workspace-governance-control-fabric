@@ -1030,6 +1030,14 @@ capabilities from historical prose. A v6 replacement must use
 `custody.supersedes` to bind the exact prior durable generation. OOS separately
 guards current-pointer cutover by inventorying active sessions.
 
+Readiness treats an Architecture Packet named by `custody.supersedes` as
+immutable historical lineage: WGCF proves that the exact content-addressed
+object and custody receipt still exist and that its canonical digest is intact,
+but applies current semantic validation only to the active packet bound by the
+work-start record. This keeps a corrected packet usable without reactivating or
+rewriting the invalid predecessor. Review Packet predecessors remain active
+finalization dependencies and continue to receive full semantic validation.
+
 WGCF's active v6 support validates that every atomic conformance case names
 one existing evidence-owner Landing Unit and that execution ordering followed
 by child-to-parent closure reaches every applicable outcome. Readiness selects

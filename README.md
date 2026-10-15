@@ -344,6 +344,12 @@ historical current packet must supersede its exact durable reference. OOS owns t
 inventory that guards current-pointer cutover; WGCF does not duplicate it.
 WGCF proves exact source evidence and Security-to-source-to-commissioning order
 before granting v6 custody or architecture readiness.
+When a current packet supersedes an earlier generation, later readiness fully
+validates the active packet and resolves the predecessor as immutable custody
+lineage. It does not retroactively apply newer semantic validators to that
+superseded generation. A cyclic packet therefore remains unusable as an active
+readiness subject, while its exact reference can remain in the audit chain of a
+corrected packet.
 
 The CLI now exposes that flow through `wgcf plan`, `wgcf check`,
 `wgcf receipts list`, `wgcf inspect`, and `wgcf readiness`. `wgcf check`
