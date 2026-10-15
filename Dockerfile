@@ -4,12 +4,16 @@ ARG WGCF_SOURCE_REVISION=unverified
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV WGCF_AGENT_ACTION_CONTRACT_ROOT=/app/contracts/agent-action
 ENV WGCF_DELIVERY_ART_CONTRACT_ROOT=/app/contracts/delivery-art
 ENV WGCF_PROTOTYPE_INGRESS_CONTRACT_ROOT=/app/contracts/prototype-ingress
 ENV WGCF_PROTOTYPE_LANDING_CONTRACT_ROOT=/app/contracts/prototype-landing
 ENV WGCF_PROTOTYPE_MATURITY_CONTRACT_ROOT=/app/contracts/prototype-maturity
 ENV WGCF_PROTOTYPE_CLOSURE_CONTRACT_ROOT=/app/contracts/prototype-closure
 ENV WGCF_LIFECYCLE_TRANSITION_CONTRACT_ROOT=/app/contracts/lifecycle-transition
+ENV WGCF_REPOSITORY_READINESS_CONTRACT_ROOT=/app/contracts/repository-readiness
+ENV WGCF_REPOSITORY_CUSTODY_CONTRACT_ROOT=/app/contracts/repository-custody
+ENV WGCF_PRODUCT_PUBLICATION_CONTRACT_ROOT=/app/contracts/product-publication
 ENV WGCF_WORKSPACE_INTAKE_CONTRACT_ROOT=/app/contracts/workspace-intake
 ENV WGCF_WORKSPACE_ACTIVE_INVENTORY_CONTRACT_ROOT=/app/contracts/workspace-active-inventory
 ENV WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH=/app/schemas/workspace-continuity-projection.schema.json
@@ -35,6 +39,10 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
   && chmod 0444 /opt/wgcf/build/source-revision
 
 RUN useradd --create-home --uid 10001 wgcf
+
+USER wgcf
+RUN python -I /app/scripts/smoke_packaged_contracts.py
+USER root
 
 FROM app-base AS worker
 
