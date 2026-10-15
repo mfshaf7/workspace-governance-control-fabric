@@ -22,3 +22,12 @@ authority. Its decision names one next action and always records
 
 The copied authority and schemas remain upstream-owned. `manifest.json` binds
 their exact source commit and byte digests so local changes fail closed.
+
+Custody readiness uses the existing WGCF source-manifest activation model,
+separate from the upstream policy's deliberately fixed `contract-only` flag.
+The manifest binds the merged Security controlled-activation review and its
+content digest, and admits only `link-existing` and `provision-new`. The normal
+factory additionally requires the `dev-integration` profile and explicit
+Platform enablement. Missing or invalid review metadata, disabled source
+activation and other profiles fail closed. Lifecycle activation is unchanged
+and remains denied; this does not activate providers or downstream admission.

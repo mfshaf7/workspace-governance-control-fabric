@@ -127,6 +127,10 @@ class RepositoryCustodyContractBundle:
         return bundle
 
     @property
+    def runtime_activation_enabled(self) -> bool:
+        return self.manifest.get("runtime_activation") is True
+
+    @property
     def first_active_capability(self) -> str:
         return str(self.authority["runtime_activation"]["first_active_capability"])
 
@@ -173,6 +177,30 @@ class RepositoryCustodyContractBundle:
             raise RepositoryCustodyContractError("; ".join(errors))
 
     def _validate_semantics(self) -> None:
+        activation = self.manifest.get("runtime_activation", False)
+        if not isinstance(activation, bool):
+            raise RepositoryCustodyContractError("custody source activation must be boolean")
+        if activation:
+            review = self.manifest.get("activation_review")
+            capabilities = self.manifest.get("active_capabilities")
+            if (
+                not isinstance(review, dict)
+                or set(review) != {"repo", "commit", "path", "content_sha256", "decision"}
+                or review.get("repo") != "security-architecture"
+                or not isinstance(review.get("commit"), str)
+                or not _COMMIT_PATTERN.fullmatch(str(review.get("commit") or ""))
+                or review.get("path") != "docs/reviews/components/2026-10-15-repository-custody-controlled-activation.md"
+                or not isinstance(review.get("content_sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", str(review.get("content_sha256") or ""))
+                or review.get("decision") != "approved-with-findings"
+                or not isinstance(capabilities, list)
+                or len(capabilities) != 2
+                or any(not isinstance(value, str) for value in capabilities)
+                or set(capabilities) != {"link-existing", "provision-new"}
+            ):
+                raise RepositoryCustodyContractError(
+                    "custody source activation requires the bounded pinned Security review",
+                )
         roles = self.authority.get("authority_roles", {})
         readiness = roles.get("readiness_authority", {})
         if readiness.get("owner_repo") != "workspace-governance-control-fabric":

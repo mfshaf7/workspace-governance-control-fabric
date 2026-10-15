@@ -3,7 +3,16 @@
   "contract_id": "wgcf.repository-custody-readiness.v1",
   "source": {
     "repo": "workspace-governance",
-    "commit": "965b41961bb1d12e1380af57b1ac303a72e9ef67"
+    "commit": "ec499fcbdd7d62687d704b9f9e50c87a601c48ee"
+  },
+  "runtime_activation": true,
+  "active_capabilities": ["link-existing", "provision-new"],
+  "activation_review": {
+    "repo": "security-architecture",
+    "commit": "ecb9fb383526aaec0dee5c58e0fb1520e30bac29",
+    "path": "docs/reviews/components/2026-10-15-repository-custody-controlled-activation.md",
+    "content_sha256": "5569015ed22f91574c3a8ede098f130290b278256cf495fe68091eec2d04c67c",
+    "decision": "approved-with-findings"
   },
   "authority": {
     "path": "repository-custody.yaml",
