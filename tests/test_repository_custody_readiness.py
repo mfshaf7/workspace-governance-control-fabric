@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from control_fabric_core.canonical_json import canonical_digest, canonical_json_bytes
+from control_fabric_core.artifact_registry import SERVICE_IDENTITY_ENV
 from control_fabric_core.db import metadata
 from control_fabric_core.db.models import LedgerEvent, RepositoryCustodyDecisionRecord
 from control_fabric_core.repository_custody_contracts import (
@@ -457,20 +458,90 @@ class RepositoryCustodyReadinessTests(TestCase):
             ):
                 RepositoryCustodyContractBundle.load(contract_root)
 
-    def test_normal_runtime_remains_blocked_by_upstream_activation(self) -> None:
+    def runtime_environment(self) -> dict[str, str]:
+        return {
+            "WGCF_RUNTIME_PROFILE": "dev-integration",
+            "WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED": "true",
+            SERVICE_IDENTITY_ENV: SERVICE_IDENTITY_REF,
+        }
+
+    def test_reviewed_source_constructs_actual_runtime_with_upstream_authority_unchanged(self) -> None:
+        self.assertIs(self.contracts.authority["runtime_activation"]["enabled"], False)
+        with patch.dict("os.environ", self.runtime_environment(), clear=True), patch(
+            "control_fabric_core.repository_custody_readiness.create_session_factory",
+            return_value=self.sessions,
+        ), patch(
+            "control_fabric_core.repository_custody_readiness.read_implementation_ref",
+            return_value=IMPLEMENTATION_REF,
+        ):
+            service = build_repository_custody_readiness_runtime()
+        self.assertIsInstance(service, RepositoryCustodyReadinessService)
+        self.assertEqual(service._contracts.readiness_capabilities, {"link-existing", "provision-new"})
+
+    def test_normal_runtime_requires_both_profile_and_explicit_platform_enablement(self) -> None:
+        for environment in ({}, {**self.runtime_environment(), "WGCF_RUNTIME_PROFILE": "stage"},
+                            {**self.runtime_environment(), "WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED": "false"}):
+            with self.subTest(environment=environment), patch.dict("os.environ", environment, clear=True):
+                with self.assertRaises(RepositoryCustodyReadinessUnavailable):
+                    build_repository_custody_readiness_runtime()
+
+    def test_disabled_or_missing_source_activation_cannot_be_enabled_by_environment(self) -> None:
+        for activation in (False, None):
+            with self.subTest(activation=activation), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / "contracts"
+                shutil.copytree(self.contracts.root, root)
+                manifest = copy.deepcopy(self.contracts.manifest)
+                if activation is None:
+                    manifest.pop("runtime_activation")
+                else:
+                    manifest["runtime_activation"] = activation
+                (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                environment = {**self.runtime_environment(), "WGCF_REPOSITORY_CUSTODY_CONTRACT_ROOT": str(root)}
+                with patch.dict("os.environ", environment, clear=True):
+                    with self.assertRaisesRegex(RepositoryCustodyReadinessUnavailable, "source activation"):
+                        build_repository_custody_readiness_runtime()
+
+    def test_invalid_review_or_lifecycle_capability_fails_contract_and_runtime_factory(self) -> None:
+        for mutation in ("missing", "commit", "digest", "repo", "path", "decision", "extra-capability", "non-boolean"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir) / "contracts"
+                shutil.copytree(self.contracts.root, root)
+                manifest = copy.deepcopy(self.contracts.manifest)
+                if mutation == "missing":
+                    manifest.pop("activation_review")
+                elif mutation == "extra-capability":
+                    manifest["active_capabilities"].append("archive-provider")
+                elif mutation == "non-boolean":
+                    manifest["runtime_activation"] = "true"
+                else:
+                    key = "content_sha256" if mutation == "digest" else mutation
+                    manifest["activation_review"][key] = "unreviewed"
+                (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaises(RepositoryCustodyContractError):
+                    RepositoryCustodyContractBundle.load(root)
+                environment = {**self.runtime_environment(), "WGCF_REPOSITORY_CUSTODY_CONTRACT_ROOT": str(root)}
+                with patch.dict("os.environ", environment, clear=True):
+                    with self.assertRaisesRegex(RepositoryCustodyReadinessUnavailable, "activation or contracts"):
+                        build_repository_custody_readiness_runtime()
+
+    def test_custody_source_activation_does_not_activate_repository_lifecycle(self) -> None:
+        from control_fabric_core.repository_lifecycle_readiness import (
+            build_repository_lifecycle_readiness_runtime,
+            RepositoryLifecycleReadinessUnavailable,
+        )
         with patch.dict(
             "os.environ",
             {
-                "WGCF_RUNTIME_PROFILE": "dev-integration",
-                "WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED": "true",
+                **self.runtime_environment(),
+                "WGCF_REPOSITORY_LIFECYCLE_READINESS_ENABLED": "true",
             },
-            clear=False,
+            clear=True,
         ):
             with self.assertRaisesRegex(
-                RepositoryCustodyReadinessUnavailable,
+                RepositoryLifecycleReadinessUnavailable,
                 "authority has not activated",
             ):
-                build_repository_custody_readiness_runtime()
+                build_repository_lifecycle_readiness_runtime()
 
 
 if __name__ == "__main__":

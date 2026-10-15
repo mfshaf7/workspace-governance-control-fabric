@@ -532,10 +532,15 @@ def build_repository_custody_readiness_runtime() -> RepositoryCustodyReadinessSe
         raise RepositoryCustodyReadinessUnavailable(
             "repository custody readiness has not been activated",
         )
-    contracts = RepositoryCustodyContractBundle.load()
-    if contracts.authority["runtime_activation"]["enabled"] is not True:
+    try:
+        contracts = RepositoryCustodyContractBundle.load()
+    except RepositoryCustodyContractError as exc:
         raise RepositoryCustodyReadinessUnavailable(
-            "repository custody authority has not activated the runtime",
+            "repository custody readiness activation or contracts are unavailable",
+        ) from exc
+    if not contracts.runtime_activation_enabled:
+        raise RepositoryCustodyReadinessUnavailable(
+            "repository custody source activation has not been approved",
         )
     return RepositoryCustodyReadinessService(
         session_factory=create_session_factory(),

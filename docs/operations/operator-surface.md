@@ -98,6 +98,16 @@ setting; its allowed decision returns those exact settings with
 custody. The immutable decision is retrieved from
 `GET /v1/readiness/repository-custody/{decision_token}`.
 
+Normal custody readiness additionally requires the reviewed WGCF bundle's
+source activation, the `dev-integration` runtime profile and explicit
+`WGCF_REPOSITORY_CUSTODY_READINESS_ENABLED=true` from Platform. The manifest
+pins Security's bounded link/provision activation review. An environment flag
+alone cannot activate it. The upstream policy's fixed `contract-only` field
+remains unchanged; repository lifecycle is a separate, still-denied gate.
+Contract loading or generic `/readyz` does not prove the configured factory or
+an actual Console custody request. Commission only through the existing
+complete-runtime Platform procedure after exact-source Security acceptance.
+
 For repository lifecycle work, OOS submits the canonical
 `repository_lifecycle_request` to
 `POST /v1/readiness/repository-lifecycle`. WGCF checks the exact custody policy
