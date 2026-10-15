@@ -34,11 +34,22 @@ from .workspace_inventory_contracts import (
 
 
 CONTINUITY_PROJECTION_ENABLED_ENV = "WGCF_WORKSPACE_CONTINUITY_PROJECTION_ENABLED"
-PROJECTION_SCHEMA_PATH = (
+PROJECTION_SCHEMA_PATH_ENV = "WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH"
+DEFAULT_PROJECTION_SCHEMA_PATH = (
     Path(__file__).resolve().parents[4]
     / "schemas"
     / "workspace-continuity-projection.schema.json"
 )
+
+
+def projection_schema_path() -> Path:
+    configured = os.environ.get(PROJECTION_SCHEMA_PATH_ENV, "").strip()
+    if not configured:
+        return DEFAULT_PROJECTION_SCHEMA_PATH
+    path = Path(configured)
+    if not path.is_absolute():
+        raise ValueError(f"{PROJECTION_SCHEMA_PATH_ENV} must be an absolute path")
+    return path
 
 
 class WorkspaceContinuityProjectionUnavailable(RuntimeError):
@@ -67,7 +78,7 @@ class WorkspaceContinuityProjectionService:
                 "Product Publication workflow identity is unavailable",
             )
         try:
-            schema = json.loads(PROJECTION_SCHEMA_PATH.read_text(encoding="utf-8"))
+            schema = json.loads(projection_schema_path().read_text(encoding="utf-8"))
             Draft202012Validator.check_schema(schema)
             self.validator = Draft202012Validator(
                 schema,

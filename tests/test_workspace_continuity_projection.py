@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from unittest import TestCase
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -117,6 +120,37 @@ class WorkspaceContinuityProjectionTests(TestCase):
 
         with self.assertRaises(WorkspaceContinuityProjectionUnavailable):
             self.service.read()
+
+    def test_packaged_runtime_uses_explicit_continuity_schema_path(self) -> None:
+        source = REPO_ROOT / "schemas/workspace-continuity-projection.schema.json"
+        with TemporaryDirectory() as directory:
+            packaged = Path(directory) / "workspace-continuity-projection.schema.json"
+            packaged.write_bytes(source.read_bytes())
+            with patch.dict(
+                os.environ,
+                {"WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH": str(packaged)},
+            ):
+                service = WorkspaceContinuityProjectionService(
+                    session_factory=self.sessions,
+                    authority=StubAuthority(self.snapshot),
+                    clock=lambda: NOW,
+                )
+
+        self.assertEqual(service.read()["projection_state"], "current")
+
+    def test_packaged_runtime_fails_closed_when_bound_schema_is_missing(self) -> None:
+        with TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.schema.json"
+            with patch.dict(
+                os.environ,
+                {"WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH": str(missing)},
+            ):
+                with self.assertRaises(WorkspaceContinuityProjectionUnavailable):
+                    WorkspaceContinuityProjectionService(
+                        session_factory=self.sessions,
+                        authority=StubAuthority(self.snapshot),
+                        clock=lambda: NOW,
+                    )
 
     def _store_readiness(
         self,

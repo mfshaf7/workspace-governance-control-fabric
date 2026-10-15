@@ -147,6 +147,10 @@ class FoundationTests(TestCase):
             "WGCF_PROTOTYPE_MATURITY_CONTRACT_ROOT=/app/contracts/prototype-maturity",
             dockerfile,
         )
+        self.assertIn(
+            "WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH=/app/schemas/workspace-continuity-projection.schema.json",
+            dockerfile,
+        )
 
     def test_runtime_images_bake_provenance_and_provision_worker_evidence_roots(self) -> None:
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")

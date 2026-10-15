@@ -270,6 +270,11 @@ the authority checkout, database, identity continuity, lifecycle chain, or
 stored readiness cannot be trusted. The operator should repair that owner
 boundary and retry; the route has no mutation or publication fallback.
 
+The packaged API binds its response schema with
+`WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH`. The image sets that value to
+`/app/schemas/workspace-continuity-projection.schema.json`; a missing, relative,
+or invalid binding is a 503 contract failure and must not be bypassed.
+
 The projection reads only the latest readiness record for each canonical
 product. It does not expose raw artifacts, issue readiness, mutate Workspace
 Governance, or replace the OOS workflow and terminal publication authority.
