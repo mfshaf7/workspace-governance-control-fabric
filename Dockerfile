@@ -12,6 +12,7 @@ ENV WGCF_PROTOTYPE_CLOSURE_CONTRACT_ROOT=/app/contracts/prototype-closure
 ENV WGCF_LIFECYCLE_TRANSITION_CONTRACT_ROOT=/app/contracts/lifecycle-transition
 ENV WGCF_WORKSPACE_INTAKE_CONTRACT_ROOT=/app/contracts/workspace-intake
 ENV WGCF_WORKSPACE_ACTIVE_INVENTORY_CONTRACT_ROOT=/app/contracts/workspace-active-inventory
+ENV WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH=/app/schemas/workspace-continuity-projection.schema.json
 
 WORKDIR /app
 

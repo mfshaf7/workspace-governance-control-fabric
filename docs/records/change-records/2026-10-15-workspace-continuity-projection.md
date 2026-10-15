@@ -65,6 +65,16 @@ Console child #1295 consumes the stable projection for Workspace Registry and
 Product Portfolio list/detail continuity. Security #1303 then reviews the exact
 composed boundary before Platform #1291 commissions it.
 
+## Packaged-Runtime Repair
+
+The live Epic #1275 acceptance run found that the installed Python module
+resolved the response schema below `/usr/local` even though the image copied it
+under `/app/schemas`. Repair Landing Unit
+`delivery-1275-registry-projections-repair` now binds the exact packaged schema
+path through `WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH`, tests both valid and
+missing bindings, and keeps the same fail-closed 503 behavior for unavailable
+contract truth.
+
 ## Rollback
 
 Disable the Platform-owned runtime gate immediately if commissioned, then

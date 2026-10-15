@@ -158,6 +158,9 @@ That surface is constrained by the workspace-owned contract in
   explicitly unavailable. The route is read-only, selects only the latest
   readiness record for each canonical product, and remains default-denied until
   the approved Platform composition enables it.
+  The API image binds the projection response contract explicitly through
+  `WGCF_WORKSPACE_CONTINUITY_SCHEMA_PATH`; a missing or invalid packaged schema
+  fails closed instead of resolving relative to the installed Python module.
 - `apps/worker/` owns the WGCF Temporal activity adapter. It exposes a
   connection-free status command, registers only the validation/readiness
   activity, heartbeats for cancellation while owner work remains bounded in an
