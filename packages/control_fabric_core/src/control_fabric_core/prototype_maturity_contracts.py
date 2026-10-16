@@ -10,6 +10,8 @@ import re
 import subprocess
 from typing import Any
 
+from .record_authority_freshness import require_record_authority_freshness
+
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 
@@ -313,6 +315,8 @@ class PrototypeMaturityAuthority:
         revision = revision_raw.decode().strip()
         if not COMMIT_PATTERN.fullmatch(revision):
             raise PrototypeMaturityUnavailable("Prototype Studio authority revision is invalid")
+        require_record_authority_freshness(self.repo_root, "workspace-prototype-studio", revision,
+            trusted_ref=self.trusted_ref, unavailable=PrototypeMaturityUnavailable)
         self._git(
             "merge-base",
             "--is-ancestor",

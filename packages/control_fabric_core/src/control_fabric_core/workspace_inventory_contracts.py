@@ -23,6 +23,7 @@ from .workspace_intake_contracts import (
     yaml_record as _yaml_record,
 )
 from .workspace_operation_activation import validate_workspace_operation_activation
+from .record_authority_freshness import require_record_authority_freshness
 
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "workspace-active-inventory"
@@ -231,6 +232,8 @@ class InventoryAuthority:
         ).decode().strip()
         if not COMMIT_PATTERN.fullmatch(revision):
             raise InventoryUnavailable("active inventory authority revision is invalid")
+        require_record_authority_freshness(self.repo_root, "workspace-governance", revision,
+            trusted_ref=self.trusted_ref, unavailable=InventoryUnavailable)
         self._git(
             "merge-base",
             "--is-ancestor",

@@ -20,6 +20,7 @@ from yaml.constructor import ConstructorError
 from .artifact_registry import RUNTIME_PROFILE_ENV, SERVICE_IDENTITY_ENV, read_implementation_ref
 from .canonical_json import canonical_digest, delivery_art_content_projection, strict_json_loads
 from .database import create_session_factory
+from .record_authority_freshness import require_record_authority_freshness
 from .db.models import LedgerEvent, RepositoryReadinessReceipt
 from .repository_readiness_contracts import (
     RepositoryReadinessContractBundle,
@@ -577,6 +578,8 @@ class RepositoryReadinessService:
         return reference
 
     def _read_required(self, relative_path: Path) -> bytes:
+        require_record_authority_freshness(self._authority_root, "workspace-governance",
+            unavailable=RepositoryReadinessUnavailable)
         try:
             return (self._authority_root / relative_path).read_bytes()
         except OSError as exc:
@@ -585,6 +588,8 @@ class RepositoryReadinessService:
             ) from exc
 
     def _read_optional(self, relative_path: Path) -> bytes | None:
+        require_record_authority_freshness(self._authority_root, "workspace-governance",
+            unavailable=RepositoryReadinessUnavailable)
         try:
             return (self._authority_root / relative_path).read_bytes()
         except FileNotFoundError:
