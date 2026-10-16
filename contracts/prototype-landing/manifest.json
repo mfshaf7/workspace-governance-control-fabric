@@ -19,9 +19,9 @@
   "runtime_activation": true,
   "source_authority": {
     "repo": "workspace-prototype-studio",
-    "minimum_commit": "2d18349ffab42bff052061e5adbc1d2c76d6210c",
+    "minimum_commit": "9fdf82e08caf14074f804beaeabdb6569b174ade",
     "files": {
-      "schemas/prototype-registry.schema.json": "a4951c88070c14b0f4ef9b5a93f0471a3845a6aa21d3ca17d55a59d5cba767f7"
+      "schemas/prototype-registry.schema.json": "defdc5c2e994e7472e8827759c7c2dfc2f55f421313e665c3147d79fb98802d0"
     }
   },
   "files": {
