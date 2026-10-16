@@ -178,7 +178,24 @@ Authority is read through Git from the configured
 `WGCF_WORKSPACE_GOVERNANCE_REPO_ROOT` at `refs/remotes/origin/main`.
 The service performs no fetch, checkout, branch, file write, or merge.
 The deployment owner must refresh that trusted ref; WGCF cannot prove remote
-freshness from an offline checkout. Contract changes fail closed until a
+freshness from an offline checkout. In the commissioned Console record-cache
+lane, Platform enables `WGCF_RECORD_AUTHORITY_FRESHNESS_REQUIRED=true` and
+maintains a regular, bounded `.git/console-record-authority.json` checkpoint in
+its private Studio and Workspace Governance clones. The checkpoint binds
+`schema_version: 1`, `owner_repo`, `trusted_ref: refs/remotes/origin/main`,
+`reviewed_revision`, `record_revision`, `observed_at`, and `valid_until`. The
+window is at most ten minutes, the observed time may not exceed thirty seconds
+in the future, the record revision must equal the trusted ref, and reviewed
+source must be its ancestor. Every current Intake, Inventory, Publication,
+Landing, Maturity and Closure snapshot requires that fresh binding. The legacy
+repository file reader additionally requires a clean checkout at the same
+record revision. Missing, malformed, stale, rewritten, or conflicting evidence
+returns the existing unavailable outcome, not a readiness approval. Existing
+historical receipt reads remain historical and do not refresh readiness.
+WGCF does not create, fetch, advance, or repair these snapshots. Platform alone
+admits record-only advancement against the reviewed code/schema boundary.
+Outside that explicitly commissioned lane the existing reader contract is
+unchanged. Contract changes still fail closed until a
 reviewed bundle update. Repository admission additionally observes required
 owner files and repository presence under that checkout's workspace parent;
 those observations are explicit, not a provider or repository-custody claim.

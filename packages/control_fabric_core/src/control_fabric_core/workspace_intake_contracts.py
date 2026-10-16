@@ -16,6 +16,7 @@ from jsonschema.exceptions import SchemaError
 import yaml
 
 from .workspace_operation_activation import validate_workspace_operation_activation
+from .record_authority_freshness import require_record_authority_freshness
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "workspace-intake"
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -215,6 +216,8 @@ class IntakeAuthority:
         revision = self._git("rev-parse", "--verify", f"{self.trusted_ref}^{{commit}}").decode().strip()
         if not COMMIT_PATTERN.fullmatch(revision):
             raise IntakeUnavailable("authority revision is invalid")
+        require_record_authority_freshness(self.repo_root, "workspace-governance", revision,
+            trusted_ref=self.trusted_ref, unavailable=IntakeUnavailable)
         self._git("merge-base", "--is-ancestor", self.contracts.manifest["authority_commit"], revision)
         files = {}
         for path, expected in self.contracts.files.items():

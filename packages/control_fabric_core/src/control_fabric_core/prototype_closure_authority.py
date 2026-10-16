@@ -11,6 +11,8 @@ import re
 import subprocess
 from typing import Any, Mapping
 
+from .record_authority_freshness import require_record_authority_freshness
+
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 import yaml
@@ -261,6 +263,8 @@ class PrototypeClosureAuthority:
         revision = raw.decode().strip()
         if not COMMIT.fullmatch(revision):
             raise PrototypeClosureUnavailable("Studio authority revision is invalid")
+        require_record_authority_freshness(self.repo_root, "workspace-prototype-studio", revision,
+            trusted_ref=self.trusted_ref, unavailable=PrototypeClosureUnavailable)
         return revision
 
     def validate_request(self, revision: str, request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:

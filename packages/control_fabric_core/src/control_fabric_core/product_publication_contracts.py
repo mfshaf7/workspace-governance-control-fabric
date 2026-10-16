@@ -11,6 +11,8 @@ import re
 import subprocess
 from typing import Any
 
+from .record_authority_freshness import require_record_authority_freshness
+
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
 
@@ -183,6 +185,8 @@ class ProductPublicationAuthority:
         if not REPO_PATTERN.fullmatch(repo_name) or repo_name not in self.owner_roots:
             raise ProductPublicationRequestError("manifest owner repository is not configured")
         workspace_revision = self._commit(self.workspace_root, self.trusted_ref)
+        require_record_authority_freshness(self.workspace_root, "workspace-governance", workspace_revision,
+            trusted_ref=self.trusted_ref, unavailable=ProductPublicationUnavailable)
         self._git(
             self.workspace_root,
             "merge-base",
@@ -242,6 +246,9 @@ class ProductPublicationAuthority:
 
         owner_root = self.owner_roots[repo_name]
         owner_head = self._commit(owner_root, self.trusted_ref)
+        if repo_name in {"workspace-governance", "workspace-prototype-studio"}:
+            require_record_authority_freshness(owner_root, repo_name, owner_head,
+                trusted_ref=self.trusted_ref, unavailable=ProductPublicationUnavailable)
         manifest_revision = source["manifest_revision"]
         source_revision = source["source_revision"]
         if self._git(owner_root, "cat-file", "-e", f"{manifest_revision}^{{commit}}", allow_failure=True) is None:
