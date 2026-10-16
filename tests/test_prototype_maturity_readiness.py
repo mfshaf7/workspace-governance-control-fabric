@@ -438,6 +438,30 @@ class PrototypeMaturityReadinessTests(TestCase):
         self.assertEqual(response.json()["readiness"]["outcome"], "blocked")
         self.assertIn("maturity-boundary-invalid", response.text)
 
+    def test_current_closure_registry_fields_do_not_disable_other_prototype_promotions(self) -> None:
+        registry = yaml.safe_load((self.repo / "prototypes.yaml").read_text())
+        registry["prototypes"].append({
+            "id": "earlier-tool", "name": "Earlier Tool", "lifecycle": "graduating",
+            "owner": "Workspace Prototype Studio", "visibility_tier": "private-internal",
+            "data_mode": "synthetic", "mutation_boundary": "none",
+            "paths": {"brief": "docs/prototypes/earlier-tool/brief.md"},
+            "project_phase": "delivery-governed", "source_custody": "incubation-repo",
+            "delivery_packet_ref": "record://delivery-packets/earlier-tool-ready",
+        })
+        (self.repo / "prototypes.yaml").write_text(yaml.safe_dump(registry, sort_keys=False))
+        self.commit("Current Closure metadata beside a promotion")
+        before = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.authority.snapshot("prototype:sample-tool", []).revision, before)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        closure = json.loads((REPO_ROOT / "contracts/prototype-closure/manifest.json").read_text())
+        self.assertEqual(self.contracts.manifest["source_authority"]["files"]["schemas/prototype-registry.schema.json"],
+                         closure["source_authority"]["registry_schema_sha256"])
+        schema = self.repo / "schemas/prototype-registry.schema.json"
+        schema.write_text(schema.read_text().replace("delivery-governed", "delivery"))
+        self.commit("Unaccepted old registry schema remains denied")
+        with self.assertRaises(PrototypeMaturityUnavailable):
+            self.authority.snapshot("prototype:sample-tool", [])
+
     def test_tampered_source_contract_is_unavailable(self) -> None:
         path = self.repo / "contracts/prototype-maturity/manifest.json"
         path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")

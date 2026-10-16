@@ -42,7 +42,10 @@
           ]
         },
         "project_phase": {
-          "enum": ["incubating", "delivery", "operational", "retired"]
+          "enum": ["incubating", "delivery-governed", "operational", "retired"]
+        },
+        "source_custody": {
+          "enum": ["incubation-repo", "dedicated-owner-repo", "shared-owner-repo"]
         },
         "visibility_tier": {
           "enum": ["private-internal", "operator-review", "client-review", "public-demo"]

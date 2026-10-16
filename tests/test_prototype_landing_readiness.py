@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -509,6 +510,31 @@ class PrototypeLandingReadinessTests(TestCase):
         self.commit("Tamper source contract")
         value = self.envelope()
         self.assertEqual(self.post(value).status_code, 503)
+
+    def test_current_closure_registry_fields_do_not_disable_other_prototype_landings(self) -> None:
+        # A different Prototype can already be graduating in the SAME registry.
+        # Its current owner fields must not make every new Landing unavailable.
+        self.write_registry([{
+            "id": "earlier-tool", "name": "Earlier Tool", "lifecycle": "graduating",
+            "owner": "Workspace Prototype Studio", "visibility_tier": "private-internal",
+            "data_mode": "synthetic", "mutation_boundary": "none",
+            "project_phase": "delivery-governed", "source_custody": "incubation-repo",
+            "delivery_packet_ref": "record://delivery-packets/earlier-tool-ready",
+            "paths": {"brief": "docs/prototypes/earlier-tool/brief.md"},
+        }])
+        self.commit("Current Closure metadata beside a new Landing")
+        before = self.git("rev-parse", "HEAD")
+        snapshot = self.authority.snapshot("prototype:sample-tool", "repo://workspace-prototype-studio/prototypes/sample-tool")
+        self.assertEqual(snapshot.revision, before)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        closure = json.loads((REPO_ROOT / "contracts/prototype-closure/manifest.json").read_text())
+        self.assertEqual(self.contracts.manifest["source_authority"]["files"]["schemas/prototype-registry.schema.json"],
+                         closure["source_authority"]["registry_schema_sha256"])
+        schema = self.repo / "schemas/prototype-registry.schema.json"
+        schema.write_text(schema.read_text().replace("delivery-governed", "delivery"))
+        self.commit("Unaccepted old schema cannot replace the pinned current schema")
+        with self.assertRaises(PrototypeLandingUnavailable):
+            self.authority.snapshot("prototype:sample-tool", "repo://workspace-prototype-studio/prototypes/sample-tool")
 
     def test_source_activation_is_pinned_to_normal_availability_review(self) -> None:
         contracts = PrototypeLandingContracts.load()

@@ -376,6 +376,15 @@ capability pins the merged normal-availability review and is active only for
 `WGCF_PROTOTYPE_LANDING_READINESS_ENABLED=true` in the approved composition.
 Migration `0011_prototype_landing` stores evaluation evidence only.
 
+Landing and Maturity both validate the current Studio registry, including
+records already advanced by Closure. Their bundled registry schema and declared
+source minimum must therefore match the reviewed canonical Studio evolution,
+not merely each bundle's historical initialization fixture. Current source
+includes `delivery-governed` and explicit source custody. Refresh both affected
+copies and pins together; do not disable exact-source/schema checks. Read-only
+snapshots against actual committed Studio and native Git regression cases must
+pass before claiming the composed readiness path is operational.
+
 ### Prototype Maturity Readiness
 
 OOS submits one digest-bound Candidate Promotion or Baseline Promotion request

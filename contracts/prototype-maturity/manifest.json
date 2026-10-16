@@ -36,11 +36,11 @@
   "runtime_activation": true,
   "source_authority": {
     "repo": "workspace-prototype-studio",
-    "minimum_commit": "31a73628b0bfd5af1133bc3b633921a18e6e3941",
+    "minimum_commit": "9fdf82e08caf14074f804beaeabdb6569b174ade",
     "contract_manifest_path": "contracts/prototype-maturity/manifest.json",
     "contract_manifest_sha256": "5a63ad65bcf9b012aa70247997004c088dd488fa06b3f4dbcc62518f219127f3",
     "files": {
-      "schemas/prototype-registry.schema.json": "a4951c88070c14b0f4ef9b5a93f0471a3845a6aa21d3ca17d55a59d5cba767f7",
+      "schemas/prototype-registry.schema.json": "defdc5c2e994e7472e8827759c7c2dfc2f55f421313e665c3147d79fb98802d0",
       "schemas/prototype-candidate-record.schema.json": "721a822e56422a90b5c995a05ea09f54c106e12b82408b3d70298609a722d326"
     }
   },
