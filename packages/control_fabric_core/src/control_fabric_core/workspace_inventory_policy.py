@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from datetime import datetime
 from typing import Any
+from .workspace_intake_policy import provider_repository_conflicts
 
 from .workspace_inventory_contracts import (
     COLLECTIONS,
@@ -87,6 +88,12 @@ def evaluate_inventory_promotion(
         find("future-request", "The promotion request timestamp is ahead of the evaluation clock.")
 
     value = request["active_record"]["value"]
+    if kind == "repo":
+        provider = value.get("provider_repository")
+        if provider != intake_entry.get("provider_repository"):
+            find("provider-binding-mismatch", "Preserve the exact admitted provider repository binding.")
+        if isinstance(provider, dict) and provider_repository_conflicts(provider, snapshot.records, name):
+            find("provider-identity-duplicate", "This physical repository already has another workspace key.")
     if kind == "product":
         if value.get("lifecycle") != value.get("maturity"):
             find("compatibility-alias-mismatch", "Product lifecycle must equal product maturity.")

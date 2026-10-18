@@ -250,6 +250,16 @@ composition.
 
 ### Active Inventory Lifecycle Readiness
 
+Repository readiness preserves explicit `provider_repository` bindings from
+Workspace Governance. Proposed Intake does not require a local checkout and
+does not admit ordinary source work. Promotion preserves the exact admitted
+provider binding; later updates may change reviewed `full_name` coordinates but
+cannot remove/substitute the immutable provider/id pair or reuse it under another
+workspace key. Legacy records without explicit coordinates remain valid.
+These are non-mutating checks, not bootstrap credentials or provider authority.
+The staged bundle pin is source preparation until the coordinated owner landing,
+actual merged-source rebind, Security acceptance and Platform commissioning.
+
 OOS submits a digest-bound lifecycle evaluation to
 `POST /v1/readiness/workspace-inventory-lifecycle`. The request names one
 existing repository, product, or component and one `update`, `suspend`,

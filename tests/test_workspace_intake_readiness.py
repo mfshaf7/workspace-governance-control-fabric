@@ -183,6 +183,49 @@ class WorkspaceIntakeReadinessTests(TestCase):
     def post(self, value: dict):
         return self.client.post("/v1/readiness/workspace-intake", content=canonical_bytes(value), headers=self.headers)
 
+    def test_proposed_provider_binding_needs_no_checkout_but_cannot_reuse_physical_identity(self) -> None:
+        provider = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/example"}
+        value = self.envelope("repo", "proposed")
+        value["request"]["requested_record"]["provider_repository"] = provider
+        value["decision"]["outcome"]["approved_record"] = copy.deepcopy(value["request"]["requested_record"])
+        self.bind(value)
+        before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
+        result = self.post(value)
+        self.assertEqual(200, result.status_code, result.text)
+        self.assertEqual("allowed", result.json()["receipt"]["outcome"])
+        self.assertFalse((self.root / "example").exists())
+        self.assertEqual(before, (self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")))
+        self.write("repos", {"repos": {"another-key": {"provider_repository": provider}}, "retired_repos": {}})
+        self.commit()
+        value["authority_revision"] = self.git("rev-parse", "HEAD")
+        value["evaluation_id"] = "evaluation:duplicate-provider"
+        result = self.post(self.bind(value)).json()["receipt"]
+        self.assertEqual("denied", result["outcome"])
+        self.assertIn("provider-identity-duplicate", [item["code"] for item in result["findings"]])
+
+    def test_intake_update_cannot_replace_or_remove_provider_identity(self) -> None:
+        value = self.envelope("repo", "proposed")
+        provider = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/example"}
+        value["request"]["requested_record"]["provider_repository"] = provider
+        value["decision"]["outcome"]["approved_record"] = copy.deepcopy(value["request"]["requested_record"])
+        self.bind(value)
+        entry = self.applied_entry(value)
+        self.register["repos"]["example"] = entry
+        self.write("intake-register", self.register)
+        self.commit()
+        for index, replacement in enumerate((None, {**provider, "provider_repository_id": "42"}, {**provider, "full_name": "new-org/renamed"})):
+            update = self.envelope("repo", "proposed")
+            update["evaluation_id"] = f"evaluation:update-provider:{index}"
+            request = update["request"]
+            request["action"] = "update"
+            request["idempotency_key"] = f"update-provider:{index}"
+            request["expected_state"].update(record_version=1, record_digest=digest(entry))
+            if replacement is not None:
+                request["requested_record"]["provider_repository"] = replacement
+            update["decision"]["outcome"]["approved_record"] = copy.deepcopy(request["requested_record"])
+            result = self.post(self.bind(update)).json()["receipt"]
+            self.assertEqual("allowed" if index == 2 else "denied", result["outcome"], result["findings"])
+
     def test_positive_api_matrix_receipt_read_restart_replay_without_mutation(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
         repo = self.root / "example"

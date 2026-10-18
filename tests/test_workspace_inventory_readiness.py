@@ -346,6 +346,23 @@ class WorkspaceInventoryReadinessTests(TestCase):
             headers=self.headers,
         )
 
+    def test_promotion_preserves_the_exact_admitted_provider_binding(self) -> None:
+        provider = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/candidate-repo"}
+        self.register["repos"]["candidate-repo"]["provider_repository"] = provider
+        self.write("intake-register", self.register)
+        self.commit()
+        for index, replacement in enumerate((None, {**provider, "provider_repository_id": "42"}, provider)):
+            value = self.envelope("repo")
+            value["evaluation_id"] = f"evaluation:provider-promotion:{index}"
+            if replacement is not None:
+                value["request"]["active_record"]["value"]["provider_repository"] = replacement
+            response = self.post(self.bind(value))
+            self.assertEqual(200, response.status_code, response.text)
+            result = response.json()["readiness"]
+            self.assertEqual("ready" if index == 2 else "blocked", result["outcome"], result["findings"])
+            if index != 2:
+                self.assertIn("provider-binding-mismatch", [item["code"] for item in result["findings"]])
+
     def test_all_kinds_are_ready_replayable_readable_and_non_mutating(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
         for kind in ("repo", "product", "component"):

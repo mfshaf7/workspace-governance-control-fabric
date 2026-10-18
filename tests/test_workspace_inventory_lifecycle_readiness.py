@@ -324,6 +324,27 @@ class WorkspaceInventoryLifecycleReadinessTests(TestCase):
         self.write("workspace-inventory-history", self.history)
         self.commit()
 
+    def test_repository_update_preserves_physical_identity_but_allows_reviewed_rename(self) -> None:
+        provider = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/anchor-repo"}
+        record = self.inventories["repos"]["repos"]["anchor-repo"]
+        record["provider_repository"] = provider
+        self.write("repos", self.inventories["repos"])
+        self.commit()
+        for index, replacement in enumerate((None, {}, "bad-provider", {**provider, "provider_repository_id": "42"}, {**provider, "full_name": "new-org/renamed"})):
+            value = self.envelope("update")
+            value["evaluation_id"] = f"evaluation:provider-lifecycle:{index}"
+            request = value["request"]
+            request["target"] = {"kind": "repo", "name": "anchor-repo", "record_id": "repo:anchor-repo"}
+            request["expected_state"] = {"active_inventory_digest": digest(self.inventories["repos"]), "history_digest": digest(self.history),
+                                         "record_version": record["record"]["version"], "record_digest": digest(record), "posture": record["posture"]}
+            request["requested_value"] = {key: copy.deepcopy(child) for key, child in record.items() if key not in {"record", "provider_repository"}}
+            if replacement is not None:
+                request["requested_value"]["provider_repository"] = replacement
+            response = self.post(self.bind(value))
+            self.assertEqual(200, response.status_code, response.text)
+            result = response.json()["readiness"]
+            self.assertEqual("ready" if index == 4 else "blocked", result["outcome"], result["findings"])
+
     def test_ready_actions_replay_readback_and_non_mutation(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
         for action in ("update", "suspend", "retire"):

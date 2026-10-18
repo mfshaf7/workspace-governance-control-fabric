@@ -10,6 +10,18 @@ from typing import Any
 from .workspace_intake_contracts import COLLECTIONS, IntakeContracts, IntakeSnapshot, digest
 
 
+def provider_repository_conflicts(provider: dict[str, Any], records: dict[str, Any], name: str) -> bool:
+    """Project WG's one-physical-repository identity rule without writing it."""
+    collections = (records["intake-register"].get("repos", {}),
+                   records["repos"].get("repos", {}), records["repos"].get("retired_repos", {}))
+    return any(
+        key != name and isinstance(entry.get("provider_repository"), dict)
+        and all(entry["provider_repository"].get(field) == provider.get(field)
+                for field in ("provider", "provider_repository_id"))
+        for collection in collections for key, entry in collection.items()
+    )
+
+
 def evaluate_intake(
     envelope: dict[str, Any],
     snapshot: IntakeSnapshot,
@@ -98,6 +110,12 @@ def evaluate_intake(
     record = request["requested_record"]
     in_scope = request["requested_classification"] in {"proposed", "admitted"}
     if kind == "repo":
+        provider = record.get("provider_repository")
+        previous = (current or {}).get("provider_repository")
+        if previous and (not provider or any(previous[field] != provider[field] for field in ("provider", "provider_repository_id"))):
+            fail("provider-identity-changed", "Preserve the existing physical repository identity.")
+        if provider and provider_repository_conflicts(provider, snapshot.records, name):
+            fail("provider-identity-duplicate", "This physical repository already has another workspace key.")
         if in_scope and (
             not _present(record["repo_class"])
             or not isinstance(record["requires_security_bindings"], bool)

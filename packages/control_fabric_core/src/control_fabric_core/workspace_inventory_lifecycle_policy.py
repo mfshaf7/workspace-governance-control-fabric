@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from datetime import datetime
 from typing import Any
+from .workspace_intake_policy import provider_repository_conflicts
 
 from .workspace_inventory_contracts import (
     COLLECTIONS,
@@ -80,6 +81,13 @@ def evaluate_inventory_lifecycle(
 
     if action == "update":
         requested_value = request["requested_value"]
+        if kind == "repo":
+            provider = requested_value.get("provider_repository")
+            previous = record.get("provider_repository")
+            if previous and (not isinstance(provider, dict) or any(previous[field] != provider.get(field) for field in ("provider", "provider_repository_id"))):
+                find("provider-identity-changed", "Preserve the existing physical repository identity.")
+            if isinstance(provider, dict) and provider_repository_conflicts(provider, snapshot.records, name):
+                find("provider-identity-duplicate", "This physical repository already has another workspace key.")
         if "record" in requested_value:
             find("record-envelope-replacement", "Update cannot replace the inventory record envelope.")
         elif requested_value.get("posture") != current_posture:
