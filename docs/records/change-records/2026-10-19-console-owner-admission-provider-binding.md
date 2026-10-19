@@ -65,11 +65,13 @@ required before review/landing.
 
 ## Artifact And Deployment Evidence
 
-Base: b30a94ea73e1528fefef4b1c05759edf16cea5bb. The prepared authority pin is
-a255bfc9c82bc896f278dcd158704c760704c0eb on WG PR282, not merged authority.
-Replace it with the actual canonical merged WG commit during the already-planned
-coordinated landing window, then rerun native proof. Keep accepted primary
-checkouts/runtime unchanged. Neither an existing activation marker in a source
+Base: b30a94ea73e1528fefef4b1c05759edf16cea5bb. WG PR282 merged as
+5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2. Intake, Inventory and Catalog schema bindings
+now select that actual canonical commit, not any earlier review-branch head.
+All23 bundled authority-file hashes were checked against actual merged Git
+bytes and remain unchanged. Rerun native committed proof for this pin update.
+WG primary/root guidance has advanced and synced inside the approved source
+window; accepted service images/runtime remain unchanged. Neither an existing activation marker in a source
 bundle nor these tests grants new runtime availability or Security acceptance.
 
 ## Live Verification
@@ -79,8 +81,8 @@ No app generation, repository admission or Console operating proof is claimed.
 
 ## Follow-Up
 
-Finish the existing producer/consumer/bootstrap/import chain. WG PR282 is held,
-including its independently identified baseline overdue-candidate CI blocker.
+Finish the existing producer/consumer/bootstrap/import chain. WG PR282 and its
+independent baseline-freshness dependency have landed with exact-head CI/review.
 Final exact merged-source Security acceptance and its generated record index
 precede coherent Platform commissioning and the real Console to-do witness.
 Rollback restores the accepted composed pins, preserving immutable decisions,

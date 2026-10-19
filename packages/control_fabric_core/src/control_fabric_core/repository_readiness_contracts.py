@@ -54,7 +54,7 @@ class RepositoryReadinessContractBundle:
             "rule_directory": "contracts/repo-rules",
             "schema_path": "contracts/schemas/repos.schema.json",
             "schema_bundle_path": "../workspace-active-inventory/repos.schema.json",
-            "schema_commit": "a255bfc9c82bc896f278dcd158704c760704c0eb",
+            "schema_commit": "5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2",
             "schema_sha256": "831bb034c34298a475dcd6a2099b032ccd3b937bfb9b06b369796de5ee3f69cc",
         }:
             raise RepositoryReadinessContractError("repository authority source is invalid")

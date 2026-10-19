@@ -2,10 +2,10 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-active-inventory-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "1773d30b05042b821aa90105e8412cb615d0d914",
+  "authority_commit": "5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2",
   "activation_contract": {
     "repo": "workspace-governance",
-    "commit": "1773d30b05042b821aa90105e8412cb615d0d914",
+    "commit": "5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2",
     "path": "contracts/workspace-intake-inventory-operation.yaml",
     "schema_path": "contracts/schemas/workspace-intake-inventory-operation.schema.json",
     "contract_work_ref": "openproject://work_packages/1206",
