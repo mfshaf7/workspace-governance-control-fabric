@@ -229,6 +229,15 @@ active inventory, typed active-record content, compatibility aliases, approval
 references, and mutation identity reuse. Source drift returns `stale`; policy
 or content failures return `blocked`; only an exact current request is `ready`.
 
+Routine new repository registration also requires exact provider custody,
+preserved admitted class/Security classification, a described source-only owner
+boundary and the existing `covered-by-owner-repo` / `product-runtime-source`
+posture. Unsupported shared/control or Security-bound owners return
+`source-registration-review-required` before source preparation, retaining
+their admitted Intake. They require explicit reviewed registration, not an
+inferred rule, hidden operator repair or fabricated readiness. WG owns the
+complete companion transaction; WGCF does not write or approve instructions.
+
 The response contains `readiness` and `ledger`. `readiness` is the exact
 Workspace Governance `workspace-inventory-promotion-readiness` artifact, not a
 WGCF-owned canonical record. `GET /v1/readiness/workspace-inventory/{token}`
@@ -274,6 +283,12 @@ bindings, reused request identities, and reused idempotency keys return
 `workspace-inventory-lifecycle-readiness` shape. Caller-scoped immutable
 readback is available at
 `GET /v1/readiness/workspace-inventory-lifecycle/{token}`.
+
+Source-only posture changes retain their derived rule, routing and conservative
+context boundary through WG's transaction. A core/control-owner posture change
+returns `control-owner-lifecycle-review-required` for explicit routing/policy
+review; source-only updates cannot silently become privileged owners. Existing
+legacy identities and ordinary source work are not re-admitted by this rule.
 
 Evaluation never changes canonical inventory or history. Workspace Governance
 owns the reviewed source mutation and append-only event; OOS owns orchestration,

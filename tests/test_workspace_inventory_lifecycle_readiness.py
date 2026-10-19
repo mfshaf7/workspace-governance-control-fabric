@@ -345,6 +345,30 @@ class WorkspaceInventoryLifecycleReadinessTests(TestCase):
             result = response.json()["readiness"]
             self.assertEqual("ready" if index == 4 else "blocked", result["outcome"], result["findings"])
 
+    def test_source_only_posture_is_ready_but_core_owner_routing_requires_explicit_review(self) -> None:
+        record = self.inventories["repos"]["repos"]["anchor-repo"]
+        def repository_envelope(identity):
+            value = self.envelope("suspend")
+            value["evaluation_id"] = identity
+            value["request"]["target"] = {"kind": "repo", "name": "anchor-repo", "record_id": "repo:anchor-repo"}
+            value["request"]["expected_state"] = {"active_inventory_digest": digest(self.inventories["repos"]), "history_digest": digest(self.history),
+                "record_version": record["record"]["version"], "record_digest": digest(record), "posture": record["posture"]}
+            return value
+        response = self.post(self.bind(repository_envelope("evaluation:core-owner-posture")))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()["readiness"]
+        self.assertEqual(result["outcome"], "blocked")
+        self.assertTrue(any(item.startswith("[control-owner-lifecycle-review-required]") for item in result["findings"]))
+        record.update(requires_security_bindings=False,
+            provider_repository={"provider": "github", "provider_repository_id": "987654321", "full_name": "sample-org/anchor-repo"},
+            validation_behavior={"posture": "covered-by-owner-repo", "wgcf_graph_role": "product-runtime-source", "catalog_refs": [], "notes": "Reviewed owner-native source validation."})
+        record["record"]["lineage"].update(source="workspace-intake", source_ref="repo:anchor-repo", intake_entry_version=1)
+        self.write("repos", self.inventories["repos"])
+        self.commit()
+        response = self.post(self.bind(repository_envelope("evaluation:source-owner-posture")))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["readiness"]["outcome"], "ready", response.text)
+
     def test_ready_actions_replay_readback_and_non_mutation(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
         for action in ("update", "suspend", "retire"):

@@ -2,10 +2,10 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-active-inventory-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "a255bfc9c82bc896f278dcd158704c760704c0eb",
+  "authority_commit": "1773d30b05042b821aa90105e8412cb615d0d914",
   "activation_contract": {
     "repo": "workspace-governance",
-    "commit": "a255bfc9c82bc896f278dcd158704c760704c0eb",
+    "commit": "1773d30b05042b821aa90105e8412cb615d0d914",
     "path": "contracts/workspace-intake-inventory-operation.yaml",
     "schema_path": "contracts/schemas/workspace-intake-inventory-operation.schema.json",
     "contract_work_ref": "openproject://work_packages/1206",
@@ -19,9 +19,9 @@
     "lifecycle-evaluation.schema.json": "cde5ff21fcff1afe5d37c492912d51aa7b140e23aff065b3d8b0e70063cde30a"
   },
   "files": {
-    "contracts/workspace-active-inventory.yaml": "38f9c4e72cb440fbbd2bc25615788da0b4fe375a6e910d019e27cb713655f10a",
+    "contracts/workspace-active-inventory.yaml": "d9d154d3dc4cc122f10cb52d133435ef598e3595cc4b30d34e73b95e5cfdf893",
     "contracts/schemas/workspace-active-inventory.schema.json": "63e228f31e045c8e8bac04d4082d329f95fb71779f9b6c8716a480199d2948a8",
-    "contracts/workspace-inventory-lifecycle.yaml": "c80b259e9b25954bbd4a74b32410b7f05060b9d89c07c6acd2d2a9bf6979e602",
+    "contracts/workspace-inventory-lifecycle.yaml": "7a96f09186af8601079391b61f493d157a21fa6123176307d8c72aab6ce706ed",
     "contracts/workspace-intake-inventory-operation.yaml": "5ad9f582d39730f506658e1ca37fd75f57c11a0703c8978176c2e7e0936dac85",
     "contracts/schemas/workspace-intake-inventory-operation.schema.json": "32538b651ce50ad549f6268b5e62302b324e17b3a1dcc98fffb6aca49b4d3ceb",
     "contracts/schemas/workspace-inventory-promotion-request.schema.json": "61fef759a3960dba8590a297931eb2eda326fa957057fe66f31e74f623e5cc25",

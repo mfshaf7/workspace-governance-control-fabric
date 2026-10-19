@@ -2,10 +2,10 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-intake-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "a255bfc9c82bc896f278dcd158704c760704c0eb",
+  "authority_commit": "1773d30b05042b821aa90105e8412cb615d0d914",
   "activation_contract": {
     "repo": "workspace-governance",
-    "commit": "a255bfc9c82bc896f278dcd158704c760704c0eb",
+    "commit": "1773d30b05042b821aa90105e8412cb615d0d914",
     "path": "contracts/workspace-intake-inventory-operation.yaml",
     "schema_path": "contracts/schemas/workspace-intake-inventory-operation.schema.json",
     "contract_work_ref": "openproject://work_packages/1206",

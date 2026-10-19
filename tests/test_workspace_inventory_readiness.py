@@ -176,8 +176,9 @@ class WorkspaceInventoryReadinessTests(TestCase):
         specific = {
             "repo": {
                 "repo_class": "product",
-                "requires_security_bindings": True,
+                "requires_security_bindings": False,
                 "security_owner": "security-architecture",
+                "provider_repository": {"provider": "github", "provider_repository_id": "987654321", "full_name": "sample-org/candidate-repo"},
             },
             "product": {
                 "platform_owner": "platform-engineering",
@@ -258,6 +259,12 @@ class WorkspaceInventoryReadinessTests(TestCase):
             },
         }[kind]
         if not migrated:
+            if kind == "repo":
+                specific.update(requires_security_bindings=False,
+                    provider_repository={"provider": "github", "provider_repository_id": "987654321", "full_name": "sample-org/candidate-repo"})
+                behavior = self.validation_behavior()
+                behavior.update(posture="covered-by-owner-repo", wgcf_graph_role="product-runtime-source")
+                return {**specific, "validation_behavior": behavior}
             return {**specific, "validation_behavior": self.validation_behavior()}
         source_digest = digest({"legacy": name})
         return {
@@ -356,12 +363,35 @@ class WorkspaceInventoryReadinessTests(TestCase):
             value["evaluation_id"] = f"evaluation:provider-promotion:{index}"
             if replacement is not None:
                 value["request"]["active_record"]["value"]["provider_repository"] = replacement
+            else:
+                value["request"]["active_record"]["value"].pop("provider_repository")
             response = self.post(self.bind(value))
             self.assertEqual(200, response.status_code, response.text)
             result = response.json()["readiness"]
             self.assertEqual("ready" if index == 2 else "blocked", result["outcome"], result["findings"])
             if index != 2:
                 self.assertIn("provider-binding-mismatch", [item["code"] for item in result["findings"]])
+
+    def test_unsupported_registration_has_visible_blocking_findings_before_source_effects(self) -> None:
+        for index, change in enumerate((
+            {"requires_security_bindings": True}, {"security_review_subject": True}, {"owns": []},
+            {"repo_class": "shared-control"}, {"provider_repository": None},
+            {"validation_behavior": self.validation_behavior()},
+        )):
+            value = self.envelope("repo")
+            value["evaluation_id"] = f"evaluation:registration-boundary:{index}"
+            if change.get("provider_repository", "present") is None:
+                value["request"]["active_record"]["value"].pop("provider_repository")
+            else:
+                value["request"]["active_record"]["value"].update(change)
+            response = self.post(self.bind(value))
+            self.assertEqual(response.status_code, 200, response.text)
+            readiness = response.json()["readiness"]
+            self.assertEqual(readiness["outcome"], "blocked")
+            codes = {item["code"] for item in readiness["findings"]}
+            self.assertIn("repository-classification-mismatch" if "repo_class" in change else "source-registration-review-required", codes)
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertEqual(self.git("rev-parse", "HEAD"), self.pin)
 
     def test_all_kinds_are_ready_replayable_readable_and_non_mutating(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")

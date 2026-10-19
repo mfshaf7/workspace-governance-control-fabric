@@ -6,6 +6,7 @@ import copy
 from datetime import datetime
 from typing import Any
 from .workspace_intake_policy import provider_repository_conflicts
+from .workspace_inventory_policy import source_owner_domain_eligible
 
 from .workspace_inventory_contracts import (
     COLLECTIONS,
@@ -67,6 +68,11 @@ def evaluate_inventory_lifecycle(
         )
 
     action = request["action"]
+    if kind == "repo" and action != "update":
+        lineage = record["record"]["lineage"]
+        if not (lineage.get("source") == "workspace-intake" and lineage.get("source_ref") == f"repo:{name}"
+                and source_owner_domain_eligible(record)):
+            find("control-owner-lifecycle-review-required", "This owner's posture is bound to explicit routing/policy controls. Change them together through reviewed owner source; routine source-only lifecycle cannot rewrite core instructions.")
     current_posture = record["posture"]
     next_posture = TRANSITIONS.get(action, {}).get(current_posture)
     if next_posture is None:
@@ -82,6 +88,10 @@ def evaluate_inventory_lifecycle(
     if action == "update":
         requested_value = request["requested_value"]
         if kind == "repo":
+            lineage = record["record"]["lineage"]
+            if (lineage.get("source") == "workspace-intake" and lineage.get("source_ref") == f"repo:{name}"
+                and source_owner_domain_eligible(record) and not source_owner_domain_eligible(requested_value)):
+                find("source-registration-review-required", "A routine source-owner update cannot become a shared/control or Security-bound owner. Use explicit reviewed owner registration rather than replacing its derived controls.")
             provider = requested_value.get("provider_repository")
             previous = record.get("provider_repository")
             if previous and (not isinstance(provider, dict) or any(previous[field] != provider.get(field) for field in ("provider", "provider_repository_id"))):
