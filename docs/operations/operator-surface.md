@@ -229,6 +229,15 @@ active inventory, typed active-record content, compatibility aliases, approval
 references, and mutation identity reuse. Source drift returns `stale`; policy
 or content failures return `blocked`; only an exact current request is `ready`.
 
+Routine new repository registration also requires exact provider custody,
+preserved admitted class/Security classification, a described source-only owner
+boundary and the existing `covered-by-owner-repo` / `product-runtime-source`
+posture. Unsupported shared/control or Security-bound owners return
+`source-registration-review-required` before source preparation, retaining
+their admitted Intake. They require explicit reviewed registration, not an
+inferred rule, hidden operator repair or fabricated readiness. WG owns the
+complete companion transaction; WGCF does not write or approve instructions.
+
 The response contains `readiness` and `ledger`. `readiness` is the exact
 Workspace Governance `workspace-inventory-promotion-readiness` artifact, not a
 WGCF-owned canonical record. `GET /v1/readiness/workspace-inventory/{token}`
@@ -250,6 +259,16 @@ composition.
 
 ### Active Inventory Lifecycle Readiness
 
+Repository readiness preserves explicit `provider_repository` bindings from
+Workspace Governance. Proposed Intake does not require a local checkout and
+does not admit ordinary source work. Promotion preserves the exact admitted
+provider binding; later updates may change reviewed `full_name` coordinates but
+cannot remove/substitute the immutable provider/id pair or reuse it under another
+workspace key. Legacy records without explicit coordinates remain valid.
+These are non-mutating checks, not bootstrap credentials or provider authority.
+The staged bundle pin is source preparation until the coordinated owner landing,
+actual merged-source rebind, Security acceptance and Platform commissioning.
+
 OOS submits a digest-bound lifecycle evaluation to
 `POST /v1/readiness/workspace-inventory-lifecycle`. The request names one
 existing repository, product, or component and one `update`, `suspend`,
@@ -264,6 +283,12 @@ bindings, reused request identities, and reused idempotency keys return
 `workspace-inventory-lifecycle-readiness` shape. Caller-scoped immutable
 readback is available at
 `GET /v1/readiness/workspace-inventory-lifecycle/{token}`.
+
+Source-only posture changes retain their derived rule, routing and conservative
+context boundary through WG's transaction. A core/control-owner posture change
+returns `control-owner-lifecycle-review-required` for explicit routing/policy
+review; source-only updates cannot silently become privileged owners. Existing
+legacy identities and ordinary source work are not re-admitted by this rule.
 
 Evaluation never changes canonical inventory or history. Workspace Governance
 owns the reviewed source mutation and append-only event; OOS owns orchestration,

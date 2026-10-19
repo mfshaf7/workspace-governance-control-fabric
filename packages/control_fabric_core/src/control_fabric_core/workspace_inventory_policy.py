@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import copy
+import re
 from datetime import datetime
 from typing import Any
+from .workspace_intake_policy import provider_repository_conflicts
 
 from .workspace_inventory_contracts import (
     COLLECTIONS,
@@ -13,6 +15,23 @@ from .workspace_inventory_contracts import (
     InventorySnapshot,
     digest,
 )
+
+
+def source_owner_domain_eligible(value: dict[str, Any]) -> bool:
+    """Mirror WG's existing source-only posture, never a control-owner grant."""
+    validation = value.get("validation_behavior", {})
+    provider = value.get("provider_repository") or {}
+    if not isinstance(validation, dict) or not isinstance(provider, dict):
+        return False
+    return (value.get("requires_security_bindings") is False
+        and value.get("security_review_subject", False) is False
+        and bool(value.get("owns")) and bool(value.get("must_not_own"))
+        and validation.get("posture") == "covered-by-owner-repo"
+        and validation.get("wgcf_graph_role") == "product-runtime-source"
+        and provider.get("provider") == "github"
+        and bool(re.fullmatch(r"[1-9][0-9]*", str(provider.get("provider_repository_id", ""))))
+        and bool(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9._-]+", str(provider.get("full_name", ""))))
+        and str(provider.get("full_name", "")).split("/")[-1] not in {".", ".."})
 
 
 def evaluate_inventory_promotion(
@@ -87,6 +106,16 @@ def evaluate_inventory_promotion(
         find("future-request", "The promotion request timestamp is ahead of the evaluation clock.")
 
     value = request["active_record"]["value"]
+    if kind == "repo":
+        provider = value.get("provider_repository")
+        if any(value.get(field) != intake_entry.get(field) for field in ("repo_class", "requires_security_bindings")):
+            find("repository-classification-mismatch", "Preserve the admitted repository class and Security-binding classification; review Intake before changing either.")
+        if not source_owner_domain_eligible(value):
+            find("source-registration-review-required", "Routine registration requires exact provider custody, a described source-only owner boundary, covered-by-owner-repo/product-runtime-source validation, and no control/Security-binding authority. Use an explicit reviewed registration source change for other owners; admission is retained.")
+        if provider != intake_entry.get("provider_repository"):
+            find("provider-binding-mismatch", "Preserve the exact admitted provider repository binding.")
+        if isinstance(provider, dict) and provider_repository_conflicts(provider, snapshot.records, name):
+            find("provider-identity-duplicate", "This physical repository already has another workspace key.")
     if kind == "product":
         if value.get("lifecycle") != value.get("maturity"):
             find("compatibility-alias-mismatch", "Product lifecycle must equal product maturity.")

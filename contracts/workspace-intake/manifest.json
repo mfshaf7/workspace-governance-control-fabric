@@ -2,10 +2,10 @@
   "schema_version": 1,
   "contract_id": "wgcf.workspace-intake-readiness.v1",
   "authority_repo": "workspace-governance",
-  "authority_commit": "e3864940dd6961426de93fa5cdb2215a86a5aca1",
+  "authority_commit": "5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2",
   "activation_contract": {
     "repo": "workspace-governance",
-    "commit": "e3864940dd6961426de93fa5cdb2215a86a5aca1",
+    "commit": "5746fc7bf2b68cf1e21ce8a3981fc716b05e7eb2",
     "path": "contracts/workspace-intake-inventory-operation.yaml",
     "schema_path": "contracts/schemas/workspace-intake-inventory-operation.schema.json",
     "contract_work_ref": "openproject://work_packages/1206",
@@ -19,13 +19,13 @@
     "readiness.schema.json": "c5e8bad73f00e02d42838ec9a83d0aa969f3b3bdaa341b33d55ad0d0b9539b93"
   },
   "files": {
-    "contracts/workspace-intake.yaml": "791b1994d852426ffabdf0c06375ccfba503d9c7efe0a3ba4b6d0bd35b15317c",
+    "contracts/workspace-intake.yaml": "6566154a5a648b446067d8218607e4a79bc5225dabe8861a8f6b26ed77786406",
     "contracts/schemas/workspace-intake.schema.json": "87f2ef7f9c12c2044a629399e541904f79802ef19ec4a0c0a20af6c87dff4ddd",
     "contracts/workspace-intake-inventory-operation.yaml": "5ad9f582d39730f506658e1ca37fd75f57c11a0703c8978176c2e7e0936dac85",
     "contracts/schemas/workspace-intake-inventory-operation.schema.json": "32538b651ce50ad549f6268b5e62302b324e17b3a1dcc98fffb6aca49b4d3ceb",
     "contracts/intake-policy.yaml": "9d58b8b2fb0afc47fd689b7a2421bc4bb7ba3cabdd874134caece27034f37b55",
-    "contracts/schemas/workspace-intake-request.schema.json": "c727eccb3fe492c4cbfd4840d97a5cf00842d8c4ce004e4668f6e1335fb0ef46",
-    "contracts/schemas/workspace-intake-decision.schema.json": "a770c3499fb019952dc026b436ee245bc7d826601fbec3286ca5f8d12a310fec",
-    "contracts/schemas/intake-register.schema.json": "b14bb6f07279dcb06bb91b581292b14ba42362c50a3d964cd9f6492db25508fc"
+    "contracts/schemas/workspace-intake-request.schema.json": "892d0066328896094adebf546e1760a41a6fccb3506c87415815241c57d282a4",
+    "contracts/schemas/workspace-intake-decision.schema.json": "8ce1bbc1ee7d6f53e145b4c420af7673eec1a1b8895fb0e6ad93f5050ec235d5",
+    "contracts/schemas/intake-register.schema.json": "d68c8365ddbf626e5aad98dc5918a69729aa464d59b42def4e1d7aa7ded0683a"
   }
 }

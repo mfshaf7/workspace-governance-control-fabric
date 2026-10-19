@@ -324,6 +324,51 @@ class WorkspaceInventoryLifecycleReadinessTests(TestCase):
         self.write("workspace-inventory-history", self.history)
         self.commit()
 
+    def test_repository_update_preserves_physical_identity_but_allows_reviewed_rename(self) -> None:
+        provider = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/anchor-repo"}
+        record = self.inventories["repos"]["repos"]["anchor-repo"]
+        record["provider_repository"] = provider
+        self.write("repos", self.inventories["repos"])
+        self.commit()
+        for index, replacement in enumerate((None, {}, "bad-provider", {**provider, "provider_repository_id": "42"}, {**provider, "full_name": "new-org/renamed"})):
+            value = self.envelope("update")
+            value["evaluation_id"] = f"evaluation:provider-lifecycle:{index}"
+            request = value["request"]
+            request["target"] = {"kind": "repo", "name": "anchor-repo", "record_id": "repo:anchor-repo"}
+            request["expected_state"] = {"active_inventory_digest": digest(self.inventories["repos"]), "history_digest": digest(self.history),
+                                         "record_version": record["record"]["version"], "record_digest": digest(record), "posture": record["posture"]}
+            request["requested_value"] = {key: copy.deepcopy(child) for key, child in record.items() if key not in {"record", "provider_repository"}}
+            if replacement is not None:
+                request["requested_value"]["provider_repository"] = replacement
+            response = self.post(self.bind(value))
+            self.assertEqual(200, response.status_code, response.text)
+            result = response.json()["readiness"]
+            self.assertEqual("ready" if index == 4 else "blocked", result["outcome"], result["findings"])
+
+    def test_source_only_posture_is_ready_but_core_owner_routing_requires_explicit_review(self) -> None:
+        record = self.inventories["repos"]["repos"]["anchor-repo"]
+        def repository_envelope(identity):
+            value = self.envelope("suspend")
+            value["evaluation_id"] = identity
+            value["request"]["target"] = {"kind": "repo", "name": "anchor-repo", "record_id": "repo:anchor-repo"}
+            value["request"]["expected_state"] = {"active_inventory_digest": digest(self.inventories["repos"]), "history_digest": digest(self.history),
+                "record_version": record["record"]["version"], "record_digest": digest(record), "posture": record["posture"]}
+            return value
+        response = self.post(self.bind(repository_envelope("evaluation:core-owner-posture")))
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()["readiness"]
+        self.assertEqual(result["outcome"], "blocked")
+        self.assertTrue(any(item.startswith("[control-owner-lifecycle-review-required]") for item in result["findings"]))
+        record.update(requires_security_bindings=False,
+            provider_repository={"provider": "github", "provider_repository_id": "987654321", "full_name": "sample-org/anchor-repo"},
+            validation_behavior={"posture": "covered-by-owner-repo", "wgcf_graph_role": "product-runtime-source", "catalog_refs": [], "notes": "Reviewed owner-native source validation."})
+        record["record"]["lineage"].update(source="workspace-intake", source_ref="repo:anchor-repo", intake_entry_version=1)
+        self.write("repos", self.inventories["repos"])
+        self.commit()
+        response = self.post(self.bind(repository_envelope("evaluation:source-owner-posture")))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["readiness"]["outcome"], "ready", response.text)
+
     def test_ready_actions_replay_readback_and_non_mutation(self) -> None:
         before = self.git("status", "--porcelain"), self.git("rev-parse", "HEAD")
         for action in ("update", "suspend", "retire"):

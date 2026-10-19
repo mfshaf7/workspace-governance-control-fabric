@@ -184,6 +184,13 @@ class RepositoryReadinessTests(TestCase):
             actions,
         )
 
+    def test_explicit_organization_provider_binding_uses_the_same_admitted_owner_readiness(self) -> None:
+        self.source.repository["provider_repository"] = {"provider": "github", "provider_repository_id": "1421451929", "full_name": "sample-org/sample-repository"}
+        self.source.write_authority()
+        result = self.service.issue(self.request(), actor="operator-orchestration-service")
+        self.assertEqual("ready", result.receipt["decision"]["outcome"])
+        self.assertEqual("none", result.receipt["decision"]["mutation_authority"])
+
     def test_missing_retired_and_stale_authority_have_distinct_outcomes(self) -> None:
         expected = self.source.authority_digest
         another_repository = copy.deepcopy(self.source.repository)
