@@ -404,6 +404,56 @@ class PrototypeMaturityReadinessTests(TestCase):
         self.assertEqual(response.json()["readiness"]["outcome"], "blocked")
         self.assertIn("prototype-lifecycle-transition-invalid", response.text)
 
+    def test_active_reopened_candidate_cannot_fall_back_to_valid_history(self) -> None:
+        self.promote_to_candidate()
+        historical = self.repo / "records/prototype-maturity/sample-tool/candidate.json"
+        active = self.repo / "records/prototype-maturity/sample-tool/candidate-123456abcdef.json"
+        good = json.loads(historical.read_text(encoding="utf-8"))
+        cases = [
+            ("missing", "record://prototype-maturity/sample-tool/candidate-123456abcdef", None),
+            ("wrong-prototype", "record://prototype-maturity/sample-tool/candidate-123456abcdef", {**good, "prototype_id": "prototype:another-tool"}),
+            ("bad-digest", "record://prototype-maturity/sample-tool/candidate-123456abcdef", {**good, "record_digest": "sha256:" + "0" * 64}),
+            ("cross-prototype-ref", "record://prototype-maturity/another-tool/candidate", None),
+            ("traversal", "record://prototype-maturity/sample-tool/../candidate", None),
+            ("empty-active", "", None),
+            ("null-active", None, None),
+        ]
+        for sequence, (name, ref, contents) in enumerate(cases, start=60):
+            with self.subTest(name=name):
+                self.write_registry("candidate", candidate=True)
+                registry = yaml.safe_load((self.repo / "prototypes.yaml").read_text(encoding="utf-8"))
+                record = registry["prototypes"][0]
+                record["candidate_record_ref"] = ref
+                if isinstance(ref, str) and ref:
+                    record["linked_records"].append({"role": "candidate-record", "ref": ref, "system": "prototype-studio", "level": "record", "label": "Active Candidate"})
+                (self.repo / "prototypes.yaml").write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
+                if contents is not None:
+                    active.write_text(json.dumps(contents), encoding="utf-8")
+                elif active.exists():
+                    active.unlink()
+                self.commit("Declare active Candidate " + name)
+                response = self.post(self.envelope("baseline-promotion", sequence=sequence))
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["readiness"]["outcome"], "blocked", response.text)
+                self.assertIn("candidate-record-invalid", response.text)
+
+    def test_valid_active_candidate_is_used_instead_of_invalid_historical_record(self) -> None:
+        self.promote_to_candidate()
+        historical = self.repo / "records/prototype-maturity/sample-tool/candidate.json"
+        active = historical.with_name("candidate-123456abcdef.json")
+        active.write_bytes(historical.read_bytes())
+        historical.write_text("{\"historical-only\":true}", encoding="utf-8")
+        registry = yaml.safe_load((self.repo / "prototypes.yaml").read_text(encoding="utf-8"))
+        record = registry["prototypes"][0]
+        ref = "record://prototype-maturity/sample-tool/candidate-123456abcdef"
+        record["candidate_record_ref"] = ref
+        record["linked_records"].append({"role": "candidate-record", "ref": ref, "system": "prototype-studio", "level": "record", "label": "Active Candidate"})
+        (self.repo / "prototypes.yaml").write_text(yaml.safe_dump(registry, sort_keys=False), encoding="utf-8")
+        self.commit("Use exact active reopened Candidate")
+        response = self.post(self.envelope("baseline-promotion", sequence=70))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["readiness"]["outcome"], "ready", response.text)
+
     def test_stale_source_policy_and_security_bindings_are_explicit(self) -> None:
         cases = {
             "source": lambda value: value.update(authority_revision="0" * 40),

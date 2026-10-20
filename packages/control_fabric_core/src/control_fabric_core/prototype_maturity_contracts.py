@@ -416,14 +416,20 @@ class PrototypeMaturityAuthority:
     def _candidate_record_valid(
         self, revision: str, slug: str, record: dict[str, Any]
     ) -> bool:
-        expected_ref = f"record://prototype-maturity/{slug}/candidate"
+        prefix = f"record://prototype-maturity/{slug}/"
+        expected_ref = record.get("candidate_record_ref", prefix + "candidate")
+        if not isinstance(expected_ref, str) or not expected_ref.startswith(prefix):
+            return False
+        stem = expected_ref.removeprefix(prefix)
+        if not re.fullmatch(r"candidate(?:-[0-9a-f]{12})?", stem):
+            return False
         links = [
             link
             for link in record.get("linked_records", [])
             if link.get("role") == "candidate-record" and link.get("ref") == expected_ref
         ]
         raw = self._read(
-            revision, f"records/prototype-maturity/{slug}/candidate.json", allow_missing=True
+            revision, f"records/prototype-maturity/{slug}/{stem}.json", allow_missing=True
         )
         if raw is None or len(links) != 1:
             return False
