@@ -419,6 +419,13 @@ returns exactly eight contract-defined checks with `ready`, `blocked`, or
 `stale` outcome. Caller-scoped immutable readback is available at
 `GET /v1/readiness/prototype-maturity/{token}` for 15 minutes.
 
+Baseline validates the registry-declared `candidate_record_ref`, including a
+bounded `candidate-<12-hex>` record from a reopened cycle. Historical
+`candidate.json` is the compatibility default only when the field is absent.
+A declared missing, invalid, cross-Prototype or unsafe active record never
+falls back to a valid historical Candidate. Record schema, identity, linked
+reference and digest checks remain mandatory.
+
 This boundary does not edit Prototype Studio, make the operator decision,
 apply a lifecycle transition, or claim Delivery, runtime, publication, or
 Security approval. The source capability pins the merged normal-availability
