@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
 from pathlib import Path
 import subprocess
 from typing import Any
@@ -221,10 +222,19 @@ def _present(value: Any) -> bool:
 
 
 def _repository_present(root: Path) -> bool:
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_GRAFT_FILE": os.devnull, "GIT_NO_REPLACE_OBJECTS": "1",
+                "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0"})
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--show-toplevel"],
-            check=True, capture_output=True, text=True, timeout=5,
+            # The physical source is a Platform-owned read-only mount, not
+            # owned by this runtime UID. Trust only this already bounded root
+            # for this command; never change global Git trust or execute hooks.
+            ["git", "-c", f"safe.directory={root.resolve()}",
+             "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+             "-C", str(root), "rev-parse", "--show-toplevel"],
+            check=True, capture_output=True, text=True, timeout=5, env=env,
         )
         return Path(result.stdout.strip()).resolve() == root.resolve()
     except (OSError, subprocess.SubprocessError):
