@@ -291,6 +291,44 @@ class WorkspaceIntakeReadinessTests(TestCase):
         result = self.post(value).json()["receipt"]
         self.assertIn("inventory-overlap", [item["code"] for item in result["findings"]])
 
+    def test_physical_git_probe_trusts_only_exact_mounted_root_with_foreign_ownership(self) -> None:
+        from control_fabric_core.workspace_intake_policy import _repository_present
+
+        native_run = subprocess.run
+        observed = []
+        def foreign_owner(command, **kwargs):
+            observed.append((command, kwargs["env"]))
+            kwargs["env"] = {**kwargs["env"], "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}
+            return native_run(command, **kwargs)
+        with patch.dict(os.environ, {"GIT_DIR": "/untrusted", "GIT_CONFIG_COUNT": "1",
+                                    "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}), patch(
+            "control_fabric_core.workspace_intake_policy.subprocess.run", side_effect=foreign_owner,
+        ):
+            self.assertTrue(_repository_present(self.repo))
+            self.assertFalse(_repository_present(self.repo / "contracts"), "A parent repository is not the requested owner")
+            self.assertFalse(_repository_present(self.root / "missing"))
+        for command, env in observed:
+            self.assertNotIn("safe.directory=*", command)
+            self.assertIn("core.hooksPath=/dev/null", command)
+            self.assertIn("core.fsmonitor=false", command)
+            self.assertNotIn("GIT_DIR", env)
+            self.assertNotIn("GIT_CONFIG_COUNT", env)
+            self.assertEqual(env["GIT_CONFIG_GLOBAL"], os.devnull)
+        denied = native_run(["git", "-C", str(self.repo), "rev-parse", "--show-toplevel"],
+            env={"PATH": os.environ["PATH"], "GIT_TEST_ASSUME_DIFFERENT_OWNER": "1",
+                 "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}, capture_output=True)
+        self.assertNotEqual(denied.returncode, 0, "The test must actually exercise Git's foreign-owner denial")
+
+    def test_admitted_physical_owner_cannot_escape_workspace_through_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            outside = Path(directory)
+            subprocess.run(["git", "init", str(outside)], check=True, capture_output=True)
+            for name in ("AGENTS.md", "README.md"):
+                (outside / name).write_text("Synthetic external owner")
+            (self.root / "example").symlink_to(outside, target_is_directory=True)
+            result = self.post(self.envelope("repo", "admitted")).json()["receipt"]
+            self.assertIn("repository-not-present", [item["code"] for item in result["findings"]])
+
     def test_real_git_ignores_dirty_worktree_and_denies_stale_merged_revision(self) -> None:
         value = self.envelope()
         path = self.repo / "contracts/intake-register.yaml"

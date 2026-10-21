@@ -153,6 +153,15 @@ and bind the exact input digests, workflow references, issuer, implementation
 revision, authority revision, and every consumed authority file digest.
 Only references and findings are stored, not source briefs or credentials.
 
+Physical repository checks run against the exact direct-child source root
+visible to WGCF, not the operator host's filesystem. Platform must expose the
+committed owner checkout read-only; bootstrap completion alone does not make a
+new host directory visible inside this service. The Git probe uses per-command
+trust for only that bounded root, disables hooks/fsmonitor, and ignores ambient
+Git configuration. A distinct runtime UID is supported without global wildcard
+trust. Missing source, parent-repository fallback and workspace-escaping links
+remain denied. Visibility is not app acceptance, admission or active Inventory.
+
 An `allowed` outcome identifies `prepare-reviewed-source-change`, or
 `read-merged-record` when the exact mutation was already applied. Neither is
 a successful intake mutation. Source validation, exact-head review, human
