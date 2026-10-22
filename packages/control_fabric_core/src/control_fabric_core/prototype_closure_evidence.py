@@ -23,6 +23,7 @@ class ClosureEvidenceLookup:
     accepted_delivery_target_receipt_ref: str | None
     operator_id: str
     retirement_reason: str | None
+    durable_owner_acceptance_ref: str | None = None
 
 
 class ClosureOwnerReader(Protocol):
@@ -61,7 +62,9 @@ class OwnerBackedClosureEvidenceResolver:
                 source_revision=source.revision,
                 source_packet_ref=(
                     source.record.get("delivery_packet_ref")
-                    if field in {"accepted_delivery_target_receipt_ref", "target_delivery_ref"} else None
+                    if field in {"accepted_delivery_target_receipt_ref", "target_delivery_ref",
+                                 "durable_owner_acceptance_ref", "source_transfer_receipt_ref",
+                                 "already_owned_source_proof_ref"} else None
                 ),
                 target_delivery_ref=request.get("target_delivery_ref"),
                 accepted_delivery_target_receipt_ref=(
@@ -70,6 +73,7 @@ class OwnerBackedClosureEvidenceResolver:
                 ),
                 operator_id=request["operator_id"],
                 retirement_reason=request.get("retirement_reason"),
+                durable_owner_acceptance_ref=request.get("durable_owner_acceptance_ref"),
             )
             proof = reader.read(lookup)
             if proof is not None:

@@ -48,6 +48,31 @@ def discovered_lookup() -> ClosureEvidenceLookup:
 
 
 class OosClosureOwnerReaderTests(TestCase):
+    def test_native_transfer_discovery_carries_exact_acceptance_and_studio_packet(self) -> None:
+        from dataclasses import replace
+        native_ref = "wgcf://artifacts/delivery-art/sha256/" + "e" * 64
+        selected = replace(lookup(), field="source_transfer_receipt_ref", owner_ref="sample-app",
+                           requested_ref=None, subject_ref="repo://sample-org/sample-app",
+                           durable_owner_acceptance_ref=native_ref)
+        with tempfile.TemporaryDirectory() as directory:
+            credential = Path(directory) / "credential"
+            credential.write_text("local-test-secret")
+
+            def respond(request: httpx.Request) -> httpx.Response:
+                body = json.loads(request.content)
+                self.assertNotIn("ref", body)
+                self.assertEqual(body["durable_owner_acceptance_ref"], native_ref)
+                self.assertEqual(request.extensions["timeout"]["read"], 30.0)
+                self.assertEqual(body["source_packet_ref"], PACKET)
+                self.assertEqual(body["accepted_delivery_target_receipt_ref"], RECEIPT)
+                return httpx.Response(200, json={**proof(), "ref": native_ref,
+                    "owner_ref": "sample-app", "subject_ref": selected.subject_ref,
+                    "source_revision": selected.source_revision})
+
+            reader = OosClosureOwnerReader(base_url="http://127.0.0.1:8111", credential_file=credential,
+                client=httpx.Client(transport=httpx.MockTransport(respond)))
+            self.assertEqual(reader.read(selected).ref, native_ref)
+
     def test_exact_bound_read_uses_dedicated_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             credential = Path(directory) / "credential"
@@ -59,6 +84,7 @@ class OosClosureOwnerReaderTests(TestCase):
                 self.assertEqual(request.headers["x-oos-caller-secret"], "local-test-secret")
                 body = json.loads(request.content)
                 self.assertEqual(body["owner_ref"], "workspace-delivery-art")
+                self.assertEqual(request.extensions["timeout"]["read"], 5.0)
                 self.assertEqual(body["subject_ref"], TARGET)
                 self.assertEqual(body["source_packet_ref"], PACKET)
                 self.assertEqual(body["accepted_delivery_target_receipt_ref"], RECEIPT)

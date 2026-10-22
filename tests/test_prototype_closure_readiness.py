@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import socket
+import threading
+import time
+import httpx
+import uvicorn
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -329,6 +334,29 @@ class PrototypeClosureReadinessTests(TestCase):
             "ready",
         )
 
+    def test_native_owner_lookup_retains_accepted_packet_and_exact_acceptance_for_both_strategies(self) -> None:
+        class Capture:
+            def __init__(self): self.lookups = []
+            def read(self, lookup):
+                self.lookups.append(lookup)
+                return None
+
+        for strategy in ("transfer", "already-owned"):
+            req, src = request("graduate-source"), source("graduate-source")
+            req["transfer_strategy"] = strategy
+            req["durable_owner_acceptance_ref"] = "wgcf://artifacts/delivery-art/sha256/" + "b" * 64
+            if strategy == "already-owned":
+                req["already_owned_source_proof_ref"] = req["durable_owner_acceptance_ref"]
+            owner, delivery = Capture(), Capture()
+            resolve_evidence(OwnerBackedClosureEvidenceResolver({
+                "requested-owner": owner, "operator-orchestration-service": delivery}), req, src)
+            self.assertEqual(len(owner.lookups), 2)
+            for observed in owner.lookups:
+                self.assertEqual(observed.source_packet_ref, src.record["delivery_packet_ref"])
+                self.assertEqual(observed.durable_owner_acceptance_ref, req["durable_owner_acceptance_ref"])
+                self.assertEqual(observed.owner_ref, OWNER)
+                self.assertEqual(observed.subject_ref, REPO)
+
     def test_studio_unicode_digest_matches_closure_source_algorithm(self) -> None:
         self.assertEqual(
             studio_digest({"note": "caf\u00e9"}),
@@ -383,6 +411,45 @@ class PrototypeClosureReadinessTests(TestCase):
                                                     POLICY, src.record_digest)
                 self.assertEqual(result["outcome"], "ready")
                 self.assertFalse(result["findings"])
+
+    def test_real_single_worker_http_owner_callback_can_read_the_same_fabric_without_deadlock(self) -> None:
+        # Durable source proof resolves native artifact custody in this same
+        # fabric while WGCF waits for OOS. A synchronous owner read must not
+        # monopolize the ASGI loop needed to serve that bounded callback.
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        base = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        observed = []
+        expected = proofs("apply-delivery")
+
+        class ReentrantOwnerResolver:
+            def resolve(self, request, source):
+                response = httpx.get(base + "/healthz", timeout=1.0)
+                response.raise_for_status()
+                observed.append(response.status_code)
+                return expected
+
+        self.service.evidence_resolver = ReentrantOwnerResolver()
+        app = create_app(prototype_closure_readiness=self.service,
+            artifact_registry_authorizer=ArtifactRegistryAuthorizer(oos_secret="o" * 32, reconciler_secret="r" * 32))
+        server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off", loop="asyncio"))
+        thread = threading.Thread(target=lambda: server.run(sockets=[listener]), daemon=True)
+        thread.start()
+        try:
+            deadline = time.monotonic() + 5
+            while not server.started and thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(server.started)
+            response = httpx.post(base + "/v1/readiness/prototype-closure", headers=self.headers,
+                                  json=self.envelope("apply-delivery"), timeout=3)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(response.json()["readiness"]["outcome"], "ready")
+            self.assertEqual(observed, [200])
+        finally:
+            server.should_exit = True
+            thread.join(timeout=3)
+            listener.close()
+            self.assertFalse(thread.is_alive(), "Owned local HTTP server must always retire")
 
     def test_stale_missing_target_custody_and_invalid_state(self) -> None:
         req = request("graduate-source")

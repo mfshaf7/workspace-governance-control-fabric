@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from starlette.concurrency import run_in_threadpool
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
@@ -471,7 +472,11 @@ def create_app(
                 request, limit=MAX_PROTOTYPE_CLOSURE_EVALUATION_BYTES,
                 label="Prototype Closure evaluation",
             )
-            return prototype_closure_runtime().issue(raw, actor=caller_id)
+            # OOS owner proof reads native artifact custody back from this
+            # fabric. Its synchronous reader must leave this ASGI loop free
+            # to serve that authenticated callback, including single-worker
+            # local composition. Reuse the bounded ASGI worker pool.
+            return await run_in_threadpool(prototype_closure_runtime().issue, raw, actor=caller_id)
         except ArtifactRegistryError as exc:
             raise _artifact_registry_http_exception(exc) from exc
         except (

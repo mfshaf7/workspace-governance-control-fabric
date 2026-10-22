@@ -69,6 +69,7 @@ class OosClosureOwnerReader:
         for field in (
             "subject_ref", "source_packet_ref", "target_delivery_ref",
             "accepted_delivery_target_receipt_ref", "retirement_reason",
+            "durable_owner_acceptance_ref",
         ):
             value = getattr(lookup, field)
             if value is not None:
@@ -80,6 +81,13 @@ class OosClosureOwnerReader:
                     "x-oos-caller-id": "workspace-governance-control-fabric",
                     "x-oos-caller-secret": secret,
                 },
+                # Native finalized source proof includes bounded owner and
+                # provider reads. Preserve the original short deadline for
+                # baseline/Delivery/Platform lookups.
+                timeout=30.0 if lookup.field in {
+                    "durable_owner_acceptance_ref", "source_transfer_receipt_ref",
+                    "already_owned_source_proof_ref",
+                } else 5.0,
             )
         except httpx.HTTPError as exc:
             raise PrototypeClosureUnavailable("Closure OOS owner readback is unavailable") from exc

@@ -108,8 +108,11 @@ That surface is constrained by the workspace-owned contract in
   target readback, not the ingress receipt. The route is active only in the
   explicitly configured `dev-integration` composition, where the commissioned
   Closure identity and owner readers are present; source-level tests alone do
-  not activate it. OOS readback fields beyond Baseline and Delivery ingress
-  continue to fail closed until their owner implementation lands.
+  not activate it. Native source graduation additionally carries the exact
+  finalized source-work acceptance and accepted Studio packet to OOS's current
+  durable-owner reader; this is not a caller-authored proof body. Normal
+  availability requires the corresponding reviewed OOS and complete Platform
+  composition, not injected conformance readers.
   Repository admission
   readiness uses `POST /v1/readiness/repositories` and
   `GET /v1/readiness/repositories/{receipt_token}`. Repository custody policy

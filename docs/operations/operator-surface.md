@@ -358,6 +358,18 @@ runtime or source owner, and is current in the trusted owner history. It also
 checks publication action, posture tuple, lifecycle eligibility, expected
 version, request time, request identity, and idempotency reuse.
 
+Explicitly configured legacy owner roots retain their existing behavior. The
+normal factory may also resolve a typed active source-only owner beneath the
+existing fixed Platform `/sources` parent, after native Inventory promotion and
+active product registration. It reuses the Inventory authority/schema and
+source-owner eligibility rules, exact provider identity and promotion lineage.
+The existing Platform attribution marker must be unexpired and bind the clean
+regular Git snapshot and canonical head. An Intake entry, a directory's mere
+presence, stale/foreign attribution, ignored local residue, symlinks, inactive
+owners, provider conflicts or arbitrary paths do not authorize Publication.
+The reader never executes app source. Fresh source visibility is not itself
+publication, hosting or release acceptance.
+
 Schema-v2 requests also bind the current committed Workspace Inventory history.
 WGCF verifies that the manifest's lifecycle event is the latest event for the
 same product, that its digest, sequence, action, predecessor, and resulting
@@ -446,7 +458,7 @@ only.
 
 ### Prototype Closure Readiness
 
-The inactive Closure evaluator accepts one digest-bound evaluation at
+The source-gated Closure evaluator accepts one digest-bound evaluation at
 `POST /v1/readiness/prototype-closure`. Its request must match the pinned
 Workspace Governance Closure v2 schema and the current committed Studio
 revision and record digest. WGCF checks the action-specific lifecycle, source
@@ -473,6 +485,18 @@ service identity are configured. The Studio reader verifies the committed
 retention plan and exact retained Git objects. The OOS reader carries bounded
 owner lookups with its own credential; fields not yet implemented by OOS fail
 closed. OOS reconciliation and Platform activation remain separate work.
+
+Native durable-owner lookups carry the accepted Studio packet and the exact
+finalized source-work Review Packet acceptance reference. Transfer discovery
+uses only that reference; it does not scan work sessions or accept a caller's
+proof body. The existing OOS reader retains the eight-field verified-reference
+wire shape. Its durable source lookups have a30-second bound; other lookups
+retain5 seconds. The Closure issue handler uses the existing bounded ASGI
+thread pool so a single-worker fabric can serve OOS's authenticated native
+artifact callback while owner verification is pending. This is not a new
+background workflow or evidence engine. Native operator approval, current
+readiness, OOS's fresh owner recheck and Studio's reviewed mutation remain
+separate gates; source-only conformance does not activate the composition.
 `ready` is an evidence assessment, not human approval or permission to mutate
 Studio. The request digest binds operator,
 correlation, idempotency, action, and source revision; OOS must re-check ledger

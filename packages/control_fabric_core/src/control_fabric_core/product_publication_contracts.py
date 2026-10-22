@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -24,7 +25,9 @@ from .workspace_intake_contracts import (
     parse_json as _parse_json,
     yaml_record,
 )
-from .workspace_inventory_contracts import InventoryUnavailable, validate_history
+from .workspace_inventory_contracts import InventoryAuthority, InventoryContracts, InventoryUnavailable, validate_history
+from .workspace_inventory_policy import source_owner_domain_eligible
+from .workspace_intake_policy import provider_repository_conflicts
 
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[4] / "contracts" / "product-publication"
@@ -147,11 +150,15 @@ class ProductPublicationAuthority:
         contracts: ProductPublicationContracts,
         *,
         trusted_ref: str = "refs/remotes/origin/main",
+        source_owner_parent: Path | None = None,
     ) -> None:
         self.workspace_root = workspace_repo_root.resolve()
         self.owner_roots = {name: path.resolve() for name, path in owner_repo_roots.items()}
         self.contracts = contracts
         self.trusted_ref = trusted_ref
+        # Only the normal factory opts into the existing Platform source mount.
+        # A manifest/request may never provide a path or discover arbitrary Git.
+        self.source_owner_parent = source_owner_parent
 
     @staticmethod
     def _git(repo: Path, *args: str, allow_failure: bool = False) -> bytes | None:
@@ -182,7 +189,7 @@ class ProductPublicationAuthority:
 
     def snapshot(self, source: dict[str, Any]) -> ProductPublicationSnapshot:
         repo_name = source["repo"]
-        if not REPO_PATTERN.fullmatch(repo_name) or repo_name not in self.owner_roots:
+        if not REPO_PATTERN.fullmatch(repo_name) or (repo_name not in self.owner_roots and self.source_owner_parent is None):
             raise ProductPublicationRequestError("manifest owner repository is not configured")
         workspace_revision = self._commit(self.workspace_root, self.trusted_ref)
         require_record_authority_freshness(self.workspace_root, "workspace-governance", workspace_revision,
@@ -244,7 +251,10 @@ class ProductPublicationAuthority:
                 "committed Workspace Inventory history is invalid"
             ) from exc
 
-        owner_root = self.owner_roots[repo_name]
+        owner_root = self.owner_roots.get(repo_name)
+        dynamic_owner = owner_root is None
+        if dynamic_owner:
+            owner_root = self._registered_owner_root(repo_name, products, workspace_revision)
         owner_head = self._commit(owner_root, self.trusted_ref)
         if repo_name in {"workspace-governance", "workspace-prototype-studio"}:
             require_record_authority_freshness(owner_root, repo_name, owner_head,
@@ -265,6 +275,9 @@ class ProductPublicationAuthority:
             path = ".".join(str(part) for part in error.absolute_path) or "$"
             raise ProductPublicationRequestError(f"owner manifest: {path}: {error.message}")
         manifest_digest = digest(manifest)
+        if dynamic_owner and (self._registered_owner_root(repo_name, products, workspace_revision) != owner_root
+                              or self._commit(owner_root, self.trusted_ref) != owner_head):
+            raise ProductPublicationUnavailable("registered owner source changed during Publication readback")
         return ProductPublicationSnapshot(
             authority_revision=workspace_revision,
             products=products,
@@ -279,6 +292,66 @@ class ProductPublicationAuthority:
             manifest_path=source["path"],
             owner_head=owner_head,
         )
+
+    def _registered_owner_root(self, name: str, products: dict[str, Any], revision: str) -> Path:
+        if self.source_owner_parent is None:
+            raise ProductPublicationRequestError("manifest owner repository is not configured")
+        try:
+            inventory = InventoryAuthority(self.workspace_root, InventoryContracts.load(),
+                                           trusted_ref=self.trusted_ref).snapshot()
+            records = inventory.records
+            owner = records["repos"].get("repos", {}).get(name)
+            lineage = (owner or {}).get("record", {}).get("lineage", {})
+            if (inventory.revision != revision or records["products"] != products
+                or not isinstance(owner, dict) or owner.get("posture") != "active"
+                or owner.get("lifecycle") != "active" or not source_owner_domain_eligible(owner)
+                or name in records["intake-register"].get("repos", {})
+                or owner.get("record", {}).get("id") != f"repo:{name}"
+                or lineage.get("source") != "workspace-intake" or lineage.get("source_ref") != f"repo:{name}"
+                or type(lineage.get("intake_entry_version")) is not int or lineage["intake_entry_version"] < 1
+                or provider_repository_conflicts(owner["provider_repository"], records, name)
+                or not any(product.get("posture") == "active" and name in product.get("source_owners", [])
+                           for product in products.get("products", {}).values())):
+                raise ValueError("source owner is not currently registered for an active product")
+            parent = self.source_owner_parent
+            root = parent / name
+            marker = root / ".git" / "console-intake-owner-source.json"
+            if (parent.is_symlink() or not parent.is_dir() or parent.resolve() != parent.absolute()
+                or root.is_symlink() or root.resolve().parent != parent.resolve()
+                or not root.is_dir() or (root / ".git").is_symlink() or not (root / ".git").is_dir()
+                or marker.is_symlink() or not marker.is_file() or marker.stat().st_size > 4096
+                or any((root / name).is_symlink() or not (root / name).is_file()
+                       for name in (".git/config", ".git/HEAD"))
+                or (root / ".git/commondir").exists() or (root / ".git/objects").is_symlink()
+                or (root / ".git/refs").is_symlink() or (root / ".git/objects/info/alternates").exists()
+                or len({parent.stat().st_uid, root.stat().st_uid, (root / ".git").stat().st_uid, marker.stat().st_uid}) != 1):
+                raise ValueError("source snapshot is not attributed regular Platform source")
+            attribution = parse_json(marker.read_bytes())
+            observed = datetime.fromisoformat(attribution["observed_at"])
+            expires = datetime.fromisoformat(attribution["valid_until"])
+            now = datetime.now(timezone.utc)
+            if (set(attribution) != {"schema_version", "owner_repo", "head", "provider_repository", "observed_at", "valid_until"}
+                or type(attribution["schema_version"]) is not int or attribution["schema_version"] != 1
+                or attribution["owner_repo"] != name or attribution["provider_repository"] != owner["provider_repository"]
+                or observed.tzinfo is None or expires.tzinfo is None or observed > now + timedelta(seconds=30)
+                or expires <= now or expires <= observed or expires - observed > timedelta(minutes=10)
+                or not COMMIT_PATTERN.fullmatch(attribution["head"])
+                or self._commit(root, "HEAD") != attribution["head"]
+                or self._commit(root, self.trusted_ref) != attribution["head"]
+                or self._git(root, "remote", "get-url", "origin").decode().strip() !=
+                    f"https://github.com/{owner['provider_repository']['full_name']}.git"
+                or self._git(root, "status", "--porcelain", "--untracked-files=all", "--ignored=matching")):
+                raise ValueError("source snapshot is stale, dirty or provider-mismatched")
+            rows = self._git(root, "ls-tree", "-rlz", "--full-tree", attribution["head"]).split(b"\0")
+            entries = [row.split(b"\t", 1)[0].split() for row in rows if row]
+            if (not entries or len(entries) > 8192 or any(len(row) != 4 or row[1] != b"blob"
+                or row[0] not in {b"100644", b"100755"} or not row[3].isdigit()
+                or int(row[3]) > MAX_AUTHORITY_BYTES for row in entries)
+                or sum(int(row[3]) for row in entries) > 32 * 1024 * 1024):
+                raise ValueError("source snapshot exceeds its regular committed file bounds")
+            return root
+        except (OSError, ValueError, KeyError, TypeError, InventoryUnavailable) as exc:
+            raise ProductPublicationUnavailable("current registered owner Publication source is unavailable") from exc
 
     def _commit(self, repo: Path, ref: str) -> str:
         raw = self._git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
