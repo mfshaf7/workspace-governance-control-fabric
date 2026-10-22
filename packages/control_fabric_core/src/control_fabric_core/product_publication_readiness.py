@@ -289,7 +289,8 @@ def build_product_publication_readiness_runtime() -> ProductPublicationReadiness
     return ProductPublicationReadinessService(
         session_factory=create_session_factory(),
         authority=ProductPublicationAuthority(
-            Path(workspace_root), owner_roots_from_json(owner_roots), contracts
+            Path(workspace_root), owner_roots_from_json(owner_roots), contracts,
+            source_owner_parent=Path(workspace_root).parent,
         ),
         service_identity_ref=os.environ.get(
             PRODUCT_PUBLICATION_SERVICE_IDENTITY_ENV,
