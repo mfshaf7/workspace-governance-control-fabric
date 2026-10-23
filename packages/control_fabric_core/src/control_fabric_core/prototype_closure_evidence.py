@@ -66,7 +66,9 @@ class OwnerBackedClosureEvidenceResolver:
                                  "durable_owner_acceptance_ref", "source_transfer_receipt_ref",
                                  "already_owned_source_proof_ref"} else None
                 ),
-                target_delivery_ref=request.get("target_delivery_ref"),
+                target_delivery_ref=(request.get("target_delivery_ref") or (
+                    source.record.get("delivery_target_ref") if action == "graduate-source" else None
+                )),
                 accepted_delivery_target_receipt_ref=(
                     request.get("accepted_delivery_target_receipt_ref")
                     or source.record.get("accepted_delivery_target_receipt_ref")
