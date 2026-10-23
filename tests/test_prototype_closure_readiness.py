@@ -248,6 +248,28 @@ class PrototypeClosureReadinessTests(TestCase):
                 )
                 self.assertEqual(result["outcome"], "ready")
 
+    def test_graduation_receipt_lookup_uses_the_recorded_studio_delivery_target(self) -> None:
+        req, src = request("graduate-source"), source("graduate-source")
+        self.assertNotIn("target_delivery_ref", req)
+        src.record["delivery_target_ref"] = "openproject://work_packages/100"
+        expected = proofs("graduate-source")
+        reader = RecordingOwnerReader(expected)
+        resolver = OwnerBackedClosureEvidenceResolver({
+            owner: reader for owner in {proof.owner_ref for proof in expected.values()}
+        })
+        self.assertEqual(resolve_evidence(resolver, req, src), expected)
+        self.assertTrue(all(lookup.target_delivery_ref == src.record["delivery_target_ref"]
+                            for lookup in reader.lookups))
+        self.assertTrue(all(lookup.source_revision == REVISION for lookup in reader.lookups))
+        self.assertTrue(all(lookup.operator_id == req["operator_id"] for lookup in reader.lookups))
+        reader.lookups.clear()
+        # An explicit target retains its original semantics; the native owner
+        # still has to prove that exact target against the immutable receipt.
+        req["target_delivery_ref"] = "openproject://work_packages/999"
+        resolve_evidence(resolver, req, src)
+        self.assertTrue(all(lookup.target_delivery_ref == req["target_delivery_ref"]
+                            for lookup in reader.lookups))
+
     def test_owner_reader_absence_and_unaccepted_proof_fail_closed(self) -> None:
         req, src = request("apply-delivery"), source("apply-delivery")
         with self.assertRaises(PrototypeClosureUnavailable):

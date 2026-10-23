@@ -491,7 +491,15 @@ finalized source-work Review Packet acceptance reference. Transfer discovery
 uses only that reference; it does not scan work sessions or accept a caller's
 proof body. The existing OOS reader retains the eight-field verified-reference
 wire shape. Its durable source lookups have a30-second bound; other lookups
-retain5 seconds. The Closure issue handler uses the existing bounded ASGI
+retain5 seconds. Graduation receipt
+lookups carry the current Studio record's existing `delivery_target_ref` when
+the request has no explicit target. The native owner still verifies that exact
+target against the immutable receipt, source packet, Prototype and current
+owner/version. This avoids scanning unrelated ART records without expanding
+the lookup deadline or adding another request field. A retained acknowledged
+graduation request keeps its identity and source binding.
+
+The Closure issue handler uses the existing bounded ASGI
 thread pool so a single-worker fabric can serve OOS's authenticated native
 artifact callback while owner verification is pending. This is not a new
 background workflow or evidence engine. Native operator approval, current
