@@ -1347,3 +1347,19 @@ preserve the workflow shape:
 
 If implementation needs a new command, route, record, profile, or authority
 meaning, update the `workspace-governance` contract first.
+
+
+### Product-based publication preparation (staged extension)
+
+`GET /v1/product-publication/preparations/{product_id}` uses the existing
+`read-readiness` caller permission to resolve a registered product's typed publication manifest from its trusted source-owner mounts. It
+returns only source references, explicit findings, authority revision and a
+short expiry; no raw source, credentials, readiness approval or publication
+receipt is returned. Source paths cannot be supplied by the caller. Existing
+schema, ancestry, provider attribution, source freshness and size checks remain.
+
+OOS composes current publication state and caller-owned recent requests; the
+Console reviews that prepared information before using the unchanged submit
+path. Missing/ambiguous files are prerequisites, and unavailable sources fail
+closed. This read is neither readiness issuance nor authority mutation. The
+extension needs exact-source acceptance/commissioning before live claims.

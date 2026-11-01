@@ -499,6 +499,17 @@ def create_app(
         ) as exc:
             raise _prototype_closure_http_exception(exc) from exc
 
+    @app.get("/v1/product-publication/preparations/{product_id}")
+    async def prepare_product_publication(product_id: str, request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "read-readiness")
+            return product_publication_runtime().prepare(product_id, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except (ProductPublicationRequestError, ProductPublicationUnavailable) as exc:
+            raise _product_publication_http_exception(exc) from exc
+
     @app.post("/v1/readiness/product-publication")
     async def issue_product_publication_readiness(request: Request) -> dict[str, Any]:
         try:

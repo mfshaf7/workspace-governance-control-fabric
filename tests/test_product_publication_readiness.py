@@ -525,6 +525,57 @@ class ProductPublicationReadinessTests(TestCase):
             headers=self.headers,
         )
 
+    def test_preparation_derives_exact_committed_references_without_journal_writes(self) -> None:
+        self.products["products"]["governance-operations-console"]["record"]["id"] = "product:governance-operations-console"
+        self._write(self.workspace, "contracts/products.yaml", yaml.safe_dump(self.products).encode())
+        self._commit(self.workspace, "Identify product record")
+        prepared = self.service.prepare("product:governance-operations-console", actor="oos")
+        self.assertEqual(prepared["status"], "prepared")
+        self.assertEqual(prepared["manifest_source"], {
+            "repo": "governance-operations-console", "path": "product-publication/manifest.json",
+            "source_revision": self.source_revision, "manifest_revision": self.manifest_revision,
+            "manifest_digest": digest(self.manifest),
+        })
+        self.assertFalse(prepared["publication_authority_granted"])
+        with self.sessions() as session:
+            self.assertEqual(len(session.scalars(select(ProductPublicationReadinessRecord)).all()), 0)
+        self.assertEqual(self._git(self.owner, "status", "--porcelain"), "")
+        response = self.client.get("/v1/product-publication/preparations/product:governance-operations-console", headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.client.get("/v1/product-publication/preparations/product:governance-operations-console").status_code, 401)
+
+    def test_preparation_finds_typed_owner_information_without_inventing_a_filename_requirement(self) -> None:
+        self.products["products"]["governance-operations-console"]["record"]["id"] = "product:governance-operations-console"
+        self._write(self.workspace, "contracts/products.yaml", yaml.safe_dump(self.products).encode())
+        self._commit(self.workspace, "Identify product record")
+        target = self.owner / "catalog/active-product"
+        target.parent.mkdir()
+        (self.owner / "product-publication/manifest.json").rename(target)
+        self._commit(self.owner, "Keep owner information in a custom source location")
+        prepared = self.service.prepare("product:governance-operations-console", actor="oos")
+        self.assertEqual(prepared["status"], "prepared")
+        self.assertEqual(prepared["manifest_source"]["path"], "catalog/active-product")
+        self._write(self.owner, "catalog/another", target.read_bytes())
+        self._commit(self.owner, "Ambiguous owner information")
+        prepared = self.service.prepare("product:governance-operations-console", actor="oos")
+        self.assertEqual(prepared["status"], "blocked")
+        self.assertEqual(prepared["issues"][0]["code"], "ambiguous-owner-information")
+
+    def test_preparation_missing_and_invalid_information_never_infers_a_ready_source(self) -> None:
+        self.products["products"]["governance-operations-console"]["record"]["id"] = "product:governance-operations-console"
+        self._write(self.workspace, "contracts/products.yaml", yaml.safe_dump(self.products).encode())
+        self._commit(self.workspace, "Identify product record")
+        self._write(self.owner, "product-publication/manifest.json", b"{}")
+        self._commit(self.owner, "Incomplete owner information")
+        prepared = self.service.prepare("product:governance-operations-console", actor="oos")
+        self.assertEqual(prepared["status"], "blocked")
+        self.assertIsNone(prepared["manifest_source"])
+        (self.owner / "product-publication/manifest.json").unlink()
+        self._commit(self.owner, "No owner information")
+        prepared = self.service.prepare("product:governance-operations-console", actor="oos")
+        self.assertEqual(prepared["issues"][0]["code"], "missing-owner-information")
+        self.assertIsNone(prepared["manifest_source"])
+
     def test_ready_replay_readback_and_non_mutation(self) -> None:
         before = self._git(self.owner, "status", "--porcelain"), self._git(self.owner, "rev-parse", "HEAD")
         value = self.envelope()

@@ -716,7 +716,7 @@ class DevIntegrationProfileTests(TestCase):
             )
             self.assertIn("mountPath: /sources/workspace-prototype-studio", manifest)
             self.assertIn(
-                f"path: {REPO_ROOT.parent}/workspace-prototype-studio",
+                f"path: {(REPO_ROOT.parent / 'workspace-prototype-studio').resolve()}",
                 manifest,
             )
             self.assertIn("service: workspace-governance-control-fabric-api", access)
@@ -771,14 +771,14 @@ class DevIntegrationProfileTests(TestCase):
                     {
                         "name": "prototype-studio-source",
                         "hostPath": {
-                            "path": f"{REPO_ROOT.parent}/workspace-prototype-studio",
+                            "path": str((REPO_ROOT.parent / "workspace-prototype-studio").resolve()),
                             "type": "Directory",
                         },
                     },
                     {
                         "name": "workspace-governance-source",
                         "hostPath": {
-                            "path": f"{REPO_ROOT.parent}/workspace-governance",
+                            "path": str((REPO_ROOT.parent / "workspace-governance").resolve()),
                             "type": "Directory",
                         },
                     },
