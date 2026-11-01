@@ -62,6 +62,14 @@ class ProductPublicationReadinessService:
         self.implementation = implementation_ref
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
+    def prepare(self, product_id: str, *, actor: str) -> dict[str, Any]:
+        from .product_publication_preparation import prepare_publication
+        if not actor.strip():
+            raise ProductPublicationRequestError("Authenticated caller is required")
+        return prepare_publication(self.authority, product_id, now=self.clock(), issuer={
+            "implementation_ref": self.implementation, "service_identity_ref": self.identity,
+        })
+
     def issue(self, raw: bytes, *, actor: str) -> dict[str, Any]:
         if len(raw) > MAX_PRODUCT_PUBLICATION_EVALUATION_BYTES:
             raise ProductPublicationRequestError("Product Publication evaluation exceeds the request limit")
