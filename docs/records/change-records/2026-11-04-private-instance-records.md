@@ -14,6 +14,9 @@ security_evidence:
     - packages/control_fabric_core/src/control_fabric_core/db/models.py
     - apps/api/src/wgcf_api/app.py
     - migrations/versions/0016_instance_records.py
+    - contracts/workspace-active-inventory/manifest.json
+    - contracts/workspace-active-inventory/workspace-active-inventory.yaml
+    - contracts/workspace-active-inventory/workspace-inventory-lifecycle.yaml
   findings: []
   risks: []
   workstreams: [WS-003, WS-005]
@@ -148,3 +151,18 @@ source blocks fresh issuance. Receipt replay preserves actual authority, and OOS
 reevaluates before linking. The existing Catalog reference remains unchanged.
 Isolated native database tests prove issuance, durable replay, foreign/stale
 rejection and suspension, alongside the unchanged legacy readiness suite.
+
+## Legacy Inventory policy dependency reconciliation
+
+Controlled activation exposed two stale policy copies in the retained Git-backed
+Inventory bundle. Native registration clarified authority in Governance active
+Inventory and lifecycle policies; the existing byte-equality guard correctly
+rejected the old copies against current committed authority. Refresh these exact
+files and their existing manifest to Governance commit
+`c824d357c05eaa50da5c71180506fba10b8052f1`. The unchanged operation contract and
+schema remain bound by their original content hashes, architecture and reviewed
+operation scope. No source check is relaxed, no record is migrated and no
+activation generation is recreated. OOS consumes the matching reviewed bundle
+after this owner merge; final Security image/source selection follows its actual
+hosted artifacts. Validate the real current committed Inventory snapshot before
+publication, alongside the existing legacy/native and packaged-contract suites.
