@@ -16,17 +16,114 @@
     "expected_authority_digest"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "profile_id": { "const": "dev-integration" },
-    "policy_scope": { "const": "delivery-catalog-owner-repo" },
-    "repo_name": { "$ref": "#/$defs/repoName" },
-    "repo_ref": { "type": "string", "pattern": "^repo://[a-z0-9][a-z0-9-]*$" },
-    "expected_owner_repo": { "$ref": "#/$defs/repoName" },
-    "catalog_value_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-    "expected_authority_digest": { "$ref": "#/$defs/digest" }
+    "schema_version": {
+      "const": 1
+    },
+    "profile_id": {
+      "const": "dev-integration"
+    },
+    "policy_scope": {
+      "const": "delivery-catalog-owner-repo"
+    },
+    "repo_name": {
+      "$ref": "#/$defs/repoName"
+    },
+    "repo_ref": {
+      "type": "string",
+      "pattern": "^repo://[a-z0-9][a-z0-9-]*$"
+    },
+    "expected_owner_repo": {
+      "$ref": "#/$defs/repoName"
+    },
+    "catalog_value_key": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "expected_authority_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "expected_instance_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_authority",
+        "record_ref",
+        "policy_ref"
+      ],
+      "properties": {
+        "canonical_authority": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "instance_id",
+            "record_id"
+          ],
+          "properties": {
+            "kind": {
+              "const": "internal-instance-record"
+            },
+            "instance_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+            },
+            "record_id": {
+              "type": "string",
+              "pattern": "^repo:[a-z0-9][a-z0-9._-]*$"
+            }
+          }
+        },
+        "record_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "version",
+            "digest"
+          ],
+          "properties": {
+            "version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "policy_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repo",
+            "revision",
+            "contract_digest"
+          ],
+          "properties": {
+            "repo": {
+              "const": "workspace-governance"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{40}$"
+            },
+            "contract_digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        }
+      }
+    }
   },
   "$defs": {
-    "repoName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+    "repoName": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
   }
 }

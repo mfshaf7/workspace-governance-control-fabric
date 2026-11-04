@@ -1,7 +1,9 @@
 """Database configuration helpers for the control-fabric runtime.
 
-The database layer is implementation infrastructure only. It stores fabric-local
-graph, receipt, and ledger records without becoming an authority source.
+The database stores fabric projections/evidence and explicitly assigned private
+installation records. Governance owns policy and accepted decision semantics;
+storing a record does not independently grant decision or deployment authority.
+Source-backed records remain upstream authority until an explicit cutover.
 """
 
 from __future__ import annotations

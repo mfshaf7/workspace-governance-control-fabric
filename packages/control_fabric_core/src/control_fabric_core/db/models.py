@@ -1,4 +1,4 @@
-"""Policy-neutral persistence model for graph, receipt, and ledger records."""
+"""Persistence for fabric evidence and explicitly assigned private instance data."""
 
 from __future__ import annotations
 
@@ -43,6 +43,50 @@ class TimestampMixin:
         server_default=func.now(),
         nullable=False,
     )
+
+
+class InstanceOperationalRecord(TimestampMixin, Base):
+    """Installation-private current record, distinct from a source/graph cache."""
+
+    __tablename__ = "instance_operational_records"
+    __table_args__ = (
+        UniqueConstraint("instance_id", "provider", "provider_repository_id",
+                         name="uq_instance_record_provider_identity"),
+    )
+    instance_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    record_id: Mapped[str] = mapped_column(String(192), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    record_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(32))
+    provider_repository_id: Mapped[str | None] = mapped_column(String(32))
+    value: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+
+
+class InstanceOperationalRevision(TimestampMixin, Base):
+    """Immutable accepted record revision and its complete decision receipt."""
+
+    __tablename__ = "instance_operational_revisions"
+    instance_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    record_id: Mapped[str] = mapped_column(String(192), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    receipt: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+
+
+class InstanceOperationalOperation(TimestampMixin, Base):
+    """Idempotency binding survives later changes and interrupted responses."""
+
+    __tablename__ = "instance_operational_operations"
+    __table_args__ = (
+        UniqueConstraint("instance_id", "ai_decision_id", name="uq_instance_operation_ai_decision"),
+    )
+    instance_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(256), primary_key=True)
+    actor: Mapped[str] = mapped_column(String(256), nullable=False)
+    ai_decision_id: Mapped[str | None] = mapped_column(String(256))
+    command_digest: Mapped[str] = mapped_column(String(71), nullable=False)
+    command: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(json_payload, nullable=False)
 
 
 class GovernanceNode(TimestampMixin, Base):

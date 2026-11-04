@@ -65,6 +65,7 @@ class PreparedRepositoryReadinessRequest:
     expected_owner_repo: str
     catalog_value_key: str
     expected_authority_digest: str
+    expected_instance_record: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,7 @@ class RepositoryAuthorityEvaluation:
     repository_lifecycle: str | None = None
     repository_class: str | None = None
     requires_security_bindings: bool | None = None
+    instance_record: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -130,6 +132,7 @@ def prepare_repository_readiness_request(
         expected_owner_repo=request["expected_owner_repo"],
         catalog_value_key=request["catalog_value_key"],
         expected_authority_digest=request["expected_authority_digest"],
+        expected_instance_record=copy.deepcopy(request.get("expected_instance_record")),
     )
 
 
@@ -145,6 +148,7 @@ class RepositoryReadinessService:
         implementation_ref: str,
         contract_bundle: RepositoryReadinessContractBundle | None = None,
         clock: Callable[[], datetime] | None = None,
+        instance_authority_reader: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         root = Path(authority_repo_root).resolve()
         if not root.is_dir():
@@ -168,6 +172,7 @@ class RepositoryReadinessService:
                 "repository readiness contracts are unavailable",
             ) from exc
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._instance_authority_reader = instance_authority_reader
 
     def issue(self, raw_request: bytes, *, actor: str) -> RepositoryReadinessResult:
         prepared = prepare_repository_readiness_request(raw_request, contracts=self._contracts)
@@ -209,6 +214,8 @@ class RepositoryReadinessService:
         self,
         prepared: PreparedRepositoryReadinessRequest,
     ) -> RepositoryAuthorityEvaluation:
+        if prepared.expected_instance_record is not None:
+            return self._evaluate_instance(prepared)
         authority_bytes = self._read_required(_AUTHORITY_PATH)
         authority_digest = authority_content_digest(authority_bytes)
         if (
@@ -352,6 +359,33 @@ class RepositoryReadinessService:
             requires_security_bindings=security_required,
         )
 
+    def _evaluate_instance(self, prepared: PreparedRepositoryReadinessRequest) -> RepositoryAuthorityEvaluation:
+        if not callable(self._instance_authority_reader):
+            raise RepositoryReadinessUnavailable("internal source admission is not enabled for repository readiness")
+        try:
+            value = self._instance_authority_reader(prepared.repo_name)
+            proof = value["source_authority"]
+            reference = {key: copy.deepcopy(proof[key]) for key in ("canonical_authority", "record_ref", "policy_ref")}
+            if (value.get("canonical_authority") != reference["canonical_authority"]
+                    or reference["canonical_authority"].get("kind") != "internal-instance-record"
+                    or reference["canonical_authority"].get("record_id") != f"repo:{prepared.repo_name}"
+                    or proof.get("owner_repo") != prepared.repo_name or proof.get("classification") != "active" or proof.get("inventory_posture") != "active"
+                    or proof.get("ordinary_source_eligible") is not True or proof.get("source_bootstrap_eligible") is not False
+                    or any(proof.get(key) is not False for key in ("model_writes_allowed", "canonical_mutation", "runtime_activation"))):
+                raise ValueError()
+            if (prepared.repo_ref != f"repo://{prepared.repo_name}" or prepared.expected_owner_repo != prepared.repo_name
+                    or prepared.catalog_value_key != prepared.repo_name or prepared.expected_instance_record != reference
+                    or prepared.expected_authority_digest != reference["record_ref"]["digest"]):
+                return RepositoryAuthorityEvaluation("contract_mismatch", ("authority-version-stale",), reference["record_ref"]["digest"], instance_record=reference)
+            # The effective source-only rule is the actual accepted native
+            # policy, not an invented per-project public Git rule file.
+            return RepositoryAuthorityEvaluation("ready", ("repository-ready",), reference["record_ref"]["digest"],
+                rule_ref=f"git://workspace-governance/{reference['policy_ref']['revision']}/contracts/instance-operational-records.yaml#source-authority",
+                rule_digest=reference["policy_ref"]["contract_digest"], repository_lifecycle="active",
+                repository_class="product-source", requires_security_bindings=False, instance_record=reference)
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            raise RepositoryReadinessUnavailable("current internal repository source admission is unavailable") from exc
+
     def _persist(
         self,
         prepared: PreparedRepositoryReadinessRequest,
@@ -374,6 +408,7 @@ class RepositoryReadinessService:
                 "implementation_ref": self._implementation_ref,
                 "outcome": evaluation.outcome,
                 "reason_codes": list(evaluation.reason_codes),
+                **({"instance_record": evaluation.instance_record} if evaluation.instance_record is not None else {}),
             },
         )
         with self._sessions() as session:
@@ -430,7 +465,7 @@ class RepositoryReadinessService:
             },
             "authority": {
                 "owner_repo": "workspace-governance",
-                "record_ref": "repo://workspace-governance/contracts/repos.yaml",
+                "record_ref": copy.deepcopy(evaluation.instance_record) if evaluation.instance_record is not None else "repo://workspace-governance/contracts/repos.yaml",
                 "record_digest": evaluation.authority_digest,
                 "rule_ref": evaluation.rule_ref,
                 "rule_digest": evaluation.rule_digest,
@@ -442,7 +477,7 @@ class RepositoryReadinessService:
                 "profile_id": prepared.profile_id,
                 "scope": prepared.policy_scope,
                 "contract_digest": self._contracts.contract_digest,
-                "authority_refs": list(self._contracts.authority_refs),
+                "authority_refs": [*self._contracts.authority_refs, *([evaluation.rule_ref] if evaluation.instance_record is not None and evaluation.rule_ref is not None else [])],
             },
             "issuer": {
                 "owner_repo": "workspace-governance-control-fabric",
@@ -713,9 +748,15 @@ def build_repository_readiness_runtime() -> RepositoryReadinessService:
     authority_root = os.environ.get(WORKSPACE_GOVERNANCE_REPO_ROOT_ENV, "").strip()
     if not authority_root:
         raise RepositoryReadinessUnavailable("Workspace Governance source is not configured")
+    instance_reader = None
+    if os.environ.get("WGCF_INSTANCE_RECORDS_ENABLED") == "true":
+        from .instance_repository_intake import build_instance_repository_intake_runtime
+        source = build_instance_repository_intake_runtime()
+        instance_reader = lambda name: source.source_authority(name, "ordinary-source")
     return RepositoryReadinessService(
         session_factory=create_session_factory(),
         authority_repo_root=authority_root,
         service_identity_ref=service_identity_ref,
         implementation_ref=read_implementation_ref(),
+        instance_authority_reader=instance_reader,
     )

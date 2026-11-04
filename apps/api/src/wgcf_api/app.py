@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from control_fabric_core.instance_repository_inventory import (
+    InstanceRepositoryInventoryService, build_instance_repository_inventory_runtime,
+)
+
 import copy
 import json
 from pathlib import Path
@@ -9,6 +13,14 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
+
+from control_fabric_core.instance_record_reads import (
+    InstanceRecordNotFound, InstanceRecordReadService, build_instance_record_read_runtime,
+)
+from control_fabric_core.instance_records import InstanceRecordConflict, InstanceRecordInvalid, InstanceRecordUnavailable
+from control_fabric_core.instance_repository_intake import (
+    InstanceRepositoryIntakeService, build_instance_repository_intake_runtime,
+)
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
@@ -207,6 +219,9 @@ def create_app(
     repository_readiness: RepositoryReadinessService | None = None,
     workspace_intake_readiness: WorkspaceIntakeReadinessService | None = None,
     workspace_continuity_projection: WorkspaceContinuityProjectionService | None = None,
+    instance_record_reads: InstanceRecordReadService | None = None,
+    instance_repository_intake: InstanceRepositoryIntakeService | None = None,
+    instance_repository_inventory: InstanceRepositoryInventoryService | None = None,
     workspace_inventory_readiness: WorkspaceInventoryReadinessService | None = None,
     workspace_inventory_lifecycle_readiness: (
         WorkspaceInventoryLifecycleReadinessService | None
@@ -239,6 +254,9 @@ def create_app(
     resolved_repository_readiness = repository_readiness
     resolved_workspace_intake_readiness = workspace_intake_readiness
     resolved_workspace_continuity_projection = workspace_continuity_projection
+    resolved_instance_record_reads = instance_record_reads
+    resolved_instance_repository_intake = instance_repository_intake
+    resolved_instance_repository_inventory = instance_repository_inventory
     resolved_workspace_inventory_readiness = workspace_inventory_readiness
     resolved_workspace_inventory_lifecycle_readiness = (
         workspace_inventory_lifecycle_readiness
@@ -288,6 +306,19 @@ def create_app(
                 GovernanceHistoryAuthorizer.from_environment()
             )
         return resolved_governance_history_authorizer
+
+    def authorize_instance_reader(request: Request, *, source_authority_only: bool = False) -> None:
+        caller_id, caller_secret = _registry_caller(request)
+        try:
+            governance_history_auth_runtime().authorize(caller_id, caller_secret)
+            return
+        except (GovernanceHistoryUnauthorized, GovernanceHistoryUnavailable) as history_failure:
+            try:
+                caller_authorizer().authorize(caller_id, caller_secret, "read-instance-source-authority" if source_authority_only else "read-instance-records")
+            except ArtifactRegistryUnavailable:
+                # Optional OOS role configuration must not turn a known
+                # unauthenticated history request into an availability error.
+                raise history_failure
 
     def caller_authorizer() -> ArtifactRegistryAuthorizer:
         if resolved_registry_authorizer is not None:
@@ -371,6 +402,18 @@ def create_app(
                 build_workspace_continuity_projection_runtime()
             )
         return resolved_workspace_continuity_projection
+
+    def instance_record_read_runtime() -> InstanceRecordReadService:
+        nonlocal resolved_instance_record_reads
+        if resolved_instance_record_reads is None:
+            resolved_instance_record_reads = build_instance_record_read_runtime()
+        return resolved_instance_record_reads
+
+    def instance_repository_intake_runtime() -> InstanceRepositoryIntakeService:
+        nonlocal resolved_instance_repository_intake
+        if resolved_instance_repository_intake is None:
+            resolved_instance_repository_intake = build_instance_repository_intake_runtime()
+        return resolved_instance_repository_intake
 
     def workspace_inventory_runtime() -> WorkspaceInventoryReadinessService:
         nonlocal resolved_workspace_inventory_readiness
@@ -916,6 +959,200 @@ def create_app(
             )
         except GovernanceHistoryError as exc:
             raise _governance_history_http_exception(exc) from exc
+
+    async def read_instance_records(request: Request, operation, allowed_queries: set[str]) -> dict[str, Any]:
+        try:
+            authorize_instance_reader(request)
+            if set(request.query_params) - allowed_queries:
+                raise InstanceRecordInvalid("unsupported internal record query")
+            service = instance_record_read_runtime()
+            return await run_in_threadpool(operation, service)
+        except GovernanceHistoryUnauthorized as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except GovernanceHistoryUnavailable as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal operational record authority is unavailable") from exc
+
+    @app.get("/v1/instance-records/repository-catalog")
+    async def instance_repository_catalog(request: Request, after: str | None = None, limit: int = Query(25, ge=1, le=100), query: str = "", scope: str = "all"):
+        return await read_instance_records(request, lambda service: service.catalog(after=after, limit=limit, query=query, scope=scope), {"after", "limit", "query", "scope"})
+
+    @app.get("/v1/instance-records/repository-status")
+    async def instance_repository_status(request: Request):
+        return await read_instance_records(request, lambda service: service.lookup(request.query_params.getlist("name")), {"name"})
+
+    @app.get("/v1/instance-records/repositories")
+    async def instance_repository_list(
+        request: Request, after: str | None = Query(None), limit: int = Query(25, ge=1, le=100),
+    ) -> dict[str, Any]:
+        return await read_instance_records(request, lambda service: service.list(after=after, limit=limit), {"after", "limit"})
+
+    @app.get("/v1/instance-records/repositories/{name}")
+    async def instance_repository_read(name: str, request: Request) -> dict[str, Any]:
+        return await read_instance_records(request, lambda service: service.read(name), set())
+
+    @app.get("/v1/instance-records/repositories/{name}/history")
+    async def instance_repository_history(
+        name: str, request: Request, before_version: int | None = Query(None, ge=1), limit: int = Query(25, ge=1, le=100),
+    ) -> dict[str, Any]:
+        return await read_instance_records(request, lambda service: service.history(name, before_version=before_version, limit=limit), {"before_version", "limit"})
+
+    @app.get("/v1/instance-records/repositories/{name}/intake/preparation")
+    async def instance_repository_intake_preparation(name: str, request: Request) -> dict[str, Any]:
+        try:
+            authorize_instance_reader(request)
+            if request.query_params:
+                raise InstanceRecordInvalid("unsupported internal registration query")
+            service = instance_repository_intake_runtime()
+            return await run_in_threadpool(service.prepare, name)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal registration authority is unavailable") from exc
+
+    def instance_repository_inventory_runtime():
+        nonlocal resolved_instance_repository_inventory
+        if resolved_instance_repository_inventory is None:
+            resolved_instance_repository_inventory = build_instance_repository_inventory_runtime()
+        return resolved_instance_repository_inventory
+
+    async def handle_instance_inventory(name: str, request: Request, action: str):
+        try:
+            if action == "accept":
+                caller_id, caller_secret = _registry_caller(request)
+                caller_authorizer().authorize(caller_id, caller_secret, "accept-instance-decision")
+            else:
+                authorize_instance_reader(request)
+            if request.query_params:
+                raise InstanceRecordInvalid("unsupported internal inventory query")
+            service = instance_repository_inventory_runtime()
+            if action == "prepare":
+                return await run_in_threadpool(service.prepare, name)
+            raw = await _read_bounded_request(request, limit=131_072, label="internal repository inventory")
+            try:
+                value = strict_json_loads(raw)
+            except ValueError as exc:
+                raise InstanceRecordInvalid("internal inventory requires strict JSON") from exc
+            if action == "accept":
+                return await run_in_threadpool(service.accept, name, value, actor=caller_id)
+            return await run_in_threadpool(service.resolve, name, value)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal inventory authority is unavailable") from exc
+
+    @app.get("/v1/instance-records/repositories/{name}/inventory/preparation")
+    async def instance_inventory_preparation(name: str, request: Request):
+        return await handle_instance_inventory(name, request, "prepare")
+
+    @app.post("/v1/instance-records/repositories/{name}/inventory")
+    async def accept_instance_inventory(name: str, request: Request):
+        return await handle_instance_inventory(name, request, "accept")
+
+    @app.post("/v1/instance-records/repositories/{name}/inventory/readback")
+    async def original_instance_inventory(name: str, request: Request):
+        return await handle_instance_inventory(name, request, "resolve")
+
+    @app.get("/v1/instance-records/provider-repositories/github/{provider_repository_id}/source-authority")
+    async def instance_provider_source_authority(provider_repository_id: str, request: Request, operation: str) -> dict[str, Any]:
+        try:
+            authorize_instance_reader(request, source_authority_only=True)
+            if list(request.query_params.keys()) != ["operation"] or len(request.query_params.getlist("operation")) != 1:
+                raise InstanceRecordInvalid("select one source authority operation")
+            return await run_in_threadpool(instance_repository_intake_runtime().source_authority_for_provider, provider_repository_id, operation)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal source authority is unavailable") from exc
+
+    @app.get("/v1/instance-records/repositories/{name}/source-authority")
+    async def instance_repository_source_authority(name: str, request: Request, operation: str) -> dict[str, Any]:
+        try:
+            authorize_instance_reader(request, source_authority_only=True)
+            if list(request.query_params.keys()) != ["operation"] or len(request.query_params.getlist("operation")) != 1:
+                raise InstanceRecordInvalid("select one source authority operation")
+            return await run_in_threadpool(instance_repository_intake_runtime().source_authority, name, operation)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal source authority is unavailable") from exc
+
+    @app.post("/v1/instance-records/repositories/{name}/intake")
+    async def accept_instance_repository_intake(name: str, request: Request) -> dict[str, Any]:
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "accept-instance-decision")
+            if request.query_params:
+                raise InstanceRecordInvalid("unsupported internal registration query")
+            raw = await _read_bounded_request(request, limit=131_072, label="internal repository registration")
+            try:
+                value = strict_json_loads(raw)
+            except ValueError as exc:
+                raise InstanceRecordInvalid("internal registration requires strict canonical JSON") from exc
+            service = instance_repository_intake_runtime()
+            return await run_in_threadpool(service.accept, name, value, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="internal registration authority is unavailable") from exc
+
+    @app.post("/v1/instance-records/repositories/{name}/intake/readback")
+    async def read_original_instance_repository_intake(name: str, request: Request) -> dict[str, Any]:
+        try:
+            authorize_instance_reader(request)
+            if request.query_params:
+                raise InstanceRecordInvalid("unsupported original registration query")
+            raw = await _read_bounded_request(request, limit=131_072, label="original registration readback")
+            try:
+                value = strict_json_loads(raw)
+            except ValueError as exc:
+                raise InstanceRecordInvalid("original readback requires strict JSON") from exc
+            return await run_in_threadpool(instance_repository_intake_runtime().resolve, name, value)
+        except GovernanceHistoryError as exc:
+            raise _governance_history_http_exception(exc) from exc
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="original registration outcome is unavailable") from exc
 
     @app.get("/v1/projections/workspace-continuity")
     async def workspace_continuity_projection(request: Request) -> dict[str, Any]:

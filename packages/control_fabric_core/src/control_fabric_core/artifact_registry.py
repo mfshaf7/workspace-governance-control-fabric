@@ -214,6 +214,8 @@ class ArtifactRegistryAuthorizer:
         reconciler_secret: str,
         oos_caller_id: str = DEFAULT_OOS_CALLER_ID,
         reconciler_caller_id: str = DEFAULT_RECONCILER_CALLER_ID,
+        instance_source_reader_secret: str | None = None,
+        instance_source_reader_caller_id: str = "platform-engineering-source-reader",
     ) -> None:
         if len(oos_secret) < 32 or len(reconciler_secret) < 32:
             raise ArtifactRegistryUnavailable("registry caller secrets must contain at least 32 characters")
@@ -229,6 +231,9 @@ class ArtifactRegistryAuthorizer:
                         "evaluate-readiness",
                         "read-readiness",
                         "evaluate-agent-action",
+                        "accept-instance-decision",
+                        "read-instance-records",
+                        "read-instance-source-authority",
                     },
                 ),
             ),
@@ -237,6 +242,14 @@ class ArtifactRegistryAuthorizer:
                 frozenset({"read", "reconcile", "read-readiness"}),
             ),
         }
+        if instance_source_reader_secret is not None:
+            if (len(instance_source_reader_secret) < 32 or not instance_source_reader_caller_id
+                    or instance_source_reader_caller_id in self._callers
+                    or instance_source_reader_secret in {oos_secret, reconciler_secret}):
+                raise ArtifactRegistryUnavailable("instance source reader requires a distinct identity and bounded secret")
+            self._callers[instance_source_reader_caller_id] = (
+                instance_source_reader_secret, frozenset({"read-instance-source-authority"}),
+            )
 
     @classmethod
     def from_environment(cls) -> ArtifactRegistryAuthorizer:
@@ -244,6 +257,10 @@ class ArtifactRegistryAuthorizer:
         reconciler_secret = os.environ.get(RECONCILER_CALLER_SECRET_ENV, "")
         if not oos_secret or not reconciler_secret:
             raise ArtifactRegistryUnavailable("registry caller authentication is not configured")
+        source_id = os.environ.get("WGCF_INSTANCE_SOURCE_CALLER_ID", "").strip()
+        source_secret = os.environ.get("WGCF_INSTANCE_SOURCE_CALLER_SECRET", "")
+        if bool(source_id) != bool(source_secret):
+            raise ArtifactRegistryUnavailable("instance source reader binding is incomplete")
         return cls(
             oos_caller_id=os.environ.get(OOS_CALLER_ID_ENV, DEFAULT_OOS_CALLER_ID).strip(),
             oos_secret=oos_secret,
@@ -252,6 +269,8 @@ class ArtifactRegistryAuthorizer:
                 DEFAULT_RECONCILER_CALLER_ID,
             ).strip(),
             reconciler_secret=reconciler_secret,
+            instance_source_reader_caller_id=source_id or "platform-engineering-source-reader",
+            instance_source_reader_secret=source_secret or None,
         )
 
     def authorize(self, caller_id: str, caller_secret: str, operation: str) -> None:

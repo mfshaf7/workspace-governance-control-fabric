@@ -53,6 +53,12 @@ of copying their policies here.
 
 ## Current State
 
+Unpublished repository maintenance is adding an
+[internal operational record storage adapter](docs/operations/instance-records.md)
+under Governance's approved installation-private storage direction. The adapter
+and migration do not activate a new registration route, change existing source
+authority, or move shared policy out of Git.
+
 This repository has an active local and `dev-integration` implementation
 foundation. Governed stage and production activation remain separate Platform
 and Security decisions.
