@@ -23,11 +23,11 @@
   "schemas": {
     "repository_readiness_request": {
       "path": "repository-readiness-request.schema.json",
-      "sha256": "22c901be8d2d3320ad8dc0409b9b42fcef9d6833b7ad8ec4f8c877b367a39ba0"
+      "sha256": "d708fa7858679112398067a771a4dbfc201b94ddd75f16d12b6d96c8fb984e77"
     },
     "repository_readiness_receipt": {
       "path": "repository-readiness-receipt.schema.json",
-      "sha256": "739cee85fb1923d119f5df6ab3913dd5125e5a31dfa2bf57970e7cf030677a16"
+      "sha256": "2518ca5c904a0d5223650c750c677e3ae3e169576964f7390da5c6bd5fbf0772"
     },
     "repository_readiness_reference": {
       "path": "repository-readiness-reference.schema.json",
