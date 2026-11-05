@@ -49,18 +49,18 @@
         },
         "repo_ref": {
           "type": "string",
-          "pattern": "^repo://[a-z0-9][a-z0-9-]*$"
+          "pattern": "^repo://[a-z0-9][a-z0-9._-]{0,185}$"
         },
         "owner_repo": {
           "$ref": "#/$defs/repoName"
         },
         "catalog_value_key": {
           "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9-]*$"
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,185}$"
         },
         "target_scope": {
           "type": "string",
-          "pattern": "^repo:[a-z0-9][a-z0-9-]*$"
+          "pattern": "^repo:[a-z0-9][a-z0-9._-]{0,185}$"
         }
       }
     },
@@ -430,7 +430,7 @@
   "$defs": {
     "repoName": {
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9-]*$"
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,185}$"
     },
     "digest": {
       "type": "string",

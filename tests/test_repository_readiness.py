@@ -191,6 +191,21 @@ class RepositoryReadinessTests(TestCase):
         self.assertEqual("ready", result.receipt["decision"]["outcome"])
         self.assertEqual("none", result.receipt["decision"]["mutation_authority"])
 
+    def test_account_qualified_repository_names_issue_and_read_matching_references(self) -> None:
+        for name in ("sample-account--notes_v2", "sample.account--notes"):
+            with self.subTest(name=name):
+                self.source.repo_name = name
+                self.source.repository["record"]["id"] = f"repo:{name}"
+                self.source.rule["repo"] = name
+                self.source.write_authority()
+                self.source.write_rule()
+                result = self.service.issue(self.request(), actor="operator-orchestration-service")
+                self.assertEqual("ready", result.receipt["decision"]["outcome"])
+                self.assertEqual(name, result.receipt["subject"]["repo_name"])
+                self.service._contracts.require_valid("repository_readiness_reference", result.reference)
+                token = result.receipt["receipt_id"].split(":", 1)[1]
+                self.assertEqual(result.receipt, self.service.read(token, actor="operator-orchestration-service").receipt)
+
     def test_missing_retired_and_stale_authority_have_distinct_outcomes(self) -> None:
         expected = self.source.authority_digest
         another_repository = copy.deepcopy(self.source.repository)

@@ -216,13 +216,14 @@ class RepositoryCustodyReadinessService:
             if (
                 target["provider"] != scope["provider"]
                 or target["provider_host"] != scope["provider_host"]
-                or target["owner_scope"] != scope["owner_scope"]
+                or target["owner_scope"] not in scope["owner_scopes"]
+                or target["owner_scope"] == "personal" and request["provisioning"]["visibility"] == "internal"
             ):
                 findings.append(
                     _finding(
                         "custody-provisioning-provider-not-active",
                         "blocking",
-                        "Repository provisioning is active only for the approved GitHub organization scope.",
+                        "Choose a connected personal account or organization and a supported visibility.",
                     ),
                 )
         if (
@@ -280,7 +281,7 @@ class RepositoryCustodyReadinessService:
                 _finding(
                     "repository-provisioning-request-ready",
                     "info",
-                    "The organization target and explicit baseline settings are approved for provider creation.",
+                    "The connected-account target and explicit baseline settings are approved for provider creation.",
                 ),
             ]
             obligations = [

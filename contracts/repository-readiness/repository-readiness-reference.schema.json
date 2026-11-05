@@ -6,9 +6,9 @@
   "additionalProperties": false,
   "required": ["repo_name", "repo_ref", "catalog_value_key", "receipt"],
   "properties": {
-    "repo_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
-    "repo_ref": { "type": "string", "pattern": "^repo://[a-z0-9][a-z0-9-]*$" },
-    "catalog_value_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "repo_name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,185}$" },
+    "repo_ref": { "type": "string", "pattern": "^repo://[a-z0-9][a-z0-9._-]{0,185}$" },
+    "catalog_value_key": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,185}$" },
     "receipt": {
       "type": "object",
       "additionalProperties": false,
@@ -18,7 +18,7 @@
         "uri": { "type": "string", "pattern": "^wgcf://receipts/" },
         "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
         "issuer": { "const": "workspace-governance-control-fabric" },
-        "target_scope": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9-]*$" },
+        "target_scope": { "type": "string", "pattern": "^repo:[a-z0-9][a-z0-9._-]{0,185}$" },
         "outcome": { "const": "ready" },
         "evaluated_at": { "type": "string", "format": "date-time" },
         "generation": { "type": "integer", "minimum": 1 }
