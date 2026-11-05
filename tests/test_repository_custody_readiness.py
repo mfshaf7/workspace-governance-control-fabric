@@ -285,6 +285,12 @@ class RepositoryCustodyReadinessTests(TestCase):
     def test_repository_provisioning_negative_conformance(self) -> None:
         personal = json.loads(self.provision_request())
         personal["target"]["owner_scope"] = "personal"
+        personal["request_id"] += "-personal"
+        personal.pop("request_digest")
+        personal["request_digest"] = canonical_digest(personal)
+        result = self.service.issue(canonical_json_bytes(personal), actor="operator-orchestration-service")
+        self.assertEqual(result.decision["approved_provisioning"]["owner_scope"], "personal")
+        personal["target"]["owner_scope"] = "unconnected"
         personal.pop("request_digest")
         personal["request_digest"] = canonical_digest(personal)
         with self.assertRaisesRegex(

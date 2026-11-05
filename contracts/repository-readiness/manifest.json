@@ -16,22 +16,22 @@
   },
   "consumer_contract": {
     "repo": "operator-orchestration-service",
-    "commit": "8db557156a85ddc8ed7ac177d5930242970efb2d",
+    "commit": "c0e66ca2333e7c239809930ca390018cf7623b50",
     "path": "contracts/catalog/repository-readiness-reference.schema.json",
-    "sha256": "8ec9fd12d4f272fcaa5ef4e04288294b5893acab842e17136fdde3e009a17101"
+    "sha256": "cdb2b4776e9d73dae1795ce896c4f4dd279d9f687224dc9a909298f38c37e00f"
   },
   "schemas": {
     "repository_readiness_request": {
       "path": "repository-readiness-request.schema.json",
-      "sha256": "d708fa7858679112398067a771a4dbfc201b94ddd75f16d12b6d96c8fb984e77"
+      "sha256": "f7b5fbc70d092da44de5b7713f5523be52c0c5fcb887d7dd1d4570b05547d53c"
     },
     "repository_readiness_receipt": {
       "path": "repository-readiness-receipt.schema.json",
-      "sha256": "2518ca5c904a0d5223650c750c677e3ae3e169576964f7390da5c6bd5fbf0772"
+      "sha256": "25967f32b91ad5d0af95c6d285e54b6e13518d7c4908cc68e24049b78cba62c7"
     },
     "repository_readiness_reference": {
       "path": "repository-readiness-reference.schema.json",
-      "sha256": "8ec9fd12d4f272fcaa5ef4e04288294b5893acab842e17136fdde3e009a17101"
+      "sha256": "cdb2b4776e9d73dae1795ce896c4f4dd279d9f687224dc9a909298f38c37e00f"
     }
   }
 }

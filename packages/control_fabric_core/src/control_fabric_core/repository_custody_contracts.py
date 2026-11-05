@@ -231,10 +231,10 @@ class RepositoryCustodyContractBundle:
             or "provisioned" not in provision.get("allowed_to", [])
             or scope.get("provider") != "github"
             or scope.get("provider_host") != "github.com"
-            or scope.get("owner_scope") != "organization"
+            or scope.get("owner_scopes") != ["personal", "organization"]
         ):
             raise RepositoryCustodyContractError(
-                "repository provisioning readiness is not organization-scoped and readback-bound",
+                "repository provisioning readiness is not connected-account-scoped and readback-bound",
             )
 
         lifecycle = self.authority.get("repository_lifecycle", {})
