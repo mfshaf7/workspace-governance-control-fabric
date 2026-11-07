@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 from unittest import TestCase
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ from control_fabric_core import (
 )
 from control_fabric_core.canonical_json import canonical_digest
 from wgcf_api import create_app
+from control_fabric_core.workspace_continuity_projection import WorkspaceContinuityProjectionUnavailable
 
 
 async def asgi_get_json(path: str) -> tuple[int, dict[str, Any]]:
@@ -180,6 +182,7 @@ class StubGovernanceHistory:
 class StubWorkspaceContinuityProjection:
     def __init__(self) -> None:
         self.calls = 0
+        self.product_calls = []
 
     def read(self) -> dict[str, Any]:
         self.calls += 1
@@ -187,6 +190,10 @@ class StubWorkspaceContinuityProjection:
             "projection_state": "current",
             "products": [{"product_id": "product:governance-operations-console"}],
         }
+
+    def read_products(self, **selection) -> dict[str, Any]:
+        self.product_calls.append(selection)
+        return {"artifact_type": "workspace-products-page", "products": [], "page": {"limit": 25, "total": 0, "next_cursor": None}}
 
 
 class ApiTests(TestCase):
@@ -439,6 +446,28 @@ class ApiTests(TestCase):
 
         self.assertEqual(status, 401)
         self.assertEqual(body["detail"], "governance-history caller authentication failed")
+        self.assertEqual(projection.calls, 0)
+
+    def test_product_register_authentication_selection_and_source_errors(self) -> None:
+        app, projection = self.workspace_continuity_app()
+        path = "/v1/projections/workspace-continuity?view=products"
+        headers = {"x-wgcf-caller-id": "governance-operations-console", "x-wgcf-caller-secret": "h" * 32}
+        status, _ = asyncio.run(asgi_request_json("GET", path, app=app))
+        self.assertEqual(status, 401)
+        self.assertEqual(projection.product_calls, [])
+        status, body = asyncio.run(asgi_request_json("GET", path + "&query=console&maturity=owner-managed&posture=active&cursor=abc", app=app, headers=headers))
+        self.assertEqual(status, 200)
+        self.assertEqual(body["artifact_type"], "workspace-products-page")
+        self.assertEqual(projection.product_calls, [{"query": "console", "maturity": "owner-managed", "posture": "active", "cursor": "abc", "product_id": None}])
+        for suffix in ("&query=a&query=b", "&limit=100", "&view=products"):
+            with self.subTest(suffix=suffix):
+                status, _ = asyncio.run(asgi_request_json("GET", path + suffix, app=app, headers=headers))
+                self.assertEqual(status, 400)
+        self.assertEqual(len(projection.product_calls), 1)
+        for error, expected in ((ValueError("invalid cursor"), 400), (LookupError("missing"), 404), (WorkspaceContinuityProjectionUnavailable("invalid metadata"), 503)):
+            with self.subTest(expected=expected), patch.object(projection, "read_products", side_effect=error):
+                status, _ = asyncio.run(asgi_request_json("GET", path, app=app, headers=headers))
+                self.assertEqual(status, expected)
         self.assertEqual(projection.calls, 0)
 
     def test_agent_action_evaluation_is_authenticated_and_compact(self) -> None:

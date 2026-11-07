@@ -114,3 +114,21 @@ canonical owner state are unchanged; do not delete authority or workflow state.
 Disable the Platform-owned runtime gate immediately if commissioned, then
 revert this Landing Unit. Existing readiness tables, Workspace Governance
 authority, and OOS workflows remain unchanged.
+
+
+## Bounded product register maintenance — 2026-11-07
+
+Operator-approved maintenance, Landing Unit Decision: feature_single_landing_unit,
+maintenance-product-register-query-20261107. The matching Workspace Governance
+contract extends the existing authenticated GET with view=products, native
+25-product pages, revision/selection-bound continuation and exact original
+inspection. Global continuity retains its full scope. Latest readiness is read
+with one actor-scoped batch query and hydrated only for the selected page.
+Invalid metadata cannot be hidden by filtering. Authentication and invalid query,
+missing original and unavailable-source API outcomes remain explicit.
+
+No database schema, mutation, publication authority, credential scope or worker
+activation changes. Owner tests and image checks precede exact-source acceptance
+in the existing composed Security review, followed by normal Platform activation
+before the Console consumer is qualified. This source record does not assert
+live operating completion. Rollback restores the preceding accepted API image.

@@ -340,6 +340,21 @@ The projection reads only the latest readiness record for each canonical
 product. It does not expose raw artifacts, issue readiness, mutate Workspace
 Governance, or replace the OOS workflow and terminal publication authority.
 
+### Product register pages
+
+`GET /v1/projections/workspace-continuity?view=products` uses the same authenticated
+read credential. Optional `query`, `maturity` and `posture` select a source-wide
+product register page. It returns `workspace-products-page`, a digest-bound
+selection, filtered total, authority revision and at most25 products. Pass
+`page.next_cursor` unchanged; a changed source or selection requires first-page
+refresh. `id=product:<name>` independently reads the exact original.
+
+The page hydrates only selected readiness. Complete continuity keeps its global
+scope and latest-readiness meaning; one actor-scoped batched query replaces the
+previous per-product query loop. Historical readiness, foreign actors and stale
+approval cannot become current authority through paging. No policy, publication,
+identity or mutation authority changes.
+
 ### Product Publication Readiness
 
 OOS submits one digest-bound evaluation to
