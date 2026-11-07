@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import base64
+import re
 from datetime import datetime, timezone
 import json
 import os
@@ -11,7 +13,7 @@ from typing import Any, Callable
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -80,6 +82,7 @@ class WorkspaceContinuityProjectionService:
         try:
             schema = json.loads(projection_schema_path().read_text(encoding="utf-8"))
             Draft202012Validator.check_schema(schema)
+            self.product_validator = Draft202012Validator({"$defs": schema["$defs"], "$ref": "#/$defs/product"}, format_checker=FormatChecker())
             self.validator = Draft202012Validator(
                 schema,
                 format_checker=FormatChecker(),
@@ -143,47 +146,76 @@ class WorkspaceContinuityProjectionService:
             )
         return projection
 
+    def read_products(self, *, query: str = "", maturity: str = "all", posture: str = "all", cursor: str | None = None, product_id: str | None = None) -> dict[str, Any]:
+        if not isinstance(query,str) or len(query)>128 or maturity not in {"all","owner-managed","platform-integrated","fully-governed"} or posture not in {"all","active","suspended","retired"}:
+            raise ValueError("invalid product selection")
+        if product_id is not None and (not re.fullmatch(r"product:[a-z0-9][a-z0-9._-]{0,185}",product_id) or cursor is not None):
+            raise ValueError("select one exact product")
+        selection={"query":query.strip().lower(),"maturity":maturity,"posture":posture,"id":product_id}
+        try:
+            snapshot=self.authority.snapshot()
+            _,by_id=_inventory(snapshot)
+            _intake(snapshot,set(by_id))
+            lifecycle=_lifecycle(snapshot,by_id)
+            metadata=_products(by_id,lifecycle,{})
+            for product in metadata:
+                if not self.product_validator.is_valid(product):
+                    raise WorkspaceContinuityProjectionUnavailable(
+                        "product metadata violates its source contract",
+                    )
+        except (InventoryUnavailable,KeyError,TypeError,ValueError) as exc:
+            raise WorkspaceContinuityProjectionUnavailable("committed product authority is unavailable") from exc
+        matching=[product for product in metadata if (product_id is None or product["product_id"]==product_id)
+            and (maturity=="all" or product["maturity"]==maturity) and (posture=="all" or product["posture"]==posture)
+            and (not selection["query"] or selection["query"] in " ".join([product["product_id"],product["name"],product["owners"]["platform"],product["owners"]["security"],product["owners"]["runtime"],*product["owners"]["source"]]).lower())]
+        after=None
+        if cursor is not None:
+            try:
+                if len(cursor)>1024 or not re.fullmatch(r"[A-Za-z0-9_-]+",cursor): raise ValueError()
+                value=json.loads(base64.urlsafe_b64decode(cursor+"="*((-len(cursor))%4)))
+                if set(value)!={"revision","selection","after"} or value["revision"]!=snapshot.revision or value["selection"]!=selection or not any(row["product_id"]==value["after"] for row in matching): raise ValueError()
+                after=value["after"]
+            except (ValueError,TypeError,KeyError) as exc:
+                raise ValueError("product source or selection changed; refresh the first page") from exc
+        if product_id is not None and not matching: raise LookupError("original product is unavailable")
+        total=len(matching)
+        selected=[row for row in matching if after is None or row["product_id"]>after][:25]
+        ids=[row["product_id"] for row in selected]
+        readiness=self._publication_readiness(snapshot,by_id,product_ids=ids)
+        products=_products({key:by_id[key] for key in ids},lifecycle,readiness)
+        for product in products:
+            if not self.product_validator.is_valid(product): raise WorkspaceContinuityProjectionUnavailable("product evidence violates its source contract")
+        has_more=bool(ids and any(row["product_id"]>ids[-1] for row in matching))
+        next_cursor=base64.urlsafe_b64encode(json.dumps({"revision":snapshot.revision,"selection":selection,"after":ids[-1]},separators=(",",":")).encode()).decode().rstrip("=") if has_more else None
+        result={"schema_version":1,"artifact_type":"workspace-products-page","projection_state":"current","authority_revision":snapshot.revision,"selection":selection,
+            "products":products,"page":{"limit":25,"total":total,"next_cursor":next_cursor}}
+        result["projection_digest"]=digest(result)
+        return result
+
     def _publication_readiness(
         self,
         snapshot: InventorySnapshot,
         by_id: dict[str, tuple[str, str, dict[str, Any]]],
+        product_ids: list[str] | None = None,
     ) -> dict[str, dict[str, Any]]:
         now = self.clock().astimezone(timezone.utc)
         latest: dict[str, dict[str, Any]] = {}
-        product_ids = sorted(
-            record_id for record_id, (kind, _, _) in by_id.items() if kind == "product"
-        )
+        product_ids = product_ids if product_ids is not None else sorted(record_id for record_id,(kind,_,_) in by_id.items() if kind=="product")
+        if not product_ids:
+            return latest
+        model=ProductPublicationReadinessRecord
+        identity=model.readiness["product_id"].as_string()
+        ranked=select(model.evaluation_id.label("evaluation_id"),func.row_number().over(partition_by=identity,
+            order_by=(model.created_at.desc(),model.evaluation_id.desc())).label("position")).where(model.actor==self.readiness_actor,identity.in_(product_ids)).subquery()
         try:
             with self.sessions() as session:
-                for product_id in product_ids:
-                    row = session.scalar(
-                        select(ProductPublicationReadinessRecord)
-                        .where(
-                            ProductPublicationReadinessRecord.actor
-                            == self.readiness_actor,
-                            ProductPublicationReadinessRecord.readiness[
-                                "product_id"
-                            ].as_string()
-                            == product_id,
-                        )
-                        .order_by(
-                            ProductPublicationReadinessRecord.created_at.desc(),
-                            ProductPublicationReadinessRecord.evaluation_id.desc(),
-                        )
-                        .limit(1)
-                    )
-                    if row is not None:
-                        latest[product_id] = _readiness_record(
-                            row,
-                            snapshot,
-                            by_id,
-                            now,
-                        )
+                rows=session.scalars(select(model).join(ranked,ranked.c.evaluation_id==model.evaluation_id).where(ranked.c.position==1))
+                for row in rows:
+                    product_id=row.readiness["product_id"]
+                    latest[product_id]=_readiness_record(row,snapshot,by_id,now)
             return latest
         except SQLAlchemyError as exc:
-            raise WorkspaceContinuityProjectionUnavailable(
-                "Product Publication readiness ledger is unavailable",
-            ) from exc
+            raise WorkspaceContinuityProjectionUnavailable("Product Publication readiness ledger is unavailable") from exc
 
 
 def _inventory(

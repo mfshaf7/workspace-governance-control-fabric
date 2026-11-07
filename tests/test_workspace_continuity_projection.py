@@ -295,3 +295,92 @@ def _snapshot() -> InventorySnapshot:
         },
         file_digests={"contracts/products.yaml": "sha256:" + "b" * 64},
     )
+
+
+class WorkspaceProductRegisterPageTests(TestCase):
+    setUp = WorkspaceContinuityProjectionTests.setUp
+    _store_readiness = WorkspaceContinuityProjectionTests._store_readiness
+
+    def add_products(self, count: int = 80) -> None:
+        products = self.snapshot.records["products"]["products"]
+        template = products["console"]
+        for index in range(count):
+            name = f"sample-{index:03}"
+            value = copy.deepcopy(template)
+            value["record"]["id"] = f"product:{name}"
+            value["record"]["version"] = 1
+            value["record"]["last_mutation"].update({
+                "id": f"migration:{name}", "action": "migrate",
+                "idempotency_key": f"migration:{name}", "request_ref": None,
+                "request_digest": None, "readiness_ref": None, "readiness_digest": None,
+            })
+            products[name] = value
+
+    def test_pages_cover_filtered_source_and_original_read_is_independent(self) -> None:
+        self.add_products()
+        ids, cursor = [], None
+        while True:
+            page = self.service.read_products(cursor=cursor)
+            self.assertEqual(page["artifact_type"], "workspace-products-page")
+            self.assertEqual(page["page"]["total"], 81)
+            self.assertLessEqual(len(page["products"]), 25)
+            ids.extend(row["product_id"] for row in page["products"])
+            cursor = page["page"]["next_cursor"]
+            if cursor is None:
+                break
+        self.assertEqual(len(ids), 81)
+        self.assertEqual(len(set(ids)), 81)
+        selected = self.service.read_products(query="sample-079")
+        self.assertEqual(selected["page"]["total"], 1)
+        self.assertEqual(selected["products"][0]["product_id"], "product:sample-079")
+        original = self.service.read_products(product_id="product:sample-079")
+        self.assertEqual(len(original["products"]), 1)
+        with self.assertRaises(LookupError):
+            self.service.read_products(product_id="product:absent")
+
+    def test_invalid_metadata_cannot_be_hidden_by_register_filters(self) -> None:
+        self.add_products(1)
+        for field, value in (("maturity", None), ("owners", {"source": [None]})):
+            with self.subTest(field=field):
+                from control_fabric_core.workspace_continuity_projection import _products
+                original_products = _products
+
+                def malformed_products(*args, **kwargs):
+                    products = original_products(*args, **kwargs)
+                    products[0][field] = value
+                    return products
+
+                with patch("control_fabric_core.workspace_continuity_projection._products", side_effect=malformed_products):
+                    with self.assertRaises(WorkspaceContinuityProjectionUnavailable):
+                        self.service.read_products(query="does-not-match")
+
+    def test_cursor_binds_source_revision_and_selection(self) -> None:
+        from dataclasses import replace
+        self.add_products()
+        first = self.service.read_products()
+        cursor = first["page"]["next_cursor"]
+        with self.assertRaises(ValueError):
+            self.service.read_products(query="sample", cursor=cursor)
+        self.service.authority.value = replace(self.snapshot, revision="c" * 40)
+        with self.assertRaises(ValueError):
+            self.service.read_products(cursor=cursor)
+
+    def test_complete_continuity_batches_latest_readiness_without_losing_evidence(self) -> None:
+        from sqlalchemy import event
+        self.add_products()
+        self._store_readiness(expires_at=NOW + timedelta(minutes=5))
+        statements = []
+        engine = self.sessions.kw["bind"]
+        def record_statement(_connection, _cursor, statement, _parameters, _context, _many):
+            if "product_publication_readiness" in statement.lower():
+                statements.append(statement)
+        event.listen(engine, "before_cursor_execute", record_statement)
+        try:
+            complete = self.service.read()
+        finally:
+            event.remove(engine, "before_cursor_execute", record_statement)
+        self.assertEqual(len(complete["products"]), 81)
+        self.assertEqual(len(statements), 1)
+        original = next(row for row in complete["products"] if row["product_id"] == "product:console")
+        self.assertTrue(original["publication_readiness"]["actionable"])
+        self.assertEqual(self.service.read_products(product_id="product:console")["products"][0], original)

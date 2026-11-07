@@ -1159,9 +1159,20 @@ def create_app(
         try:
             caller_id, caller_secret = _registry_caller(request)
             governance_history_auth_runtime().authorize(caller_id, caller_secret)
+            params=request.query_params
+            if params.get("view")=="products":
+                if any(key not in {"view","query","maturity","posture","cursor","id"} or len(params.getlist(key))!=1 for key in params.keys()):
+                    raise HTTPException(status_code=400,detail="select one product query")
+                return workspace_continuity_runtime().read_products(query=params.get("query",""),maturity=params.get("maturity","all"),posture=params.get("posture","all"),cursor=params.get("cursor"),product_id=params.get("id"))
+            if params:
+                raise HTTPException(status_code=400,detail="unknown continuity view")
             return workspace_continuity_runtime().read()
         except GovernanceHistoryUnauthorized as exc:
             raise _governance_history_http_exception(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400,detail=str(exc)) from exc
+        except LookupError as exc:
+            raise HTTPException(status_code=404,detail="original product is unavailable") from exc
         except WorkspaceContinuityProjectionUnavailable as exc:
             raise HTTPException(
                 status_code=503,
