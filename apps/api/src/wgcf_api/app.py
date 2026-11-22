@@ -21,6 +21,7 @@ from control_fabric_core.instance_records import InstanceRecordConflict, Instanc
 from control_fabric_core.instance_repository_intake import (
     InstanceRepositoryIntakeService, build_instance_repository_intake_runtime,
 )
+from control_fabric_core.instance_repository_migration import InstanceRepositoryMigrationService
 
 from control_fabric_core import (
     AUTHORITY_CONTRACT_REF,
@@ -1071,6 +1072,38 @@ def create_app(
     @app.post("/v1/instance-records/repositories/{name}/inventory/readback")
     async def original_instance_inventory(name: str, request: Request):
         return await handle_instance_inventory(name, request, "resolve")
+
+    async def handle_instance_migration(name: str, request: Request, *, accept: bool):
+        try:
+            caller_id, caller_secret = _registry_caller(request)
+            caller_authorizer().authorize(caller_id, caller_secret, "accept-instance-decision")
+            if request.query_params:
+                raise InstanceRecordInvalid("unsupported repository migration query")
+            service = InstanceRepositoryMigrationService(instance_repository_intake_runtime())
+            if not accept:
+                return await run_in_threadpool(service.prepare, name)
+            raw = await _read_bounded_request(request, limit=16_384, label="repository migration")
+            try:
+                value = strict_json_loads(raw)
+            except ValueError as exc:
+                raise InstanceRecordInvalid("repository migration requires strict JSON") from exc
+            return await run_in_threadpool(service.accept, name, value, actor=caller_id)
+        except ArtifactRegistryError as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+        except InstanceRecordConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except InstanceRecordInvalid as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except InstanceRecordUnavailable as exc:
+            raise HTTPException(status_code=503, detail="repository migration authority is unavailable") from exc
+
+    @app.get("/v1/instance-records/repositories/{name}/migration/preparation")
+    async def instance_repository_migration_preparation(name: str, request: Request):
+        return await handle_instance_migration(name, request, accept=False)
+
+    @app.post("/v1/instance-records/repositories/{name}/migration")
+    async def accept_instance_repository_migration(name: str, request: Request):
+        return await handle_instance_migration(name, request, accept=True)
 
     @app.get("/v1/instance-records/provider-repositories/github/{provider_repository_id}/source-authority")
     async def instance_provider_source_authority(provider_repository_id: str, request: Request, operation: str) -> dict[str, Any]:

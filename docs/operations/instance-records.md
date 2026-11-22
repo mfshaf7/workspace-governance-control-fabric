@@ -10,6 +10,28 @@ intended durable policy location, not evidence that the pending contract is live
 `InstanceRecordStore` is an internal persistence adapter. It requires a
 server-side transition validator, and has no public generic write endpoint.
 Supplying an `allowed` flag or a decision digest does not authorize a write.
+
+## Transfer a retained Git registration
+
+Use the authenticated OOS migration preparation for one active source-only
+repository. Review the returned plan digest, physical repository ID, original
+Git revision, and original Inventory envelope. Resolve pending Git reviews
+for the selected registration before changing its authority.
+
+Review the Git cutover separately. Its first parent must be the prepared
+revision. The cutover removes the active Git claim and its derived public owner
+entries while retaining source history. Once that exact cutover is current,
+submit the accepted installation ID, record ID, idempotency key, plan digest,
+both Git revisions, and authenticated acceptance through OOS. The writer
+verifies the retained source and current authority, then records the confined
+import and original envelope transactionally. An identical retry returns the
+original receipt.
+
+Confirm that source-authority lookup returns the same repository ID and
+protected verification eligibility, then run normal Application Verification
+and inspect repository custody/history. If the transfer fails after the Git
+cutover, resume the same reviewed request before making other changes to the
+record. Review a compensating authority transfer before restoring a Git claim.
 Operating acceptance remains unavailable until the complete OOS decision,
 Governance policy, scoped source consumers and Console route are qualified in
 the accepted composition. The new Registry metadata projection carries its own
