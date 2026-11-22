@@ -21,8 +21,10 @@ from control_fabric_core.db.models import metadata
 from control_fabric_core.governance_history import GovernanceHistoryAuthorizer
 from control_fabric_core.instance_records import InstanceRecordConflict, InstanceRecordStore, record_digest
 from control_fabric_core.instance_repository_intake import InstanceRepositoryIntakeService, NativeInstancePolicy
+from control_fabric_core.instance_repository_migration import InstanceRepositoryMigrationService
 from control_fabric_core.workspace_intake_contracts import IntakeAuthority, IntakeContracts
 from wgcf_api.app import create_app
+import yaml
 
 
 GOVERNANCE_SOURCE = Path(os.environ.get("WGCF_INSTANCE_POLICY_TEST_ROOT", "../workspace-governance")).resolve()
@@ -61,6 +63,8 @@ class InstanceAcceptanceAuthorizationTests(TestCase):
         reads.list.assert_not_called()
         self.assertEqual(client.get("/v1/instance-records/repository-status?name=synthetic-project", headers=headers).status_code, 403)
         reads.lookup.assert_not_called()
+        self.assertEqual(client.get(base + "/synthetic-project/migration/preparation", headers=headers).status_code, 403)
+        self.assertEqual(client.post(base + "/synthetic-project/migration", json={}, headers=headers).status_code, 403)
 
     def test_optional_platform_source_reader_binding_fails_closed_when_partial_or_reused(self):
         from control_fabric_core.artifact_registry import OOS_CALLER_SECRET_ENV, RECONCILER_CALLER_SECRET_ENV
@@ -149,6 +153,61 @@ class NativeInstanceIntakeTests(TestCase):
         if process.returncode:
             self.fail(process.stderr)
         return process.stdout.strip()
+
+    def test_legacy_migration_requires_exact_git_cutover_and_replays_original_receipt(self):
+        if "plan_legacy_repository_migration" not in (self.source / "scripts/workspace_instance_records.py").read_text():
+            self.skipTest("composed migration policy source is required")
+        name = "synthetic-migrated-project"
+        binding = {"provider": "github", "provider_repository_id": "9876482", "full_name": f"example-org/{name}"}
+        path = self.source / "contracts/repos.yaml"
+        inventory = yaml.safe_load(path.read_text())
+        entry = {
+            "posture": "active", "lifecycle": "active", "repo_class": "product-source",
+            "requires_security_bindings": False, "provider_repository": binding,
+            "owns": ["Reviewed source"], "must_not_own": ["Shared runtime"], "allowed_authoritative_refs": [],
+            "validation_behavior": {"posture": "covered-by-owner-repo", "catalog_refs": [],
+                                    "notes": "Source controls.", "wgcf_graph_role": "product-runtime-source"},
+            "record": {"id": f"repo:{name}", "version": 3,
+                       "lineage": {"source": "workspace-intake", "source_ref": f"repo:{name}"},
+                       "last_mutation": {"request_ref": "workspace-inventory-request:original", "request_digest": record_digest("request"),
+                                         "readiness_ref": "workspace-inventory-readiness:original", "readiness_digest": record_digest("readiness")}},
+        }
+        inventory["repos"][name] = entry
+        def commit_register(message):
+            path.write_text(yaml.safe_dump(inventory, sort_keys=False))
+            self.git("add", "contracts/repos.yaml")
+            self.git("-c", "user.name=Native policy fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", message)
+            return self.git("rev-parse", "HEAD")
+        revision = commit_register("Add synthetic legacy owner")
+        migration = InstanceRepositoryMigrationService(self.service)
+        prepared = migration.prepare(name)
+        self.assertEqual(prepared["source"]["original_envelope"], entry["record"])
+        self.assertEqual(self.service.source_authority(name, "configure-verification")["canonical_authority"]["kind"], "legacy-git")
+        request = {"schema_version": 1, "instance_id": self.service.instance_id, "record_id": f"repo:{name}",
+                   "idempotency_key": "exact-migration", "plan_digest": prepared["plan_digest"], "source_revision": revision,
+                   "cutover_revision": revision, "operator_acceptance": {"state": "accepted", "operator_ref": self.operator,
+                   "recorded_at": "2026-11-04T00:01:00Z"}}
+        with self.assertRaises(InstanceRecordConflict):
+            migration.accept(name, request, actor=self.actor)
+        self.assertIsNone(self.service._store().read(instance_id=self.service.instance_id, record_id=f"repo:{name}"))
+        del inventory["repos"][name]
+        request["cutover_revision"] = commit_register("Rehearse transition to private inventory")
+        wrong = {**request, "plan_digest": record_digest("wrong")}
+        with self.assertRaises(InstanceRecordConflict):
+            migration.accept(name, wrong, actor=self.actor)
+        result = migration.accept(name, request, actor=self.actor)
+        self.assertEqual(result, migration.accept(name, request, actor=self.actor))
+        self.assertEqual(result["receipt"]["action"], "inventory.migrate-legacy")
+        self.assertEqual(result["record"]["record"]["version"], 1)
+        self.assertEqual(result["record"]["record"]["last_mutation"], entry["record"]["last_mutation"])
+        original = self.service._store().operation(instance_id=self.service.instance_id, idempotency_key="exact-migration", actor=self.actor)
+        self.assertEqual(original["command"]["decision"]["original"], prepared["source"])
+        authority = self.service.source_authority_for_provider(binding["provider_repository_id"], "configure-verification")
+        self.assertEqual(authority["canonical_authority"]["kind"], "internal-instance-record")
+        self.assertEqual(authority["source_authority"]["provider_repository"], binding)
+        self.assertTrue(authority["source_authority"]["verification_setup_eligible"])
+        with self.assertRaises(InstanceRecordConflict):
+            migration.accept(name, {**request, "idempotency_key": "second-migration"}, actor=self.actor)
 
     def payload(self, *, current=None, notes="Synthetic private operational metadata", provider_name="example-org/synthetic-project"):
         request = {"schema_version": 1, "artifact_type": "instance-repository-intake-request", "instance_id": "installation-a", "custody_request_id": "synthetic",
