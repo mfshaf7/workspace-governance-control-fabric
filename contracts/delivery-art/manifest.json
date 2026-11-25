@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "source": {
-    "commit": "f81c52a45c81e24188a01d71ae54813270eebf0d",
+    "commit": "a9e091e652a99156e63336544bf5ba9764934158",
     "repo": "workspace-governance"
   },
   "schemas": {
     "delivery_art_architecture_packet": {
       "path": "delivery-art-architecture-packet.schema.json",
-      "sha256": "d4e4e2390e7fdb027d8bbe614bd60f86aacdb13f221f38ee8be08abb8481b103"
+      "sha256": "34232369eb40c96553ac7b94af440991d1a1bfee2dfc253f62405b064a8489b4"
     },
     "delivery-art-architecture-v6-activation-parity-vectors.schema.json": {
       "path": "delivery-art-architecture-v6-activation-parity-vectors.schema.json",
