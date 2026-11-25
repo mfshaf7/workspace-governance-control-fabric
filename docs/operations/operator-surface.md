@@ -1155,7 +1155,10 @@ authoring shape. It uses the exact per-item start/close execution plan, requires
 an executable acyclic schedule, binds each declared gate to one authority work
 item, preserves gate evidence prerequisites, and requires machine-readable
 runtime capability boundaries and exact evidence ownership. WGCF does not infer
-capabilities from historical prose. A v6 replacement must use
+capabilities from historical prose. V6 may declare standard installation
+access and no project-specific lifecycle changes. A plan can also record zero
+evidence handoffs. Exact work, ordering, boundary, and evidence validation
+still applies. A v6 replacement must use
 `custody.supersedes` to bind the exact prior durable generation. OOS separately
 guards current-pointer cutover by inventorying active sessions.
 

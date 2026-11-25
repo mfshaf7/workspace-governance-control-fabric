@@ -827,6 +827,61 @@ class DeliveryArtReadinessTests(TestCase):
             self.architecture["integrity"]["content_digest"],
         )
 
+    def test_v6_single_repository_plan_with_standard_access_receives_custody(self) -> None:
+        packet = architecture_v6()
+        packet["artifact_id"] = "architecture-packet:delivery-698-single-repository"
+        work = "work-item-801"
+        unit = "delivery-698-source"
+        owner_map = packet["architecture"]["descendant_owner_map"]
+        owned_work = next(row for row in owner_map if row["work_item_id"] == work)
+        repo = owned_work["owner_repo"]
+        packet["covered_work_item_ids"] = [work]
+        packet["source_snapshot"]["repo_revisions"] = [
+            revision for revision in packet["source_snapshot"]["repo_revisions"]
+            if revision["repo"] == repo
+        ]
+        packet["architecture"].update(
+            descendant_owner_map=[owned_work],
+            landing_units=[{
+                "id": unit, "owner_repo": repo, "source_backed": True, "covered_work_item_ids": [work],
+            }],
+            source_landing_graph={"nodes": [unit], "edges": []},
+            work_item_execution_plan=[{
+                "work_item_id": work, "start_after_work_item_ids": [],
+                "close_after_work_item_ids": [], "emits_human_gate_ids": [],
+            }],
+            lifecycle_state_model=None,
+            authorization_session_execution_model=None,
+            evidence_receipt_handoffs=[],
+            required_human_gates=[],
+            runtime_activation_chains=[],
+            contradictions_open_decisions=[],
+            rollback_cleanup_terminal_conditions={
+                "rollback_units": ["Restore the previous revision."], "cleanup_obligations": [],
+                "terminal_conditions": ["The agreed checks pass."],
+            },
+        )
+        dimension = "Content validation"
+        packet["conformance_plan"] = {
+            "required": True,
+            "protocol_applicability": {"applies": False, "rationale": "Standard verification applies."},
+            "dimensions": [dimension],
+            "work_item_dimension_applicability": [{"work_item_id": work, "dimension_ids": [dimension]}],
+            "git_causality": {"applies": False, "rationale": "No Git dependency to prove.", "claims": []},
+            "cases": [{
+                "id": f"case:{polarity}", "polarity": polarity, "fidelity": "real-git",
+                "target_readiness": "merge-ready", "applies_to_work_item_ids": [work],
+                "dimension_ids": [dimension], "evidence_owner_landing_unit_id": unit,
+                "expected_outcome": outcome,
+            } for polarity, outcome in (
+                ("positive", "Accept valid input."), ("negative", "Reject invalid input."),
+            )],
+        }
+        recorded = self._register(refresh_architecture_scope(packet))
+        self.assertEqual(recorded["custody"]["state"], "durable")
+        self.assertEqual(recorded["architecture"]["evidence_receipt_handoffs"], [])
+        self.assertIsNone(recorded["architecture"]["authorization_session_execution_model"])
+
     def test_existing_work_bound_to_historical_prose_architecture_can_continue(self) -> None:
         historical = historical_prose_architecture()
         with patch(
