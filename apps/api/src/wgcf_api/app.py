@@ -1369,6 +1369,26 @@ def create_app(
         except (ArtifactRegistryError, ArtifactStorageError) as exc:
             raise _artifact_registry_http_exception(exc) from exc
 
+    @app.get("/v1/artifacts/delivery-art/architecture-packets/latest")
+    async def read_latest_delivery_architecture_reference(
+        request: Request,
+        delivery_id: str = Query(max_length=64),
+        artifact_id: str = Query(max_length=256),
+    ) -> dict[str, Any]:
+        try:
+            registry, authorizer = registry_runtime()
+            caller_id, caller_secret = _registry_caller(request)
+            authorizer.authorize(caller_id, caller_secret, "read-architecture-lineage")
+            if len(request.query_params.multi_items()) != 2:
+                raise ArtifactRegistryContractError("exactly one Delivery and packet identity are required")
+            reference = await run_in_threadpool(
+                registry.read_latest_architecture_reference,
+                delivery_id=delivery_id, artifact_id=artifact_id, actor=caller_id,
+            )
+            return {"delivery_id": delivery_id, "artifact_id": artifact_id, "artifact_ref": reference}
+        except (ArtifactRegistryError, ArtifactStorageError) as exc:
+            raise _artifact_registry_http_exception(exc) from exc
+
     @app.get("/v1/artifacts/delivery-art/{digest_hex}")
     async def read_delivery_art_artifact(digest_hex: str, request: Request) -> dict[str, Any]:
         try:

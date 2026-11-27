@@ -119,6 +119,12 @@ class StubArtifactRegistry:
         self.calls.append(("read", content_digest, actor))
         return StubRegistryResult({"registry": {"resolution": "read"}})
 
+    def read_latest_architecture_reference(
+        self, *, delivery_id: str, artifact_id: str, actor: str,
+    ) -> dict[str, str] | None:
+        self.calls.append(("read-architecture-lineage", (delivery_id, artifact_id), actor))
+        return None
+
     def reconcile(self, content_digest: str, *, actor: str) -> StubRegistryResult:
         self.calls.append(("reconcile", content_digest, actor))
         return StubRegistryResult({"state": "consistent"})
@@ -922,6 +928,27 @@ class ApiTests(TestCase):
             ],
         )
         self.assertEqual(registry.calls[1][1], f"sha256:{digest_hex}")
+
+    def test_architecture_lineage_is_scoped_to_the_registry_writer_and_exact_subject(self) -> None:
+        app, registry = self.registry_app()
+        path = "/v1/artifacts/delivery-art/architecture-packets/latest"
+        subject = "?delivery_id=delivery-810&artifact_id=architecture-packet%3Adelivery-810-v1"
+        oos = {"x-wgcf-caller-id": "operator-orchestration-service", "x-wgcf-caller-secret": "o" * 32}
+        reconciler = {"x-wgcf-caller-id": "workspace-governance-control-fabric", "x-wgcf-caller-secret": "r" * 32}
+
+        self.assertEqual(asyncio.run(asgi_request_json("GET", path + subject, app=app))[0], 401)
+        self.assertEqual(asyncio.run(asgi_request_json("GET", path + subject, app=app, headers=reconciler))[0], 403)
+        self.assertEqual(
+            asyncio.run(asgi_request_json("GET", path + subject + "&delivery_id=delivery-811", app=app, headers=oos))[0],
+            400,
+        )
+        self.assertEqual(
+            asyncio.run(asgi_request_json("GET", path + subject, app=app, headers=oos)),
+            (200, {"delivery_id": "delivery-810", "artifact_id": "architecture-packet:delivery-810-v1", "artifact_ref": None}),
+        )
+        self.assertEqual(registry.calls, [
+            ("read-architecture-lineage", ("delivery-810", "architecture-packet:delivery-810-v1"), "operator-orchestration-service"),
+        ])
 
     def test_artifact_registry_rejects_missing_auth_and_oversized_body(self) -> None:
         app, registry = self.registry_app()

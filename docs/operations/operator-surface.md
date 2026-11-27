@@ -823,6 +823,7 @@ Required route meanings:
 - `POST /v1/art/evidence-packet`
 - `POST /v1/artifacts/delivery-art`
 - `GET /v1/artifacts/delivery-art/{digest_hex}`
+- `GET /v1/artifacts/delivery-art/architecture-packets/latest`
 - `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile`
 - `POST /v1/readiness/delivery-art`
 - `GET /v1/readiness/delivery-art/{receipt_token}`
@@ -1193,6 +1194,9 @@ The API surface is:
 
 - `POST /v1/artifacts/delivery-art` for OOS registration
 - `GET /v1/artifacts/delivery-art/{digest_hex}` for OOS or WGCF retrieval
+- `GET /v1/artifacts/delivery-art/architecture-packets/latest` for the OOS
+  registry writer to resolve the latest custody reference for one exact
+  `delivery_id` and `artifact_id`
 - `POST /v1/artifacts/delivery-art/{digest_hex}/reconcile` for the WGCF
   reconciler
 
@@ -1200,6 +1204,12 @@ Callers authenticate with `x-wgcf-caller-id` and
 `x-wgcf-caller-secret`. OOS can register and read but cannot reconcile. The
 WGCF reconciler can read and reconcile but cannot register. There is no general
 operator credential and no delete route.
+
+The architecture lookup verifies the registry lineage and custody receipt.
+It returns the requested subject and its opaque URI and digest, or a null
+reference for a subject with no stored generations. The lookup returns no
+artifact contents or storage details. OOS uses the reference to extend the
+registry lineage and checks the active plan separately in OpenProject.
 
 Registration input contains exactly:
 

@@ -317,6 +317,21 @@ class ArtifactRegistryTests(TestCase):
             supersedes=predecessor,
         )
         corrected = self.registry.register(registration_request(corrected_content), actor="oos")
+        lookup = {
+            "delivery_id": corrected.artifact["delivery_id"],
+            "artifact_id": corrected.artifact["artifact_id"],
+            "actor": "oos",
+        }
+        self.assertEqual(
+            self.registry.read_latest_architecture_reference(**lookup),
+            corrected.to_record()["registry"]["artifact_ref"],
+        )
+        self.assertIsNone(
+            self.registry.read_latest_architecture_reference(**{**lookup, "delivery_id": "delivery-999999"}),
+        )
+        self.assertIsNone(
+            self.registry.read_latest_architecture_reference(**{**lookup, "artifact_id": "architecture-packet:another"}),
+        )
 
         self.assertEqual(corrected.generation, 2)
         self.assertEqual(corrected.artifact["custody"]["supersedes"], predecessor)
@@ -362,6 +377,11 @@ class ArtifactRegistryTests(TestCase):
                 corrected.artifact["integrity"]["content_digest"],
                 actor="oos",
             )
+        with self.assertRaisesRegex(
+            ArtifactStorageIntegrityError,
+            "superseded artifact custody.persisted_at must be earlier",
+        ):
+            self.registry.read_latest_architecture_reference(**lookup)
 
     def test_read_rejects_equal_or_reversed_storage_and_receipt_chronology(self) -> None:
         for suffix, offset_seconds in (("equal", 0), ("reversed", 1)):
