@@ -228,6 +228,7 @@ class ArtifactRegistryAuthorizer:
                     {
                         "register",
                         "read",
+                        "read-architecture-lineage",
                         "evaluate-readiness",
                         "read-readiness",
                         "evaluate-agent-action",
@@ -473,6 +474,32 @@ class DeliveryArtifactRegistry:
             self._append_ledger_event(actor, "artifact.registry.read", result)
             return result
 
+    def read_latest_architecture_reference(
+        self, *, delivery_id: str, artifact_id: str, actor: str,
+    ) -> dict[str, str] | None:
+        artifact_type = "delivery_art_architecture_packet"
+        _, artifact_id_pattern = _ARTIFACT_ID_CONTRACTS[artifact_type]
+        if len(delivery_id) > 64 or not _DELIVERY_ID_PATTERN.fullmatch(delivery_id):
+            raise ArtifactRegistryContractError("a valid Delivery identity is required")
+        if len(artifact_id) > 256 or not artifact_id_pattern.fullmatch(artifact_id):
+            raise ArtifactRegistryContractError("a valid architecture packet identity is required")
+
+        with _database_error_boundary(), self._session_factory.begin() as session:
+            entry = self._subject_head_in_session(
+                session, delivery_id=delivery_id, artifact_id=artifact_id, artifact_type=artifact_type,
+            )
+            if entry is None:
+                return None
+            snapshot = self._snapshot(session, entry)
+            self._validate_receipt(snapshot)
+            if snapshot.registry_uri != _registry_uri(snapshot.content_digest):
+                raise ArtifactStorageIntegrityError("registry reference is not content-addressed")
+            session.add(self._ledger_event(
+                actor, "artifact.registry.architecture-lineage.read",
+                snapshot.registry_uri, snapshot.content_digest, snapshot.receipt,
+            ))
+            return {"uri": snapshot.registry_uri, "digest": snapshot.content_digest}
+
     def reconcile(self, content_digest: str, *, actor: str) -> ArtifactReconciliationResult:
         with _database_error_boundary():
             snapshot = self._required_snapshot(content_digest)
@@ -498,7 +525,10 @@ class DeliveryArtifactRegistry:
             existing = self._entry_by_digest(session, prepared.content_digest)
             if existing is not None:
                 return False
-            head = self._subject_head_in_session(session, prepared)
+            head = self._subject_head_in_session(
+                session, delivery_id=prepared.delivery_id, artifact_id=prepared.artifact_id,
+                artifact_type=prepared.artifact_type,
+            )
             self._validate_supersession(prepared, head)
             generation = 1 if head is None else head.generation + 1
             prior_receipt = None
@@ -846,7 +876,10 @@ class DeliveryArtifactRegistry:
 
     def _subject_head(self, prepared: PreparedArtifact) -> DeliveryArtifactRegistryEntry | None:
         with self._session_factory() as session:
-            entry = self._subject_head_in_session(session, prepared)
+            entry = self._subject_head_in_session(
+                session, delivery_id=prepared.delivery_id, artifact_id=prepared.artifact_id,
+                artifact_type=prepared.artifact_type,
+            )
             if entry is not None:
                 session.expunge(entry)
             return entry
@@ -865,14 +898,17 @@ class DeliveryArtifactRegistry:
     @staticmethod
     def _subject_head_in_session(
         session: Session,
-        prepared: PreparedArtifact,
+        *,
+        delivery_id: str,
+        artifact_id: str,
+        artifact_type: str,
     ) -> DeliveryArtifactRegistryEntry | None:
         return session.scalar(
             select(DeliveryArtifactRegistryEntry)
             .where(
-                DeliveryArtifactRegistryEntry.delivery_id == prepared.delivery_id,
-                DeliveryArtifactRegistryEntry.artifact_type == prepared.artifact_type,
-                DeliveryArtifactRegistryEntry.artifact_id == prepared.artifact_id,
+                DeliveryArtifactRegistryEntry.delivery_id == delivery_id,
+                DeliveryArtifactRegistryEntry.artifact_type == artifact_type,
+                DeliveryArtifactRegistryEntry.artifact_id == artifact_id,
             )
             .order_by(desc(DeliveryArtifactRegistryEntry.generation))
             .limit(1),
